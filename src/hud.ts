@@ -105,7 +105,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       <p>Power feeds radar, reloads, laser and HPM — run dry and the sweep slows.</p>
       <p>Anti-radiation missiles <span class="alert">home on your radar</span>. <b>[F] EMCON</b> goes silent so they miss, but you lose every lock.</p>
       ${best.time ? `<p class="dim">BEST · ${clock(best.time)} · ${fmt(best.kills)} kills · base lv ${best.level}</p>` : ''}
-      <p class="dim">DOCTRINE</p><div class="perks docs">${docsHtml(s, best)}</div>
+      <p class="dim">DOCTRINE · starting loadout, unlocked by your records</p><div class="perks docs">${docsHtml(s, best)}</div>
       <button class="btn" data-a="start">DEPLOY [SPACE]</button> <button class="btn" data-a="daily">DAILY OP [D]</button>
       <p class="dim">Daily op: same raid for everyone today. ${(d => d.time ? `Your best today · ${clock(d.time)} · ${fmt(d.kills)} kills` : 'Not flown yet today.')(loadDaily(new Date().toISOString().slice(0, 10)))}</p></div></div>`;
     else if (s.phase === 'pause') html = `<div class="card"><h2>PAUSED</h2><p class="dim">[P] resume</p></div>`;
@@ -266,6 +266,43 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     }
   };
 
+  const flow = { t: 0, p: 0, a: 0, dp: 0, da: 0 };
+  const infoEl = $('info');
+  let infoHtml = '';
+
+  // ---- threat board: what's attacking, and the few that matter most right now ----
+  const threatEl = $('threats');
+  let threatHtml = '';
+  // Urgency: damage it would do over the time it needs to get here. Jammers and ARMs rank by what they do instead.
+  const urgency = (e: Enemy) => {
+    const k = shownKind(e), d = Math.hypot(e.x, e.z), eta = Math.max(0.5, (d - BASE_R) / e.speed);
+    return k === 'ew' ? (e.orbit ? 4 : 1) : k === 'arm' ? 30 / eta : ENEMIES[k].dmg / eta;
+  };
+  function threatBoard(s: State) {
+    const seen = s.enemies.filter(e => visible(s, e) && !e.ided);
+    const count: Partial<Record<string, number>> = {};
+    for (const e of seen) { const c = ENEMIES[shownKind(e)].code; count[c] = (count[c] ?? 0) + 1; }
+    const top = seen.map(e => [urgency(e), e] as const).sort((a, b) => b[0] - a[0]).slice(0, 4);
+    const worst = top[0]?.[0] ?? 0;
+    const h = !seen.length ? '' : `<small>THREATS · ${seen.length}</small> ${Object.entries(count).sort((a, b) => b[1]! - a[1]!).map(([c, n]) => `${n} ${c}`).join(' · ')}` +
+      top.map(([u, e]) => { const d = Math.hypot(e.x, e.z), k = shownKind(e);
+        return `<div class="${u >= worst * 0.6 && u > 2 || k === 'arm' || k === 'tbm' ? 'alert' : ''}${e.id === s.marked ? ' mk' : ''}">${e.locked ? '◆' : '◇'} ${ENEMIES[k].code} ${pad3(bearing(e.x, e.z))}° ${pad3(d)}m${k === 'ew' ? (e.orbit ? ' JAMMING' : '') : ` ETA ${Math.max(0, (d - BASE_R) / e.speed).toFixed(0)}s`}</div>`; }).join('');
+    if (h !== threatHtml) { threatHtml = h; threatEl.innerHTML = h; }
+  }
+
+  // ---- what to buy: the one shop row that fixes today's bottleneck ----
+  const cheaper = (s: State, a: string, b: string) => cost(s, a) <= cost(s, b) ? a : b;
+  function suggest(s: State) {
+    const st = s.st;
+    if (s.phase !== 'play') return '';
+    if (s.ammo < st.ammoCap * 0.25) return cheaper(s, 'aprod', 'acap');
+    if (s.power < st.powerCap * 0.25 || s.sweepSpeed < st.sweep * 0.99 && emitting(s)) return 'gen';
+    if (s.hp < st.maxHp * 0.5) return cheaper(s, 'hp', 'repair');
+    let locks = 0, waiting = 0;
+    for (const e of s.enemies) { if (e.locked) locks++; else if (visible(s, e) && !e.ided && e.x * e.x + e.z * e.z <= st.trackRange ** 2) waiting++; }
+    if (locks >= slots(s) && waiting >= 2) return 'slots';
+    return cheaper(s, 'dmg', 'range');
+  }
   function text(s: State) {
     const st = s.st;
     set('credits', fmt(s.credits)); set('phase', phaseName(s)); set('time', clock(s.t));
@@ -273,8 +310,17 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const comboOn = s.combo >= 3 && s.t - s.lastKill < COMBO_WINDOW;
     set('combo', comboOn ? `COMBO x${s.combo}  +${Math.round(Math.min(s.combo, COMBO_CAP) * COMBO_BONUS * 100)}%` : '');
     bar('hpBar', s.hp / st.maxHp, s.hp / st.maxHp < 0.3); set('hpTxt', `${fmt(s.hp)} / ${fmt(st.maxHp)}`);
-    bar('pwBar', s.power / st.powerCap, s.power < st.powerCap * 0.1); set('pwTxt', `${fmt(s.power)} / ${fmt(st.powerCap)}`);
-    bar('amBar', s.ammo / st.ammoCap, s.ammo < 3); set('amTxt', `${fmt(s.ammo)} / ${fmt(st.ammoCap)}`);
+    // Net flow over the last second or so: what's actually happening to the budget.
+    if (s.t - flow.t >= 0.5 || s.t < flow.t) {
+      const k = s.t > flow.t ? 1 / (s.t - flow.t) : 0;
+      flow.dp = flow.dp * 0.5 + (s.power - flow.p) * k * 0.5; flow.da = flow.da * 0.5 + (s.ammo - flow.a) * k * 0.5;
+      flow.t = s.t; flow.p = s.power; flow.a = s.ammo;
+    }
+    const rate = (v: number, full: boolean) => full ? '' : Math.abs(v) < 0.05 ? ' ±0/s' : ` ${v > 0 ? '+' : ''}${v.toFixed(1)}/s`;
+    bar('pwBar', s.power / st.powerCap, s.power < st.powerCap * 0.1);
+    set('pwTxt', `${fmt(s.power)} / ${fmt(st.powerCap)}${rate(flow.dp, s.power >= st.powerCap - 0.5)}`);
+    bar('amBar', s.ammo / st.ammoCap, s.ammo < 3);
+    set('amTxt', `${fmt(s.ammo)} / ${fmt(st.ammoCap)}${rate(flow.da, s.ammo >= st.ammoCap - 0.5)}`);
     let contacts = 0, locks = 0;
     for (const e of s.enemies) { if (visible(s, e)) contacts++; if (e.locked) locks++; }
     const sweepPct = Math.round(s.sweepSpeed / st.sweep * 100);
@@ -282,17 +328,26 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       : s.emcon ? '<span class="alert">EMCON · SILENT</span>'
       : sweepPct < 100 ? `<span class="alert">${sweepPct}% LOW PWR</span>` : 'RADIATING';
     const M = radarMode(s), scan = s.radarMode === 0 ? M.name : `<span class="hot">${M.name}${radarSector(s) ? ` ${pad3(bearing(Math.cos(focusBearing(s)), Math.sin(focusBearing(s))))}°` : ''}</span>`;
-    $('info').innerHTML = [
-      ['TRACKS', contacts], ['ENGAGED', `${locks} / ${slots(s)}${s.t < s.chainUntil ? ' <span class="hot">+CHAIN</span>' : ''}`], ['MODE <kbd>[T]</kbd>', MODES[s.mode]],
+    // Grouped by what you're deciding: what the radar sees, what fire control does, the battery's state.
+    const lockBar = `<b class="seg lk" style="--r:${slots(s) ? Math.min(1, locks / slots(s)) : 0}"></b>`;
+    const html = [
+      ['// SENSORS', ''],
+      ['SCAN <kbd>[V]</kbd>', scan], ['RADAR <kbd>[F]</kbd>', radar], ['RANGE', `${Math.round(radarRange(s))}m`], ['TRACKS', contacts],
+      ['// FIRE CONTROL', ''],
+      ['ENGAGED', `${locks} / ${slots(s)}${s.t < s.chainUntil ? ' <span class="hot">+CHAIN</span>' : ''}${lockBar}`],
       ['FIRE <kbd>[G]</kbd>', s.discipline === 1 ? DISCIPLINES[1].name : `<span class="hot">${DISCIPLINES[s.discipline].name}</span>`],
+      ['MODE <kbd>[T]</kbd>', MODES[s.mode]],
       ['INTERCEPT <kbd>[SPC]</kbd>', interceptActive(s) ? '<span class="hot">ENGAGING</span>' : (w => w ? `<span class="${w.endsWith('s') ? 'dim' : 'alert'}">${w}</span>` : '<span class="hot">READY</span>')(interceptBlock(s))],
+      ['// BATTERY', ''],
+      ['PERIMETER', `${s.perim.length} / ${perimSlots(s.level)} pads`],
       ...ffSpeed > 1 ? [['SPEED <kbd>[X]</kbd>', `<span class="hot">${ffSpeed}×</span>`]] : [],
-      ['SCAN <kbd>[V]</kbd>', scan], ['RANGE', `${Math.round(radarRange(s))}m`], ['PERIMETER', `${s.perim.length} / ${perimSlots(s.level)} pads`], ['RADAR <kbd>[F]</kbd>', radar],
       ...s.placing ? [['PAD', `<span class="hot">CLICK MAP · ${Math.max(0, PLACE_TIME - (s.t - s.placing.since)).toFixed(0)}s</span>`]] : [],
       ...s.raid ? [['RAID', `<span class="alert">${pad3(bearing(Math.cos(s.raid.a), Math.sin(s.raid.a)))}° T-${Math.max(0, s.raid.at - s.t).toFixed(0)}s</span>`]]
         : s.raidLeft ? [['RAID', `<span class="alert">${s.raidLeft}</span> · ${s.raidClean ? 'HELD' : '<span class="alert">LOST</span>'}`]]
         : s.t < s.calmUntil ? [['RECOVERY', `${Math.ceil(s.calmUntil - s.t)}s`]] : [],
-    ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+    ].map(([k, v]) => v === '' ? `<dt class="grp">${k}</dt>` : `<dt>${k}</dt><dd>${v}</dd>`).join('');
+    if (html !== infoHtml) { infoHtml = html; infoEl.innerHTML = html; } // no DOM churn when nothing changed
+    threatBoard(s);
     document.body.classList.toggle('crit', s.phase === 'play' && s.hp / st.maxHp < 0.3);
     // Touch buttons: live value under the icon, lit while the thing is on.
     const ib = interceptBlock(s);
@@ -313,8 +368,10 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const m = s.marked ? s.enemies.find(e => e.id === s.marked) : undefined;
     const d = m ? Math.hypot(m.x, m.z) : 0;
     $('target').innerHTML = m ? `<b>${tag(m)}</b><br>${ENEMIES[shownKind(m)].name}<br>BRG ${pad3(bearing(m.x, m.z))} · RNG ${pad3(d)}m · ETA ${Math.max(0, (d - BASE_R) / m.speed).toFixed(1)}s<br>HP ${fmt(Math.max(0, m.hp))} / ${fmt(m.maxHp)}<b class="seg" style="--r:${Math.max(0, m.hp / m.maxHp)}"></b>` : '';
+    const hint = suggest(s);
     for (const [id, b] of rows) {
       const c = cost(s, id), lv = s.lv[id] ?? 0;
+      b.classList.toggle('hint', id === hint);
       b.children[1].textContent = lv ? `LV ${lv}` : '';
       const why = lockReason(s, id);
       b.children[2].textContent = why || (c === Infinity ? 'MAX' : fmt(c));

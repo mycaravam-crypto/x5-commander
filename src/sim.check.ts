@@ -148,6 +148,18 @@ if (v) { markAt(s, v.x, v.z); ok(s.marked === v.id, 'markAt'); }
   ok(dm > du * 1.15 && pm > pu, `priority target: more damage (${dm.toFixed(0)} vs ${du.toFixed(0)}), costs power`);
 }
 
+// Resource tension: repairs and locks draw power.
+{
+  const g = quiet(); g.lv.repair = 3; g.st = deriveStats(g.lv, []); g.st.gen = 0; g.st.ammoProd = 0; g.hp = 50; g.emcon = true;
+  run(g, 5);
+  ok(g.hp > 55 && g.power < g.st.powerCap - 5, `repairs cost power (hp ${g.hp.toFixed(1)}, power ${g.power.toFixed(1)})`);
+  g.power = g.st.powerCap * 0.1; const hp = g.hp; run(g, 5);
+  ok(g.hp === hp, 'no repairs without surplus power');
+  const drain = (n: number) => { const q = quiet(); q.st.gen = 0; q.st.ammoProd = 0; q.emcon = true;
+    for (let i = 0; i < n; i++) spawnEnemy(q, 'tank', i, 30).locked = true; q.st.fusion = true; q.st.slots = 4; run(q, 1); return q.st.powerCap - q.power; };
+  ok(drain(3) > drain(0) + 0.5, 'held locks draw power');
+}
+
 // Emergency intercept: costs power, starts a cooldown, puts every weapon on one target.
 {
   const g = quiet(); g.lv.pulse = 1; g.st = deriveStats(g.lv, []); g.st.slots = 3;
@@ -293,6 +305,18 @@ ok(raidRun(0).includes('raidLeak'), 'leaked raid does not');
   ok(swarm.length && swarm.every(e => jamFactor(q, e) < 1 || Math.hypot(e.x, e.z) < 5), 'package flies inside its escort\'s jammed sector');
 }
 
+// Difficulty curve: each phase introduces its problem; nothing turns up before its phase.
+{
+  const first = (k: string) => PHASES.findIndex(p => (p.w as Record<string, number>)[k]);
+  ok(first('decoy') === 2 && first('ew') === 2 && first('elite') === 3 && first('arm') === 3 && first('tbm') === 4, 'phase order: EW screen, then SEAD, then coordinated');
+  for (const p of PACKAGES) ok(p.from >= PHASE_LEN * 2, `${p.name} waits for the EW screen`);
+  const g = newGame(); g.t = PHASE_LEN * (PHASES.length + 3);
+  ok(phase(g).pk! > PHASES[PHASES.length - 1].pk!, 'packages get likelier past the scripted phases');
+  const h = newGame(2); h.phase = 'play'; h.st.maxHp = h.hp = 1e9; let early = false;
+  run(h, PHASE_LEN * 3 - 1, () => { early ||= h.enemies.some(e => e.kind === 'elite' || e.kind === 'arm' || e.kind === 'tbm'); });
+  ok(!early, 'no Su-34s, ARMs or Iskanders before the SEAD phase');
+}
+
 // Conditions: after the scripted phases, MODS loop.
 s = newGame(); s.t = PHASE_LEN * PHASES.length + 1;
 ok(phase(s).name === MODS[0].name, 'first condition');
@@ -363,6 +387,30 @@ const withPerk = (id: string) => { const g = quiet(); g.perks = [id]; g.st = der
     return seen.join();
   };
   ok(spawns(7, false) === spawns(7, true), 'seeded schedule ignores other randomness');
+  // Through packages and raids, with the player working the commands: none of them touch the schedule.
+  // (No fire here, and before the SEAD raid, so every raid ends the same way and the pacing matches too.)
+  const long = (commands: boolean) => {
+    const g = newGame(11, '2026-09-28'); g.phase = 'play'; g.st.maxHp = g.hp = 1e9; g.st.slots = 0;
+    const seen: string[] = [];
+    for (let i = 0; i < 270 * 20; i++) {
+      const n = g.nextId;
+      if (commands && i % 97 === 0) { cycleDiscipline(g); cycleRadarMode(g); toggleEmcon(g); aimFocus(g, Math.random() - 0.5, 1); }
+      update(g, 1 / 20); g.events.length = 0;
+      for (const e of g.enemies) if (e.id >= n && e.kind !== 'arm') seen.push(`${e.kind}@${e.x.toFixed(2)}`);
+    }
+    return seen.join();
+  };
+  ok(long(false) === long(true), 'daily schedule (packages, raids) ignores the player\'s commands');
+  // Raids draw from their own stream: the same raids in the same order, however the pacing shifts.
+  const raids = (press: number) => {
+    const g = newGame(5, '2026-09-28'); g.phase = 'play'; g.st.maxHp = g.hp = 1e9; const out: string[] = [];
+    for (let i = 0; i < 500 * 20; i++) {
+      if (i === 200 * 20) g.nextRaid -= press; // as if an objective had been lost
+      update(g, 1 / 20); for (const e of g.events) if (e.k === 'raid') out.push(`${e.name}@${e.x.toFixed(1)}`); g.events.length = 0;
+    }
+    return out.slice(0, 4).join();
+  };
+  ok(raids(0) === raids(20), 'raid order is independent of pacing');
   ok(spawns(7, false) !== spawns(8, false), 'different seeds differ');
   ok(dailySeed('2026-09-28') === dailySeed('2026-09-28') && dailySeed('2026-09-28') !== dailySeed('2026-09-29'), 'daily seed');
 }

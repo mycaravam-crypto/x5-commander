@@ -1,6 +1,6 @@
 import {
-  ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, PHASE_LEN, ELITE_EVERY,
-  ENEMIES, KINDS, WEAPONS, PHASES, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, RAID_SPAWN, RAID_RECOVER, RAID_CALM, RAID_PRESS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, SWEEP_CAP, grow, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty, BACKUP_RADAR,
+  ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, PHASE_LEN, ELITE_EVERY, ELITE_FIRST, PK_GROW, PK_MAX,
+  ENEMIES, KINDS, WEAPONS, PHASES, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, RAID_SPAWN, RAID_RECOVER, RAID_CALM, RAID_PRESS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, SWEEP_CAP, grow, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty, BACKUP_RADAR,
   RADAR_MODES, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   type EnemyKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
 } from './config.ts';
@@ -54,6 +54,10 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     doctrine: doc.id,
     world: { seed },
     perkRng: { seed: seed ^ 0x9E3779B9 },
+    // Scheduled events get streams of their own, so how many normal spawns came before (which raid pacing
+    // and recovery lulls change) can't change which raid or strike comes next.
+    raidRng: { seed: seed ^ 0x2545F491 },
+    strikeRng: { seed: seed ^ 0x68E31DA4 },
     t: 0,
     credits: START_CREDITS,
     earned: 0,
@@ -86,11 +90,12 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     cooldown: { cannon: 0, pulse: 0, missile: 0, rail: 0 } as Record<WeaponKind, number>,
     aim: 0, // turret heading, for rendering
     spawnAcc: 0,
-    nextElite: ELITE_EVERY,
+    nextElite: ELITE_FIRST,
     nextRaid: RAID_FIRST,
     // Announced, not yet here: composition (in aircraft) and the bonus it pays if the objective holds.
     raid: null as null | { name: string; a: number; at: number; g: Partial<Record<EnemyKind, number>>; obj: RaidObjective; n: Partial<Record<EnemyKind, number>>; bonus: number },
     // The raid in the air: its id, aircraft left, objective still held, reward so far, bearing, objective, name.
+    raidNo: 0, // raids announced so far
     raidId: 0, raidLeft: 0, raidClean: true, raidReward: 0, raidA: 0, raidObj: 'battery' as RaidObjective, raidName: '',
     calmUntil: 0, // recovery lull after a raid defended
     // debrief counters
@@ -122,7 +127,8 @@ export function phase(s: State) {
   if (i < PHASES.length) return { ...PHASES[i], mod: NO_MOD };
   const last = PHASES[PHASES.length - 1], mod = MODS[(i - PHASES.length) % MODS.length], w = { ...last.w };
   for (const [k, v] of Object.entries(mod.w ?? {}) as [EnemyKind, number][]) w[k] = (w[k] ?? 0) + v;
-  return { name: mod.name, w, mod, pk: last.pk };
+  const loop = i - PHASES.length; // packages get likelier every phase past the scripted ones
+  return { name: mod.name, w, mod, pk: Math.min(PK_MAX, (last.pk ?? 0) + PK_GROW * (loop + 1)) };
 }
 export const phaseName = (s: State) => phase(s).name;
 export const emitting = (s: State) => !s.emcon && s.t >= s.radarDownUntil;
@@ -320,7 +326,6 @@ export function update(s: State, dt: number) {
     placePad(s, best?.x ?? 1, best?.z ?? 0);
   }
   moveShots(s, dt);
-  s.hp = Math.min(s.st.maxHp, s.hp + s.st.repair * dt);
   const ls = lastStand(s);
   if (ls !== s.lastStand) { s.lastStand = ls; if (ls) s.events.push({ k: 'lastStand' }); }
   if (s.hp <= 0) { s.hp = 0; s.phase = 'over'; s.events.push({ k: 'over' }); }
@@ -380,12 +385,14 @@ function spawn(s: State, dt: number) {
   }
   if (s.t >= s.nextElite) {
     s.nextElite += ELITE_EVERY;
-    const a = rw() * TAU, n = Math.floor(grow(s.t / 60, 1));
-    for (let i = 0; i < n; i++) spawnEnemy(s, 'elite', a + (i - n / 2) * 0.08, ARENA_R + 4 + i * 3, rw);
+    const sr = () => rand(s.strikeRng), a = sr() * TAU, n = Math.floor(grow(s.t / 60, 1));
+    for (let i = 0; i < n; i++) spawnEnemy(s, 'elite', a + (i - n / 2) * 0.08, ARENA_R + 4 + i * 3, sr);
     s.events.push({ k: 'warning' });
   }
   if (!s.raid && s.t >= s.nextRaid - RAID_WARN - s.st.raidWarn) {
-    const r = pick(s.world, RAIDS.filter(r => s.t >= r.from)), a = rw() * TAU;
+    // The pool goes by the raid's number (its nominal time), not the clock, so pacing can't change the pick.
+    const due = RAID_FIRST + s.raidNo++ * RAID_EVERY;
+    const r = pick(s.raidRng, RAIDS.filter(r => due >= r.from)), a = rand(s.raidRng) * TAU;
     // Same rounding spawnGroup will use at arrival, so the briefing matches what shows up.
     const scale = grow(s.nextRaid / 60, 0.7), n: Partial<Record<EnemyKind, number>> = {};
     let reward = 0;
@@ -402,7 +409,7 @@ function spawn(s: State, dt: number) {
     s.raid = null;
     s.raidId++; s.raidLeft = 0; s.raidClean = true; s.raidReward = 0; s.raidA = a; s.raidObj = obj; s.raidName = name; s.calmUntil = 0;
     // The escort jammer flies with the raid but doesn't count: the raid is over once the strikers are gone.
-    for (const e of spawnGroup(s, g, a, scale, rw)) if (e.kind !== 'ew') { e.raid = s.raidId; s.raidLeft++; s.raidReward += e.reward; }
+    for (const e of spawnGroup(s, g, a, scale, () => rand(s.raidRng))) if (e.kind !== 'ew') { e.raid = s.raidId; s.raidLeft++; s.raidReward += e.reward; }
     s.events.push({ k: 'raidStart', x: Math.cos(a) * ARENA_R, z: Math.sin(a) * ARENA_R, name });
   }
 }
@@ -543,7 +550,10 @@ function powerAndAmmo(s: State, dt: number) {
   const st = s.st;
   s.power = Math.min(st.powerCap, s.power + st.gen * (lastStand(s) ? LAST_STAND.gen : 1) * dt);
   // Radar gets what's left; starving it slows the sweep (floor 25%). Silent radar draws nothing.
-  if (s.marked) s.power = Math.max(0, s.power - PRIORITY_POWER * dt); // painting the priority target
+  // Fire control first: painting the priority target and holding locks. The radar gets what's left.
+  let locks = 0;
+  for (const e of s.enemies) if (e.locked) locks++;
+  s.power = Math.max(0, s.power - ((s.marked ? PRIORITY_POWER : 0) + locks * LOCK_POWER) * dt);
   const on = emitting(s), want = on ? st.drain * radarMode(s).drain * dt : 0, got = Math.min(want, s.power);
   s.power -= got;
   s.sweepSpeed = on ? st.sweep * Math.max(0.25, got / want) : 0;
@@ -552,6 +562,9 @@ function powerAndAmmo(s: State, dt: number) {
   const spare = Math.max(0, s.power - st.powerCap * 0.2) / st.ammoPower;
   const made = Math.max(0, Math.min(room, spare));
   s.ammo += made; s.power -= made * st.ammoPower;
+  // Repairs take the surplus after that: rebuilding competes with reloading.
+  const fix = Math.max(0, Math.min(st.maxHp - s.hp, st.repair * dt, Math.max(0, s.power - st.powerCap * 0.2) / REPAIR_POWER));
+  s.hp += fix; s.power -= fix * REPAIR_POWER;
 }
 
 // While the MPQ-65 is knocked out (not in EMCON), a TRML-4D keeps searching at half range and chance: no fire
