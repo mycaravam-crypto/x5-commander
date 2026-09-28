@@ -159,6 +159,10 @@ export const DISCIPLINES = [
 // Priority target (click): always holds a lock slot, is engaged first and takes extra damage, but painting it
 // for fire control costs power every second it's held.
 export const PRIORITY_DMG = 1.25, PRIORITY_POWER = 1.2; // damage multiplier, power/s
+// Holding a fire control lock costs power too, so more ECS channels in use means less for the radar sweep.
+export const LOCK_POWER = 0.25; // power/s per lock held
+// Maintenance Crew repairs run on surplus power above 20%, like interceptor production.
+export const REPAIR_POWER = 0.8; // power per HP repaired
 // Emergency intercept [Space]: every weapon (and every pad in range) fires only at the priority target (or the
 // most urgent threat), faster, and keeps firing past a sure kill. Costs power up front, then a long cooldown.
 export const INTERCEPT = { time: 4, cooldown: 30, power: 25, rate: 1.6 };

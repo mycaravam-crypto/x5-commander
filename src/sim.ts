@@ -1,6 +1,6 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, PHASE_LEN, ELITE_EVERY,
-  ENEMIES, KINDS, WEAPONS, PHASES, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, RAID_SPAWN, RAID_RECOVER, RAID_CALM, RAID_PRESS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, SWEEP_CAP, grow, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty, BACKUP_RADAR,
+  ENEMIES, KINDS, WEAPONS, PHASES, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, RAID_SPAWN, RAID_RECOVER, RAID_CALM, RAID_PRESS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, SWEEP_CAP, grow, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty, BACKUP_RADAR,
   RADAR_MODES, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   type EnemyKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
 } from './config.ts';
@@ -320,7 +320,6 @@ export function update(s: State, dt: number) {
     placePad(s, best?.x ?? 1, best?.z ?? 0);
   }
   moveShots(s, dt);
-  s.hp = Math.min(s.st.maxHp, s.hp + s.st.repair * dt);
   const ls = lastStand(s);
   if (ls !== s.lastStand) { s.lastStand = ls; if (ls) s.events.push({ k: 'lastStand' }); }
   if (s.hp <= 0) { s.hp = 0; s.phase = 'over'; s.events.push({ k: 'over' }); }
@@ -543,7 +542,10 @@ function powerAndAmmo(s: State, dt: number) {
   const st = s.st;
   s.power = Math.min(st.powerCap, s.power + st.gen * (lastStand(s) ? LAST_STAND.gen : 1) * dt);
   // Radar gets what's left; starving it slows the sweep (floor 25%). Silent radar draws nothing.
-  if (s.marked) s.power = Math.max(0, s.power - PRIORITY_POWER * dt); // painting the priority target
+  // Fire control first: painting the priority target and holding locks. The radar gets what's left.
+  let locks = 0;
+  for (const e of s.enemies) if (e.locked) locks++;
+  s.power = Math.max(0, s.power - ((s.marked ? PRIORITY_POWER : 0) + locks * LOCK_POWER) * dt);
   const on = emitting(s), want = on ? st.drain * radarMode(s).drain * dt : 0, got = Math.min(want, s.power);
   s.power -= got;
   s.sweepSpeed = on ? st.sweep * Math.max(0.25, got / want) : 0;
@@ -552,6 +554,9 @@ function powerAndAmmo(s: State, dt: number) {
   const spare = Math.max(0, s.power - st.powerCap * 0.2) / st.ammoPower;
   const made = Math.max(0, Math.min(room, spare));
   s.ammo += made; s.power -= made * st.ammoPower;
+  // Repairs take the surplus after that: rebuilding competes with reloading.
+  const fix = Math.max(0, Math.min(st.maxHp - s.hp, st.repair * dt, Math.max(0, s.power - st.powerCap * 0.2) / REPAIR_POWER));
+  s.hp += fix; s.power -= fix * REPAIR_POWER;
 }
 
 // While the MPQ-65 is knocked out (not in EMCON), a TRML-4D keeps searching at half range and chance: no fire
