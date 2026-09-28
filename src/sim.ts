@@ -18,7 +18,7 @@ export interface Enemy {
 }
 export interface Shot {
   kind: 'shell' | 'missile' | 'tracer'; x: number; z: number; vx: number; vz: number;
-  dmg: number; splash: number; life: number; target: number;
+  dmg: number; splash: number; life: number; target: number; src: string; // src: weapon, for the debrief
 }
 export type Ev =
   | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect' | 'arm' | 'jam' | 'ident'; x: number; z: number; kind?: EnemyKind; n?: number }
@@ -80,6 +80,8 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     nextRaid: RAID_FIRST,
     raid: null as null | { name: string; a: number; at: number; g: Partial<Record<EnemyKind, number>> }, // announced, not yet here
     raidId: 0, raidLeft: 0, raidClean: true, raidReward: 0,
+    // debrief counters
+    stats: { kills: {} as Partial<Record<EnemyKind, number>>, dmg: {} as Record<string, number>, raids: 0, clean: 0, armsEvaded: 0, radarHits: 0 },
     mode: 0,
     marked: 0,
     nextId: 1,
@@ -306,6 +308,7 @@ function moveEnemies(s: State, dt: number) {
       // Out of motor, or veered off past the arena: it's gone.
       if (s.t - e.born > ARM_LIFE || d > ARENA_R + 12) {
         if (d < ARENA_R) s.events.push({ k: 'hit', x: e.x, z: e.z, n: 2 });
+        s.stats.armsEvaded++;
         removeAt(s, i); continue;
       }
     } else {
@@ -332,6 +335,7 @@ function moveEnemies(s: State, dt: number) {
       if (e.kind === 'arm') {
         s.radarDownUntil = Math.min(Math.max(s.radarDownUntil, s.t) + ARM_STUN, s.t + 2 * ARM_STUN);
         s.events.push({ k: 'radarDown' });
+        s.stats.radarHits++;
       }
       if (e.dmg > 0) {
         s.hp -= e.dmg * armor;
@@ -382,12 +386,12 @@ function perimeter(s: State, dt: number) {
       // 35mm tracer round, led like the PAC-3 so it actually connects
       const sp = 70, tt = Math.sqrt(bd) / sp;
       const dx = best.x + best.vx * tt - p.x, dz = best.z + best.vz * tt - p.z, d = Math.hypot(dx, dz) || 1;
-      s.shots.push({ kind: 'tracer', x: p.x, z: p.z, vx: dx / d * sp, vz: dz / d * sp, dmg: w.dmg, splash: 0, life: w.range / sp + 0.15, target: best.id });
+      s.shots.push({ kind: 'tracer', x: p.x, z: p.z, vx: dx / d * sp, vz: dz / d * sp, dmg: w.dmg, splash: 0, life: w.range / sp + 0.15, target: best.id, src: 'MANTIS' });
       best.incoming += w.dmg;
       s.events.push({ k: 'gun', x: p.x, z: p.z, x2: best.x, z2: best.z });
     } else {
       const d = Math.sqrt(bd) || 1;
-      s.shots.push({ kind: 'missile', x: p.x, z: p.z, vx: (best.x - p.x) / d * 15, vz: (best.z - p.z) / d * 15, dmg: w.dmg, splash: 0, life: 3, target: best.id });
+      s.shots.push({ kind: 'missile', x: p.x, z: p.z, vx: (best.x - p.x) / d * 15, vz: (best.z - p.z) / d * 15, dmg: w.dmg, splash: 0, life: 3, target: best.id, src: 'STINGER' });
       best.incoming += w.dmg;
       s.events.push({ k: 'missile', x: p.x, z: p.z });
     }
@@ -400,7 +404,9 @@ function removeAt(s: State, i: number) {
   s.enemies[i] = s.enemies[s.enemies.length - 1];
   s.enemies.pop();
   if (e.raid && e.raid === s.raidId && --s.raidLeft === 0) {
+    s.stats.raids++;
     if (!s.raidClean) { s.events.push({ k: 'raidLeak', n: 0 }); return; }
+    s.stats.clean++;
     const n = Math.round(s.raidReward * RAID_BONUS * s.st.credits) + 25;
     s.credits += n; s.earned += n;
     s.events.push({ k: 'raidClear', n });
@@ -512,17 +518,17 @@ function fire(s: State, dt: number) {
       const d = Math.hypot(e.x, e.z), tt = d / w.speed;
       const ax = e.x + e.vx * tt, az = e.z + e.vz * tt, ad = Math.hypot(ax, az) || 1;
       s.aim = Math.atan2(az, ax);
-      s.shots.push({ kind: 'shell', x: 0, z: 0, vx: ax / ad * w.speed, vz: az / ad * w.speed, dmg: w.dmg, splash: 0, life: w.range / w.speed + 0.3, target: e.id });
+      s.shots.push({ kind: 'shell', x: 0, z: 0, vx: ax / ad * w.speed, vz: az / ad * w.speed, dmg: w.dmg, splash: 0, life: w.range / w.speed + 0.3, target: e.id, src: 'PAC-3' });
       e.incoming += w.dmg;
       s.events.push({ k: 'shot', x: 0, z: 0 });
     } else if (k === 'missile') {
       const a = Math.random() * TAU;
-      s.shots.push({ kind: 'missile', x: 0, z: 0, vx: Math.cos(a) * 12, vz: Math.sin(a) * 12, dmg: w.dmg, splash: w.splash, life: 5, target: e.id });
+      s.shots.push({ kind: 'missile', x: 0, z: 0, vx: Math.cos(a) * 12, vz: Math.sin(a) * 12, dmg: w.dmg, splash: w.splash, life: 5, target: e.id, src: 'IRIS-T' });
       e.incoming += w.dmg;
       s.events.push({ k: 'missile', x: 0, z: 0 });
     } else if (k === 'pulse') {
       s.events.push({ k: 'beam', x: 0, z: 0, x2: e.x, z2: e.z });
-      damage(s, e, w.dmg);
+      damage(s, e, w.dmg, 'HEL');
       // ARC LASER: hop to the nearest visible contacts within 10m that haven't been hit this shot
       const hit = [e];
       for (let n = 0; n < s.st.arc; n++) {
@@ -535,7 +541,7 @@ function fire(s: State, dt: number) {
         }
         if (!next) break;
         s.events.push({ k: 'beam', x: from.x, z: from.z, x2: next.x, z2: next.z });
-        damage(s, next, w.dmg * 0.6);
+        damage(s, next, w.dmg * 0.6, 'HEL');
         hit.push(next);
       }
     } else {
@@ -544,7 +550,7 @@ function fire(s: State, dt: number) {
       for (const o of [...s.enemies]) {
         const along = o.x * dx + o.z * dz;
         if (along < 0 || along > w.range) continue;
-        if (Math.abs(o.x * dz - o.z * dx) < o.size + 0.6) damage(s, o, w.dmg);
+        if (Math.abs(o.x * dz - o.z * dx) < o.size + 0.6) damage(s, o, w.dmg, 'HPM');
       }
       s.shake = Math.min(1.5, s.shake + 0.25);
     }
@@ -575,9 +581,9 @@ function moveShots(s: State, dt: number) {
       const t = s.enemies.find(e => e.id === p.target);
       if (t) t.incoming = Math.max(0, t.incoming - p.dmg);
       if (hit) {
-        if (p.splash) explode(s, p.x, p.z, p.splash, p.dmg);
-        else damage(s, hit, p.dmg);
-        if (p.kind === 'shell' && s.st.frag) explode(s, p.x, p.z, 2.5, p.dmg * s.st.frag);
+        if (p.splash) explode(s, p.x, p.z, p.splash, p.dmg, p.src);
+        else damage(s, hit, p.dmg, p.src);
+        if (p.kind === 'shell' && s.st.frag) explode(s, p.x, p.z, 2.5, p.dmg * s.st.frag, p.src);
       }
       s.shots[i] = s.shots[s.shots.length - 1];
       s.shots.pop();
@@ -585,14 +591,16 @@ function moveShots(s: State, dt: number) {
   }
 }
 
-function explode(s: State, x: number, z: number, r: number, dmg: number) {
+function explode(s: State, x: number, z: number, r: number, dmg: number, src: string) {
   s.events.push({ k: 'hit', x, z, n: r });
-  for (const e of [...s.enemies]) if ((e.x - x) ** 2 + (e.z - z) ** 2 < (r + e.size) ** 2) damage(s, e, dmg);
+  for (const e of [...s.enemies]) if ((e.x - x) ** 2 + (e.z - z) ** 2 < (r + e.size) ** 2) damage(s, e, dmg, src);
 }
 
-function damage(s: State, e: Enemy, dmg: number) {
+function damage(s: State, e: Enemy, dmg: number, src: string) {
   if (e.hp <= 0) return; // already dead this frame
-  e.hp -= e.id === s.marked ? dmg * s.st.markDmg : dmg;
+  if (e.id === s.marked) dmg *= s.st.markDmg;
+  s.stats.dmg[src] = (s.stats.dmg[src] ?? 0) + Math.min(dmg, e.hp);
+  e.hp -= dmg;
   if (e.hp > 0) { s.events.push({ k: 'hit', x: e.x, z: e.z }); return; }
   const i = s.enemies.indexOf(e);
   if (i >= 0) removeAt(s, i);
@@ -601,6 +609,7 @@ function damage(s: State, e: Enemy, dmg: number) {
   const gain = Math.round(e.reward * s.st.credits * (1 + Math.min(s.combo, COMBO_CAP) * COMBO_BONUS));
   s.credits += gain; s.earned += gain; s.kills++;
   s.ammo = Math.min(s.st.ammoCap, s.ammo + s.st.scav);
+  s.stats.kills[e.kind] = (s.stats.kills[e.kind] ?? 0) + 1;
   s.events.push({ k: 'kill', x: e.x, z: e.z, kind: e.kind, n: gain });
-  if (s.st.chain) explode(s, e.x, e.z, 4, s.st.chain);
+  if (s.st.chain) explode(s, e.x, e.z, 4, s.st.chain, 'CHAIN');
 }

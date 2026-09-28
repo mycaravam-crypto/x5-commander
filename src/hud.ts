@@ -28,6 +28,16 @@ const docsHtml = (s: State, best: Best) => DOCTRINES.map((d, i) => {
   return `<button class="perk frame${d.id === s.doctrine ? ' sel' : ''}${open ? '' : ' locked'}" data-a="doc${i}"><b>${d.name}</b><span>${open ? d.desc : `LOCKED · ${d.need}`}</span><kbd>[${i + 1}]</kbd></button>`;
 }).join('');
 
+function debrief(s: State) {
+  const S = s.stats, total = Object.values(S.dmg).reduce((a, b) => a + b, 0) || 1;
+  const kills = (Object.entries(S.kills) as [keyof typeof ENEMIES, number][]).sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `<dt>${ENEMIES[k].code}</dt><dd>${fmt(n)}</dd>`).join('');
+  const dmg = Object.entries(S.dmg).sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `<dt>${k}</dt><dd>${Math.round(n / total * 100)}%</dd>`).join('');
+  return `<div class="debrief"><div><small>KILLS</small><dl>${kills || '<dt>none</dt>'}</dl></div><div><small>DAMAGE</small><dl>${dmg || '<dt>none</dt>'}</dl></div>
+    <div><small>OPS</small><dl><dt>RAIDS CLEAN</dt><dd>${S.clean} / ${S.raids}</dd><dt>ARMS EVADED</dt><dd>${S.armsEvaded}</dd><dt>RADAR HITS</dt><dd>${S.radarHits}</dd></dl></div></div>`;
+}
+
 export function createHud(actions: { buy(id: string): void; perk(i: number): void; start(daily?: boolean): void; restart(): void; doctrine(i: number): void }) {
   for (const [k, v] of Object.entries(PAL)) document.documentElement.style.setProperty(`--${k}`, rgba(v));
 
@@ -95,6 +105,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       const unlocked = DOCTRINES.filter(d => !d.unlock(best) && d.unlock(merged as Best)).map(d => `<p class="hot">DOCTRINE UNLOCKED · ${d.name}</p>`).join('');
       html = `<div class="card"><h1 class="alert">BATTERY LOST</h1>${daily}${unlocked}
         <div class="score">${row('SURVIVED', 'time', clock)}${row('KILLS', 'kills', fmt)}${row('BASE LEVEL', 'level', String)}${row('CREDITS EARNED', 'earned', fmt)}</div>
+        ${debrief(s)}
         <p class="dim">perks: ${s.perks.map(id => PERKS.find(p => p.id === id)!.name).join(' · ') || 'none'}</p>
         <button class="btn" data-a="restart">REDEPLOY [R]</button></div>`;
     }
