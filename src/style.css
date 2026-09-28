@@ -114,6 +114,8 @@ b { font-weight: 600; }
 .perk:hover { --c: var(--hot); box-shadow: 0 0 20px color-mix(in srgb, var(--bright) 35%, transparent); }
 .perk b { display: block; color: var(--hot); letter-spacing: 0.15em; margin-bottom: 8px; }
 .perk span { font-size: 12px; }
+.perk.rule { --c: var(--alert); }
+.perk i { display: block; font-style: normal; font-size: 10px; letter-spacing: 0.2em; color: var(--alert); margin-bottom: 6px; }
 .perk kbd { display: block; margin-top: 10px; color: var(--mid); }
 .score { display: grid; grid-template-columns: auto auto auto; gap: 4px 24px; justify-content: center; margin: 14px 0; }
 .score .new { color: var(--hot); }

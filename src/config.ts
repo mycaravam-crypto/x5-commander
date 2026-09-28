@@ -159,8 +159,12 @@ export interface PerkFx {
   dmg?: number; rate?: number; gen?: number; range?: number; sweep?: number; aprod?: number;
   credits?: number; hp?: number; persist?: number; drain?: number; trange?: number;
   addSlots?: number; addArmor?: number; addChain?: number;
+  // rule changers
+  addFusion?: number; addLpi?: number; addArc?: number; addScav?: number; addFrag?: number; markDmg?: number;
 }
-export const PERKS: { id: string; name: string; desc: string; fx: PerkFx }[] = [
+// `min`: base level before it's offered; `need`: upgrade that must be owned. Rule perks (`rule`) are one-offs
+// that change how the game plays; from base level 5 every draft includes one while any are left.
+export const PERKS: { id: string; name: string; desc: string; fx: PerkFx; rule?: boolean; min?: number; need?: string }[] = [
   { id: 'overcharge', name: 'OVERCHARGE', desc: '+50% damage · -30% power gen', fx: { dmg: 1.5, gen: 0.7 } },
   { id: 'highfreq', name: 'HIGH FREQUENCY', desc: '+40% sweep speed · -15% radar range', fx: { sweep: 1.4, range: 0.85 } },
   { id: 'logistics', name: 'AUTOMATED LOGISTICS', desc: '+100% ammo production · -15% credits', fx: { aprod: 2, credits: 0.85 } },
@@ -173,6 +177,12 @@ export const PERKS: { id: string; name: string; desc: string; fx: PerkFx }[] = [
   { id: 'multilock', name: 'MULTI-LOCK', desc: '+2 lock slots · -15% track range', fx: { addSlots: 2, trange: 0.85 } },
   { id: 'reactor', name: 'REACTOR', desc: '+60% power gen · -15% max HP', fx: { gen: 1.6, hp: 0.85 } },
   { id: 'chain', name: 'CHAIN REACTION', desc: 'kills explode for 6 dmg · -10% credits', fx: { addChain: 6, credits: 0.9 } },
+  { id: 'fusion', name: 'TRACK FUSION', desc: 'locks hold while the radar is dark · -1 lock slot', fx: { addFusion: 1, addSlots: -1 }, rule: true, min: 5 },
+  { id: 'lpi', name: 'LPI WAVEFORM', desc: 'ARMs only find your radar inside 25m · -20% radar range', fx: { addLpi: 1, range: 0.8 }, rule: true, min: 5 },
+  { id: 'overwatch', name: 'OVERWATCH', desc: 'your marked target takes x2 damage · -1 lock slot', fx: { markDmg: 2, addSlots: -1 }, rule: true, min: 5 },
+  { id: 'arc', name: 'ARC LASER', desc: 'laser jumps to 2 more targets at 60% · -10% damage', fx: { addArc: 2, dmg: 0.9 }, rule: true, min: 5, need: 'pulse' },
+  { id: 'scav', name: 'SCAVENGER', desc: 'every kill refunds 2 interceptors · -10% max HP', fx: { addScav: 2, hp: 0.9 }, rule: true, min: 5 },
+  { id: 'frag', name: 'FRAG WARHEADS', desc: 'PAC-3 hits splash for 50% · -15% fire rate', fx: { addFrag: 0.5, rate: 0.85 }, rule: true, min: 5 },
 ];
 
 // Base level L is reached at 1.5*(L-1)*L upgrades bought: 0, 3, 9, 18, 30, 45, 63...
@@ -184,7 +194,8 @@ export const baseLevel = (bought: number) => {
 
 export function deriveStats(lv: Record<string, number>, perks: string[]) {
   const L = (id: string) => lv[id] ?? 0;
-  const p = { dmg: 1, rate: 1, gen: 1, range: 1, sweep: 1, aprod: 1, credits: 1, hp: 1, persist: 1, drain: 1, trange: 1, addSlots: 0, addArmor: 0, addChain: 0 };
+  const p = { dmg: 1, rate: 1, gen: 1, range: 1, sweep: 1, aprod: 1, credits: 1, hp: 1, persist: 1, drain: 1, trange: 1, addSlots: 0, addArmor: 0, addChain: 0,
+    addFusion: 0, addLpi: 0, addArc: 0, addScav: 0, addFrag: 0, markDmg: 1 };
   for (const id of perks) {
     const fx = PERKS.find(x => x.id === id)!.fx;
     for (const [k, v] of Object.entries(fx) as [keyof typeof p, number][]) {
@@ -216,6 +227,7 @@ export function deriveStats(lv: Record<string, number>, perks: string[]) {
     ammoPower: 0.5, // power per round produced
     credits: p.credits,
     chain: p.addChain,
+    fusion: p.addFusion > 0, lpi: p.addLpi > 0, arc: p.addArc, scav: p.addScav, frag: p.addFrag, markDmg: p.markDmg,
     perim: {
       mantis: { ...PERIM.mantis, dmg: PERIM.mantis.dmg * (1 + 0.25 * L('dmg')) * p.dmg, rate: PERIM.mantis.rate * (1 + 0.15 * L('rate')) * p.rate },
       stinger: { ...PERIM.stinger, dmg: PERIM.stinger.dmg * (1 + 0.25 * L('dmg')) * p.dmg, rate: PERIM.stinger.rate * (1 + 0.15 * L('rate')) * p.rate },

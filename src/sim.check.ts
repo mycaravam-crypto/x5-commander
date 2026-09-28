@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, buy, cost, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, emitting, jamFactor, phase, type State } from './sim.ts';
-import { baseLevel, UPGRADES, EW_ORBIT, MODS, PHASES, PHASE_LEN, RAID_WARN } from './config.ts';
+import { newGame, update, buy, cost, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, emitting, jamFactor, phase, draft, type State } from './sim.ts';
+import { baseLevel, UPGRADES, PERKS, deriveStats, EW_ORBIT, MODS, PHASES, PHASE_LEN, RAID_WARN } from './config.ts';
 
 const ok = (c: unknown, msg: string) => { if (!c) throw new Error('FAIL: ' + msg); };
 const run = (s: State, secs: number, each?: () => void) => {
@@ -126,5 +126,23 @@ s = newGame(); s.t = PHASE_LEN * PHASES.length + 1;
 ok(phase(s).name === MODS[0].name, 'first condition');
 s.t += PHASE_LEN * MODS.length;
 ok(phase(s).name === MODS[0].name, 'conditions loop');
+
+// Drafts: no rule perks before lv5; after, exactly one, never a repeat, never one needing gear you lack.
+const rule = (id: string) => PERKS.find(p => p.id === id)!.rule;
+s = newGame();
+for (let i = 0; i < 50; i++) ok(draft(s).every(id => !rule(id)), 'no rule perks early');
+s.level = 5; s.perks = ['fusion'];
+for (let i = 0; i < 50; i++) {
+  const d = draft(s);
+  ok(new Set(d).size === 3 && d.filter(rule).length === 1 && !d.includes('fusion') && !d.includes('arc'), `draft ${d}`);
+}
+
+// TRACK FUSION: locks survive EMCON.
+s = quiet(); spawnEnemy(s, 'tank', 0, 30); s.enemies[0].hp = 1e9;
+s.perks = ['fusion']; s.st = deriveStats(s.lv, s.perks); s.st.slots = 1;
+run(s, 4);
+ok(s.enemies[0].locked, 'locked before EMCON');
+toggleEmcon(s); run(s, 2);
+ok(s.enemies[0].locked, 'fusion keeps the lock through EMCON');
 
 console.log(`ok · idle ${idle.t.toFixed(0)}s/${idle.kills} kills · bot ${b.t.toFixed(0)}s/${b.kills} kills lv${b.level} [${b.perks.join(',')}]`);

@@ -130,16 +130,21 @@ export function buy(s: State, id: string) {
   const lvl = baseLevel(s.bought);
   if (lvl > s.level) {
     s.level = lvl;
-    const pool = PERKS.map(p => p.id);
-    s.perkChoices = [];
-    while (s.perkChoices.length < 3) {
-      const p = pick(pool);
-      if (!s.perkChoices.includes(p)) s.perkChoices.push(p);
-    }
+    s.perkChoices = draft(s);
     s.phase = 'perk';
     s.events.push({ k: 'level' });
   }
   return true;
+}
+
+// 3 distinct perks the battery qualifies for; from base level 5, one of them changes the rules (while any are left).
+export function draft(s: State) {
+  const pool = PERKS.filter(p => (p.min ?? 0) <= s.level && (!p.need || s.lv[p.need]) && !(p.rule && s.perks.includes(p.id)));
+  const rules = pool.filter(p => p.rule).map(p => p.id);
+  const out = rules.length ? [pick(rules)] : [];
+  const rest = pool.filter(p => !p.rule).map(p => p.id);
+  while (out.length < 3) { const p = pick(rest); if (!out.includes(p)) out.push(p); }
+  return out;
 }
 
 export function pickPerk(s: State, i: number) {
@@ -298,7 +303,7 @@ function moveEnemies(s: State, dt: number) {
 // Homes on the radar while it radiates. When it goes dark the seeker loses the emitter and the missile
 // swings ARM_VEER off its last heading; the turn rate is limited, so a late EMCON still eats the hit.
 function steerArm(s: State, e: Enemy, dt: number) {
-  if (emitting(s)) e.aim = NaN;
+  if (emitting(s) && (!s.st.lpi || e.x * e.x + e.z * e.z < 25 * 25)) e.aim = NaN;
   else if (Number.isNaN(e.aim)) e.aim = Math.atan2(e.vz, e.vx) + (e.wob < Math.PI ? ARM_VEER : -ARM_VEER);
   const h = Math.atan2(e.vz, e.vx), want = Number.isNaN(e.aim) ? Math.atan2(-e.z, -e.x) : e.aim;
   const nh = h + Math.max(-ARM_TURN * dt, Math.min(ARM_TURN * dt, angDiff(want, h)));
@@ -402,8 +407,11 @@ function score(s: State, e: Enemy) {
 
 function track(s: State, dt: number) {
   if (!emitting(s)) {
-    // Radar dark: fire control drops every track; contacts coast on track memory.
-    for (const e of s.enemies) if (e.locked) { e.locked = false; e.seenUntil = s.t + s.st.persist; }
+    // Radar dark: fire control drops every track and contacts coast on track memory. TRACK FUSION keeps them.
+    for (const e of s.enemies) if (e.locked) {
+      if (s.st.fusion && e.x * e.x + e.z * e.z <= s.st.trackRange ** 2) e.seenUntil = Math.max(e.seenUntil, s.t + 0.5);
+      else { e.locked = false; e.seenUntil = s.t + s.st.persist; }
+    }
     return;
   }
   const tr2 = s.st.trackRange ** 2;
@@ -472,6 +480,21 @@ function fire(s: State, dt: number) {
     } else if (k === 'pulse') {
       s.events.push({ k: 'beam', x: 0, z: 0, x2: e.x, z2: e.z });
       damage(s, e, w.dmg);
+      // ARC LASER: hop to the nearest visible contacts within 10m that haven't been hit this shot
+      const hit = [e];
+      for (let n = 0; n < s.st.arc; n++) {
+        const from = hit[hit.length - 1];
+        let next: Enemy | null = null, bd = 100;
+        for (const o of s.enemies) {
+          if (hit.includes(o) || !visible(s, o) || o.ided) continue;
+          const d = (o.x - from.x) ** 2 + (o.z - from.z) ** 2;
+          if (d < bd) { bd = d; next = o; }
+        }
+        if (!next) break;
+        s.events.push({ k: 'beam', x: from.x, z: from.z, x2: next.x, z2: next.z });
+        damage(s, next, w.dmg * 0.6);
+        hit.push(next);
+      }
     } else {
       const d = Math.hypot(e.x, e.z) || 1, dx = e.x / d, dz = e.z / d;
       s.events.push({ k: 'rail', x: 0, z: 0, x2: dx * w.range, z2: dz * w.range });
@@ -511,6 +534,7 @@ function moveShots(s: State, dt: number) {
       if (hit) {
         if (p.splash) explode(s, p.x, p.z, p.splash, p.dmg);
         else damage(s, hit, p.dmg);
+        if (p.kind === 'shell' && s.st.frag) explode(s, p.x, p.z, 2.5, p.dmg * s.st.frag);
       }
       s.shots[i] = s.shots[s.shots.length - 1];
       s.shots.pop();
@@ -525,7 +549,7 @@ function explode(s: State, x: number, z: number, r: number, dmg: number) {
 
 function damage(s: State, e: Enemy, dmg: number) {
   if (e.hp <= 0) return; // already dead this frame
-  e.hp -= dmg;
+  e.hp -= e.id === s.marked ? dmg * s.st.markDmg : dmg;
   if (e.hp > 0) { s.events.push({ k: 'hit', x: e.x, z: e.z }); return; }
   const i = s.enemies.indexOf(e);
   if (i >= 0) removeAt(s, i);
@@ -533,6 +557,7 @@ function damage(s: State, e: Enemy, dmg: number) {
   s.lastKill = s.t;
   const gain = Math.round(e.reward * s.st.credits * (1 + Math.min(s.combo, COMBO_CAP) * COMBO_BONUS));
   s.credits += gain; s.earned += gain; s.kills++;
+  s.ammo = Math.min(s.st.ammoCap, s.ammo + s.st.scav);
   s.events.push({ k: 'kill', x: e.x, z: e.z, kind: e.kind, n: gain });
   if (s.st.chain) explode(s, e.x, e.z, 4, s.st.chain);
 }

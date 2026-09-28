@@ -58,7 +58,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       <button class="btn" data-a="start">DEPLOY [SPACE]</button></div></div>`;
     else if (s.phase === 'pause') html = `<div class="card"><h2>PAUSED</h2><p class="dim">[P] resume</p></div>`;
     else if (s.phase === 'perk') html = `<div class="card"><h2>BATTERY LEVEL ${s.level} · CHOOSE A PERK</h2><div class="perks">${
-      s.perkChoices.map((id, i) => { const p = PERKS.find(p => p.id === id)!; return `<button class="perk frame" data-a="perk${i}"><b>${p.name}</b><span>${p.desc}</span><kbd>[${i + 1}]</kbd></button>`; }).join('')
+      s.perkChoices.map((id, i) => { const p = PERKS.find(p => p.id === id)!; return `<button class="perk frame${p.rule ? ' rule' : ''}" data-a="perk${i}">${p.rule ? '<i>★ NEW RULE</i>' : ''}<b>${p.name}</b><span>${p.desc}</span><kbd>[${i + 1}]</kbd></button>`; }).join('')
     }</div></div>`;
     else if (s.phase === 'over') {
       const now = { time: s.t, kills: s.kills, level: s.level, earned: s.earned };
