@@ -137,7 +137,19 @@ Spawn rate, HP, damage and raid size grow **logarithmically**: each doubling of 
 | Iskander-M ballistic missile | Very fast, big radar return, hits hard. **Only PAC-3 can hit it** |
 
 ### The battery
-The base is laid out like a Patriot site and grows with its level: AN/MPQ-65 radar and Engagement Control Station (ECS) at the start, then the EPP-III power plant, the OE-349 antenna mast, a Hensoldt TRML-4D 360° radar that turns with the sweep, earth berms, and, once you buy the AESA, LTAMDS rear arrays. Every level adds an M903 launcher (up to 8). Buying laser, IRIS-T SLX or HPM adds their vehicles.
+The base is laid out like a Patriot site. Every base level builds something that changes what it can do, plus an M903 launcher (up to 8) and 2 more perimeter pads:
+
+| Level | Builds                         | Capability                                                          |
+|-------|--------------------------------|---------------------------------------------------------------------|
+| 1     | AN/MPQ-65 radar + ECS          | the battery                                                         |
+| 2     | EPP-III power plant            | +2 power/s                                                          |
+| 3     | OE-349 antenna mast            | datalink: raids announced 5 s earlier, +1 s contact memory          |
+| 4     | TRML-4D surveillance radar     | keeps searching at half range while an ARM has the MPQ-65 down (no locks, but pads keep firing) |
+| 5     | earth berms                    | +10% armor                                                          |
+| 6     | second fire control shelter    | +1 lock slot                                                        |
+| 7     | hardened command node (bunker) | +25% max HP, ARM hits knock the radar out half as long              |
+
+The level-up card names what was built. The LTAMDS AESA upgrade adds rear arrays to the radar, and buying laser, IRIS-T SLX or HPM adds their vehicles.
 
 **Doctrines:** before a normal run, pick a starting loadout of free upgrade levels (they don't count toward base level). **STANDARD** is always available. The others unlock from your all-time records: **SENSOR NET** (survive 5:00), **LOGISTICS** (earn 5,000 credits in a run) and **FORWARD STRIKE** (reach base level 6). Daily ops always fly STANDARD.
 

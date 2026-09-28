@@ -243,6 +243,20 @@ export function createRenderer() {
       for (let i = 1; i < 4; i++) solid(box(0.02, 1.3, 0.02), BRIGHT, 0.11, 0, -0.65 + i * 0.325, panel);
     }
 
+    // Level 6: a second fire control shelter (ICC) with whip antennas, out between the IRIS-T slots.
+    if (L >= 6) {
+      const a = TAU / 8, g = vehicle(R3, a, 2.2, tangent(a));
+      solid(box(1.7, 1.1, 1.2), BRIGHT, 0.1, 1.3, 0, g);
+      for (const x of [-0.5, 0.6]) solid(box(0.04, 1.8, 0.04), MID, x, 2.7, 0.45, g);
+    }
+    // Level 7: hardened command node, a sloped concrete bunker with a blast door and a mast.
+    if (L >= 7) {
+      const a = TAU * 5 / 8, g = group(base, Math.cos(a) * R3, 0, Math.sin(a) * R3, radial(a));
+      solid(new THREE.CylinderGeometry(1.2, 1.9, 1.2, 4, 1).rotateY(Math.PI / 4), BRIGHT, 0, 0.6, 0, g);
+      solid(box(0.15, 0.7, 0.8), HOT, 1.25, 0.35, 0, g);
+      solid(new THREE.CylinderGeometry(0.04, 0.06, 2.2, 5), MID, -0.4, 2.2, 0, g);
+    }
+
     // Outer ring: M903 launching stations, one more per base level (a real battery fields up to 8).
     // Four PAC-3 MSE canisters each, raised to 38° and traversing toward the target.
     for (let i = 0; i < Math.min(8, L + 1); i++) {
