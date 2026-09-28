@@ -187,7 +187,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const aesa = s.st.aesa || sector > 0; // no sweep line to wait for: paint contacts as they are
     if (on && sector) { // FOCUSED: the searched arc
       const f = focusBearing(s), sa = Math.atan2(py(Math.cos(f), Math.sin(f)) - C, px(Math.cos(f), Math.sin(f)) - C);
-      g.fillStyle = rgba(PAL.bright, 0.02 + 0.02 * Math.random()); g.strokeStyle = rgba(PAL.mid, 0.8);
+      g.fillStyle = rgba(PAL.bright, 0.004 + 0.004 * Math.random()); g.strokeStyle = rgba(PAL.mid, 0.8); // the afterglow adds these up
       g.beginPath(); g.moveTo(C, C); g.arc(C, C, rr, sa - sector / 2, sa + sector / 2); g.closePath(); g.fill(); g.stroke();
     }
     if (on && !aesa && swept < 1) { g.fillStyle = rgba(PAL.bright, 0.35); g.beginPath(); g.moveTo(C, C); g.arc(C, C, rr, a - swept, a); g.fill(); }
@@ -354,9 +354,9 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     for (const [id, b] of rows) {
       const c = cost(s, id), lv = s.lv[id] ?? 0;
       b.classList.toggle('hint', id === hint);
-      b.children[1].textContent = lv ? `LV ${lv}` : '';
-      const why = lockReason(s, id);
-      b.children[2].textContent = why || (c === Infinity ? 'MAX' : fmt(c));
+      const why = lockReason(s, id), lvT = lv ? `LV ${lv}` : '', cT = why || (c === Infinity ? 'MAX' : fmt(c));
+      if (b.children[1].textContent !== lvT) b.children[1].textContent = lvT; // write only on change: no DOM churn at 10 Hz
+      if (b.children[2].textContent !== cT) b.children[2].textContent = cT;
       b.classList.toggle('can', s.credits >= c);
       b.classList.toggle('max', c === Infinity && !why);
       b.classList.toggle('locked', !!why);

@@ -21,6 +21,8 @@ Other scripts:
 |-----------------|-----------------------------------------------------------|
 | `npm run build` | Type-checks, then builds a static site into `dist/`        |
 | `npm test`      | Runs a headless check of the game simulation in Node       |
+| `npm run balance` | Bots play many seeds; survival per doctrine and perk     |
+| `npm run bench` | Times the simulation under a heavy swarm (e.g. `npm run bench -- 2000`) |
 | `npm run balance [seeds] [cap-s]` | Bots play many seeded runs; median survival per doctrine and per perk |
 
 The game runs entirely in the browser, with no backend and no asset files. `dist/` can be hosted on any static file server.
@@ -192,6 +194,8 @@ src/hud.ts        DOM HUD, mini-radar, shop, overlays
 src/sfx.ts        WebAudio sound effects, no audio files
 src/main.ts       boot, input, main loop
 src/sim.check.ts  `npm test` self-check
+src/balance.ts    `npm run balance` bot survival
+src/bench.ts      `npm run bench` sim timing under load
 src/balance.ts    `npm run balance` bot survey
 ```
 

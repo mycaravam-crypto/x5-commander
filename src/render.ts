@@ -420,6 +420,8 @@ export function createRenderer() {
     }
   }
 
+  const pools = [...Object.values(enemyFills), ...Object.values(enemyEdges), brackets, hpBars, shells, tracers, missiles, shardMesh, waveMesh, beamMesh, blipMesh, jamMesh, padMarks, dwellMesh];
+  const sent = new Map<THREE.InstancedMesh, number>();
   const dummy = new THREE.Object3D();
   const camRight = new THREE.Vector3();
   const markEnd = markLine.geometry.attributes.position as THREE.BufferAttribute;
@@ -623,9 +625,16 @@ export function createRenderer() {
       blipMesh.setColorAt(blipMesh.count++, tmpC.setHex(BRIGHT).multiplyScalar(0.7 * r * r));
     }
 
-    for (const m of [...Object.values(enemyFills), ...Object.values(enemyEdges), brackets, hpBars, shells, tracers, missiles, shardMesh, waveMesh, beamMesh, blipMesh, jamMesh, padMarks, dwellMesh]) {
-      m.instanceMatrix.needsUpdate = true;
-      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    // Upload only the instances in use: the pools are sized for the worst case, and re-sending every
+    // buffer in full each frame (a few MB) is most of the GPU traffic in a quiet scene.
+    for (const m of pools) {
+      const n = m.count, was = sent.get(m) ?? -1;
+      if (n === 0 && was === 0) continue; // still empty: nothing to send
+      sent.set(m, n);
+      for (const [a, k] of [[m.instanceMatrix, 16], [m.instanceColor, 3]] as const) {
+        if (!a) continue;
+        a.clearUpdateRanges(); a.addUpdateRange(0, Math.max(n, 1) * k); a.needsUpdate = true;
+      }
     }
     crt.uniforms.time.value = clock;
     const blind = s.phase !== 'play' && s.phase !== 'pause' ? 0 : s.t < s.radarDownUntil ? 1 : s.emcon ? 0.3 : 0;

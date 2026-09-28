@@ -743,11 +743,19 @@ function fire(s: State, dt: number) {
 }
 
 function moveShots(s: State, dt: number) {
+  if (!s.shots.length) return;
+  // With many shots in the air, one id table per frame beats scanning every enemy for every shot.
+  let byId: Map<number, Enemy> | null = null;
+  if (s.shots.length > 16) { byId = new Map(); for (const e of s.enemies) byId.set(e.id, e); }
+  const target = (id: number) => {
+    const e = byId ? byId.get(id) : s.enemies.find(e => e.id === id);
+    return e && e.hp > 0 ? e : undefined; // hp <= 0: killed earlier this frame
+  };
   for (let i = s.shots.length - 1; i >= 0; i--) {
     const p = s.shots[i];
     p.life -= dt;
     if (p.kind === 'missile') {
-      let t = s.enemies.find(e => e.id === p.target);
+      let t = target(p.target);
       if (!t) {
         let bd = Infinity;
         for (const e of s.enemies) { const d = (e.x - p.x) ** 2 + (e.z - p.z) ** 2; if (e.locked && !ENEMIES[e.kind].pacOnly && d < bd) { bd = d; t = e; } }
@@ -768,7 +776,7 @@ function moveShots(s: State, dt: number) {
       if ((e.x - p.x) ** 2 + (e.z - p.z) ** 2 < r * r) { hit = e; break; }
     }
     if (hit || p.life <= 0) {
-      const t = s.enemies.find(e => e.id === p.target);
+      const t = target(p.target);
       if (t) t.incoming = Math.max(0, t.incoming - p.dmg);
       if (hit) {
         if (p.splash) explode(s, p.x, p.z, p.splash, p.dmg, p.src);
