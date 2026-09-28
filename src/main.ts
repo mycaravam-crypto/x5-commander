@@ -33,22 +33,47 @@ const hud = createHud({
 // ---- input ----
 const canvas = document.querySelector('canvas')!;
 let dragX: number | null = null;
-canvas.addEventListener('mousedown', e => {
-  if (e.button === 2) { dragX = e.clientX; return; }
-  const p = view.pick(e.clientX, e.clientY);
+const tap = (cx: number, cy: number) => {
+  const p = view.pick(cx, cy);
   if (p && s.phase === 'play' && !placePad(s, p.x, p.z)) markAt(s, p.x, p.z);
+};
+canvas.addEventListener('mousedown', e => { if (e.button === 2) dragX = e.clientX; else tap(e.clientX, e.clientY); });
+
+// Touch: tap marks / places, one-finger drag rotates, pinch zooms.
+const fingers = new Map<number, { x: number; y: number }>();
+let travel = 0;
+canvas.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'mouse') return;
+  e.preventDefault(); // no emulated mouse events on top
+  fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  travel = fingers.size > 1 ? Infinity : 0;
+  canvas.setPointerCapture(e.pointerId);
 });
+canvas.addEventListener('pointermove', e => {
+  const f = fingers.get(e.pointerId);
+  if (!f) return;
+  if (fingers.size === 1) { travel += Math.abs(e.clientX - f.x) + Math.abs(e.clientY - f.y); view.rotate((e.clientX - f.x) * 0.008); }
+  else {
+    const [a, b] = [...fingers.values()], d0 = Math.hypot(a.x - b.x, a.y - b.y);
+    f.x = e.clientX; f.y = e.clientY;
+    const d1 = Math.hypot(a.x - b.x, a.y - b.y);
+    if (d0 > 0) view.zoomBy(d1 / d0);
+  }
+  f.x = e.clientX; f.y = e.clientY;
+});
+const lift = (e: PointerEvent) => {
+  if (fingers.delete(e.pointerId) && !fingers.size && travel < 12 && e.type === 'pointerup') tap(e.clientX, e.clientY);
+};
+canvas.addEventListener('pointerup', lift);
+canvas.addEventListener('pointercancel', lift);
 addEventListener('mousemove', e => { if (dragX !== null) { view.rotate((e.clientX - dragX) * 0.008); dragX = e.clientX; } });
 addEventListener('mouseup', () => { dragX = null; });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 canvas.addEventListener('wheel', e => { e.preventDefault(); view.zoomBy(e.deltaY < 0 ? 1.1 : 1 / 1.1); }, { passive: false });
 
-const held = new Set<string>();
-addEventListener('keyup', e => held.delete(e.code));
-addEventListener('keydown', e => {
-  held.add(e.code);
-  if (e.repeat) return;
-  switch (e.code) {
+let speed = 1; // 2 = fast-forward: two sim steps per frame
+function key(code: string) {
+  switch (code) {
     case 'Space': case 'Enter': start(); break;
     case 'KeyD': start(true); break;
     case 'KeyP': case 'Escape': if (s.phase === 'play') s.phase = 'pause'; else if (s.phase === 'pause') s.phase = 'play'; break;
@@ -56,14 +81,25 @@ addEventListener('keydown', e => {
     case 'KeyF': toggleEmcon(s); break;
     case 'KeyM': sfx.toggleMute(); break;
     case 'KeyR': if (s.phase === 'over') restart(); break;
-    case 'Tab': e.preventDefault(); hud.toggleShop(); break;
+    case 'KeyC': if (s.phase === 'over') hud.share(); break;
+    case 'KeyX': speed = 3 - speed; break;
+    case 'Tab': hud.toggleShop(); break;
     case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4': {
-      const i = +e.code.slice(5) - 1;
+      const i = +code.slice(5) - 1;
       if (s.phase === 'start') doctrine(i); else pickPerk(s, i);
       break;
     }
   }
+}
+const held = new Set<string>();
+addEventListener('keyup', e => held.delete(e.code));
+addEventListener('keydown', e => {
+  held.add(e.code);
+  if (e.code === 'Tab') e.preventDefault();
+  if (!e.repeat) key(e.code);
 });
+// On-screen buttons (touch screens) send the same codes as the keys.
+document.getElementById('touch')!.onclick = e => { const k = (e.target as HTMLElement).closest<HTMLElement>('[data-k]')?.dataset.k; if (k) key(k); };
 addEventListener('blur', () => { if (s.phase === 'play') s.phase = 'pause'; });
 
 // ---- loop ----
@@ -74,11 +110,11 @@ function frame(now: number) {
   if (held.has('KeyQ')) view.rotate(-dt * 1.5);
   if (held.has('KeyE')) view.rotate(dt * 1.5);
   const sweep0 = s.sweepA;
-  update(s, dt);
+  for (let i = 0; i < speed; i++) update(s, dt);
   if (s.sweepA < sweep0) sfx.play('ping'); // sweep completed a revolution
   for (const e of s.events) sfx.play(e.k);
   view.render(s, dt);
-  hud.update(s, dt, view.cameraYaw(), view.project);
+  hud.update(s, dt, view.cameraYaw(), view.project, speed);
   s.events.length = 0;
   requestAnimationFrame(frame);
 }

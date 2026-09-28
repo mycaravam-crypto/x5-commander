@@ -23,6 +23,22 @@ function loadDaily(date: string): Daily {
   return { date, time: 0, kills: 0 };
 }
 
+// One-time tips, shown the first time each thing happens (remembered across runs).
+const TIPS: Record<string, string> = {
+  start: 'Click a contact to make it the priority target. Spend credits in the shop on the right [Tab].',
+  raid: 'Raid inbound from one bearing. Kill all of it before anything lands for a clean-raid bonus.',
+  warning: 'Su-34s are tough and fire anti-radiation missiles at a radiating radar. Click one to focus fire on it.',
+  arm: 'ARM launch: it homes on your radar. Press [F] for EMCON before it gets close. While silent you lose every lock.',
+  tbm: 'Ballistic missile: only PAC-3 can hit it. Keep interceptors in stock and a lock slot free.',
+  jam: 'Jammer on station: detection drops in the amber sector. The Mi-8 itself shows clearly, so click it and kill it.',
+  ident: 'Decoy classified and released. Decoys look like Shaheds until locked for a moment. GaN T/R Modules classify faster.',
+  level: 'Base level up: new launcher and perimeter pads. Perimeter defenses fire on their own, without lock slots.',
+};
+const seenTips = (() => { try { return new Set<string>(JSON.parse(localStorage.getItem('x5-tips') ?? '[]')); } catch { return new Set<string>(); } })();
+
+// One line to paste in a chat.
+export const resultLine = (s: State) => `X5 COMMANDER · ${s.daily ? `DAILY OP ${s.daily}` : `${DOCTRINES.find(d => d.id === s.doctrine)!.name} RUN`} · ${clock(s.t)} · ${fmt(s.kills)} kills · lv ${s.level} · ${s.stats.clean}/${s.stats.raids} clean raids`;
+
 const docsHtml = (s: State, best: Best) => DOCTRINES.map((d, i) => {
   const open = d.unlock(best);
   return `<button class="perk frame${d.id === s.doctrine ? ' sel' : ''}${open ? '' : ' locked'}" data-a="doc${i}"><b>${d.name}</b><span>${open ? d.desc : `LOCKED · ${d.need}`}</span><kbd>[${i + 1}]</kbd></button>`;
@@ -52,6 +68,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     shop.append(b); rows.set(u.id, b);
   }
 
+  if (matchMedia('(pointer: coarse)').matches) shop.classList.add('hidden'); // phones: map first, shop on demand
+
   // ---- overlay ----
   const overlay = $('overlay');
   overlay.onclick = e => {
@@ -60,6 +78,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     else if (a === 'daily') actions.start(true);
     else if (a?.startsWith('doc')) actions.doctrine(+a.slice(3));
     else if (a === 'restart') actions.restart();
+    else if (a === 'share') share();
     else if (a?.startsWith('perk')) actions.perk(+a.slice(4));
   };
   let shownPhase = '', shownDoc = '';
@@ -107,10 +126,27 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         <div class="score">${row('SURVIVED', 'time', clock)}${row('KILLS', 'kills', fmt)}${row('BASE LEVEL', 'level', String)}${row('CREDITS EARNED', 'earned', fmt)}</div>
         ${debrief(s)}
         <p class="dim">perks: ${s.perks.map(id => PERKS.find(p => p.id === id)!.name).join(' · ') || 'none'}</p>
-        <button class="btn" data-a="restart">REDEPLOY [R]</button></div>`;
+        <button class="btn" data-a="restart">REDEPLOY [R]</button> <button class="btn" data-a="share">COPY RESULT [C]</button></div>`;
     }
     overlay.innerHTML = html;
     overlay.classList.toggle('on', !!html);
+  }
+
+  let lastState: State | null = null;
+  function share() {
+    if (!lastState) return;
+    const text = resultLine(lastState), btn = overlay.querySelector<HTMLElement>('[data-a=share]');
+    navigator.clipboard.writeText(text).then(() => { if (btn) btn.textContent = 'COPIED ✓'; }, () => prompt('Copy your result:', text));
+  }
+
+  // ---- tips ----
+  const tipEl = $('tip');
+  let tipUntil = 0;
+  function tip(k: string, t: number) {
+    if (!TIPS[k] || seenTips.has(k)) return;
+    seenTips.add(k);
+    try { localStorage.setItem('x5-tips', JSON.stringify([...seenTips])); } catch { /* storage blocked: skip */ }
+    tipEl.textContent = TIPS[k]; tipEl.classList.add('on'); tipUntil = t + 9;
   }
 
   // ---- banner + popups ----
@@ -199,7 +235,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   }
 
   // ---- text (throttled) ----
-  let acc = 1, lastPhase = '', armSaid = -99, tbmSaid = -99;
+  let ffSpeed = 1, acc = 1, lastPhase = '', armSaid = -99, tbmSaid = -99;
   const set = (id: string, v: string) => { const el = $(id); if (el.textContent !== v) el.textContent = v; };
   const bar = (id: string, r: number, crit = false) => { const el = $(id); el.style.setProperty('--r', String(Math.round(Math.max(0, Math.min(1, r)) * 20) / 20)); el.classList.toggle('crit', crit); };
 
@@ -220,6 +256,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       : sweepPct < 100 ? `<span class="alert">${sweepPct}% LOW PWR</span>` : 'RADIATING';
     $('info').innerHTML = [
       ['TRACKS', contacts], ['ENGAGED', `${locks} / ${st.slots}`], ['MODE [T]', MODES[s.mode]],
+      ...ffSpeed > 1 ? [['SPEED [X]', `<span class="hot">${ffSpeed}×</span>`]] : [],
       ['RANGE', `${Math.round(st.radarRange)}m`], ['PERIMETER', `${s.perim.length} / ${perimSlots(s.level)} pads`], ['RADAR [F]', radar],
       ...s.placing ? [['PAD', `<span class="hot">CLICK MAP · ${Math.max(0, PLACE_TIME - (s.t - s.placing.since)).toFixed(0)}s</span>`]] : [],
       ...s.raid ? [['RAID', `<span class="alert">BRG ${pad3(bearing(Math.cos(s.raid.a), Math.sin(s.raid.a)))} · T-${Math.max(0, s.raid.at - s.t).toFixed(0)}s</span>`]]
@@ -241,7 +278,11 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   }
 
   return {
-    update(s: State, dt: number, yaw: number, project: Project) {
+    update(s: State, dt: number, yaw: number, project: Project, speed = 1) {
+      lastState = s; ffSpeed = speed;
+      if (s.phase === 'play' && s.t > 2) tip('start', s.t);
+      for (const e of s.events) tip(e.k, s.t);
+      if (tipEl.classList.contains('on') && (s.t > tipUntil || s.t < tipUntil - 9 || s.phase === 'start')) tipEl.classList.remove('on');
       for (const e of s.events) {
         if (e.k === 'kill' && e.n) {
           const el = popups[nextPop = (nextPop + 1) % popups.length];
@@ -282,5 +323,6 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     },
     flash(id: string) { const b = rows.get(id)!; b.classList.remove('pop'); void b.offsetWidth; b.classList.add('pop'); },
     toggleShop: () => shop.classList.toggle('hidden'),
+    share,
   };
 }

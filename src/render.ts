@@ -381,7 +381,7 @@ export function createRenderer() {
         case 'level': wave(0, 0, 40, BRIGHT, 1.2, 1.5); wave(0, 0, 25, HOT, 0.9); shards(0, 0, 40, BRIGHT, 20, 1.2, 3); gridFlash = 0.6; break;
         case 'warning': wave(0, 0, ARENA_R, ALERT, 1.5, 1.5); break;
         case 'arm': wave(e.x, e.z, 6, ALERT, 0.8, 1.5); break;
-        case 'tbm': wave(e.x, e.z, 10, ALERT, 1, 1.5); break;
+        case 'tbm': wave(e.x, e.z, 4, ALERT, 0.6); break;
         case 'jam': wave(e.x, e.z, 8, ALERT, 1.2); break;
         case 'ident': wave(e.x, e.z, 3, MID, 0.4); break;
         case 'radarDown': wave(0, 0, 14, ALERT, 0.8, 1.5); shards(0, 1.9, 30, ALERT, 14, 1, 2.5); gridFlash = 1; break;
@@ -442,13 +442,13 @@ export function createRenderer() {
     const swept = ((s.sweepA - lastSweep) % TAU + TAU) % TAU, r2 = s.st.radarRange ** 2;
     dwellMesh.count = 0;
     if (s.st.aesa) {
-      if (on && s.phase === 'play' && (dwellAcc += dt * 7) >= 1) { dwellAcc = 0; dw.a[dw.next] = Math.random() * TAU; dw.life[dw.next] = 0.6; dw.next = (dw.next + 1) % DWELLS; }
+      if (on && s.phase === 'play' && (dwellAcc += dt * 5) >= 1) { dwellAcc = 0; dw.a[dw.next] = Math.random() * TAU; dw.life[dw.next] = 0.6; dw.next = (dw.next + 1) % DWELLS; }
       for (let i = 0; i < DWELLS; i++) {
         if (dw.life[i] <= 0) continue;
         if (s.phase === 'play') dw.life[i] -= dt;
         dummy.position.set(0, 0.07, 0); dummy.rotation.set(0, -dw.a[i], 0); dummy.scale.setScalar(s.st.radarRange);
         dummy.updateMatrix(); dwellMesh.setMatrixAt(dwellMesh.count, dummy.matrix);
-        dwellMesh.setColorAt(dwellMesh.count++, tmpC.setHex(BRIGHT).multiplyScalar(0.05 * Math.max(0, dw.life[i] / 0.6)));
+        dwellMesh.setColorAt(dwellMesh.count++, tmpC.setHex(BRIGHT).multiplyScalar(0.025 * Math.max(0, dw.life[i] / 0.6)));
       }
       for (const e of s.enemies) {
         if (e.locked || e.seenUntil <= (lastSeen.get(e) ?? -1)) continue;
