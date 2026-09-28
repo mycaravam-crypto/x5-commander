@@ -6,7 +6,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "node src/sim.check.ts",
-    "balance": "node src/balance.ts"
+    "balance": "node src/balance.ts",
+    "bench": "node src/bench.ts"
   },
   "dependencies": {
     "three": "^0.186.1"

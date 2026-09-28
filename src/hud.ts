@@ -354,9 +354,9 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     for (const [id, b] of rows) {
       const c = cost(s, id), lv = s.lv[id] ?? 0;
       b.classList.toggle('hint', id === hint);
-      b.children[1].textContent = lv ? `LV ${lv}` : '';
-      const why = lockReason(s, id);
-      b.children[2].textContent = why || (c === Infinity ? 'MAX' : fmt(c));
+      const why = lockReason(s, id), lvT = lv ? `LV ${lv}` : '', cT = why || (c === Infinity ? 'MAX' : fmt(c));
+      if (b.children[1].textContent !== lvT) b.children[1].textContent = lvT; // write only on change: no DOM churn at 10 Hz
+      if (b.children[2].textContent !== cT) b.children[2].textContent = cT;
       b.classList.toggle('can', s.credits >= c);
       b.classList.toggle('max', c === Infinity && !why);
       b.classList.toggle('locked', !!why);
