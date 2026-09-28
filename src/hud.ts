@@ -1,6 +1,6 @@
 import { ARENA_R, BASE_R, PLACE_TIME, DOCTRINES, PACKAGES, OBJECTIVES, RAID_PRESS, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
 import type { Records } from './config.ts';
-import { cost, emitting, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
+import { cost, emitting, slots, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const $ = (id: string) => document.getElementById(id)!;
 const fmt = (n: number) => Math.floor(n).toLocaleString('en-US');
@@ -265,7 +265,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       : sweepPct < 100 ? `<span class="alert">${sweepPct}% LOW PWR</span>` : 'RADIATING';
     const M = radarMode(s), scan = s.radarMode === 0 ? M.name : `<span class="hot">${M.name}${radarSector(s) ? ` ${pad3(bearing(Math.cos(focusBearing(s)), Math.sin(focusBearing(s))))}°` : ''}</span>`;
     $('info').innerHTML = [
-      ['TRACKS', contacts], ['ENGAGED', `${locks} / ${st.slots}`], ['MODE [T]', MODES[s.mode]],
+      ['TRACKS', contacts], ['ENGAGED', `${locks} / ${slots(s)}${s.t < s.chainUntil ? ' <span class="hot">+CHAIN</span>' : ''}`], ['MODE [T]', MODES[s.mode]],
       ['FIRE [G]', s.discipline === 1 ? DISCIPLINES[1].name : `<span class="hot">${DISCIPLINES[s.discipline].name}</span>`],
       ['INTERCEPT [SPC]', interceptActive(s) ? '<span class="hot">ENGAGING</span>' : (w => w ? `<span class="${w.endsWith('s') ? 'dim' : 'alert'}">${w}</span>` : '<span class="hot">READY</span>')(interceptBlock(s))],
       ...ffSpeed > 1 ? [['SPEED [X]', `<span class="hot">${ffSpeed}×</span>`]] : [],
@@ -332,6 +332,9 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         else if (e.k === 'tbm') { log(`BALLISTIC LAUNCH BRG ${pad3(bearing(e.x, e.z))}`, 'alert'); if (s.t - tbmSaid > 4) { tbmSaid = s.t; say('⚠ BALLISTIC MISSILE · PAC-3 ONLY', 'warn'); } }
         else if (e.k === 'radarDown') { say('⚠ RADAR HIT', 'warn'); log(`MPQ-65 HIT · OFFLINE ${(s.radarDownUntil - s.t).toFixed(0)}s`, 'alert'); }
         else if (e.k === 'radarMode') { acc = 1; const M = radarMode(s); log(`RADAR ${M.name} · RNG ${Math.round(radarRange(s))}m${M.lpi ? ' · ARMS BLIND >15m' : M.sector ? ' · ARM EXPOSURE HIGH' : ''}`, M.sector ? 'alert' : ''); }
+        else if (e.k === 'killChain') log('KILL CHAIN · +1 LOCK SLOT 8s');
+        else if (e.k === 'counterSead') log('ARM DOWN · COUNTER-SEAD · POWER RESTORED');
+        else if (e.k === 'lastStand') { say('LAST STAND', 'warn'); log('LAST STAND · FIRE RATE UP · POWER DOWN', 'alert'); }
         else if (e.k === 'emcon') log(s.emcon ? 'EMCON · RADAR SILENT' : 'RADIATING', s.emcon ? 'alert' : '');
         else if (e.k === 'jam') log(`JAMMING BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
         else if (e.k === 'ident') log('DECOY CLASSIFIED · TRACK RELEASED');

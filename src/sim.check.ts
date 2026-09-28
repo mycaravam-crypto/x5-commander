@@ -1,5 +1,5 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, draft, placePad, rand, dailySeed, type State } from './sim.ts';
+import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, draft, placePad, rand, dailySeed, type State } from './sim.ts';
 import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, PHASES, PHASE_LEN, RAID_WARN, RAID_PRESS } from './config.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
@@ -287,6 +287,38 @@ run(s, 4);
 ok(s.enemies[0].locked, 'locked before EMCON');
 toggleEmcon(s); run(s, 2);
 ok(s.enemies[0].locked, 'fusion keeps the lock through EMCON');
+
+// New rule perks.
+const withPerk = (id: string) => { const g = quiet(); g.perks = [id]; g.st = deriveStats(g.lv, g.perks); return g; };
+{ // BLACKOUT PROTOCOL: going dark doubles what's left of every track on the scope
+  const g = withPerk('blackout'); g.st.slots = 0; const e = spawnEnemy(g, 'tank', 0, 30); e.hp = 1e9; e.speed = 0;
+  run(g, 5); const left = e.seenUntil - g.t;
+  toggleEmcon(g); update(g, 1 / 60);
+  ok(left > 0 && Math.abs(e.seenUntil - g.t - 2 * left) < 0.1, 'BLACKOUT PROTOCOL: tracks coast twice as long in EMCON');
+}
+{ // COUNTER-SEAD: an ARM shot down refills power
+  const g = withPerk('csead'); g.power = 0; g.st.gen = 0; const a = spawnEnemy(g, 'arm', 0, 20); a.hp = 1e9; g.ammo = 1e9;
+  update(g, 1 / 60); a.hp = 0.1; a.seenUntil = g.t + 5; markAt(g, a.x, a.z); run(g, 2);
+  ok(g.stats.kills.arm === 1 && g.power >= g.st.powerCap * 0.15, `COUNTER-SEAD restores power (${g.power.toFixed(0)})`);
+}
+{ // KILL CHAIN: 5 kills, one more lock slot for a while
+  const g = withPerk('killchain'); const n = g.st.slots;
+  for (let i = 0; i < 5; i++) { const e = spawnEnemy(g, 'swarm', i, 20); e.hp = 0.01; e.seenUntil = 1e9; }
+  run(g, 3);
+  ok(g.kills >= 5 && slots(g) === n + 1, `KILL CHAIN adds a lock slot (${slots(g)})`);
+  run(g, 10); ok(slots(g) === n, 'KILL CHAIN slot expires');
+}
+{ // OVERKILL: the excess of a kill hits the neighbour
+  const g = withPerk('overkill'); g.st.slots = 0;
+  const a = spawnEnemy(g, 'drone', 0, 30), b = spawnEnemy(g, 'tank', 0, 33); a.hp = 1; b.seenUntil = 1e9; a.seenUntil = 1e9; b.hp = b.maxHp = 1000;
+  markAt(g, a.x, a.z); run(g, 3);
+  ok(b.hp < 1000, 'OVERKILL carries over to the next contact');
+}
+{ // LAST STAND: low HP fires faster, generates less
+  const shots = (low: boolean) => { const g = withPerk('laststand'); if (low) g.hp = g.st.maxHp * 0.2; g.st.repair = 0; let n = 0;
+    for (let i = 0; i < 4; i++) spawnEnemy(g, 'tank', i, 40).hp = 1e9; run(g, 10, () => { n += g.events.filter(e => e.k === 'shot').length; }); return n; };
+  ok(shots(true) > shots(false) * 1.3, 'LAST STAND: faster fire below 25% HP');
+}
 
 // Same seed, same schedule: the spawn stream and perk drafts don't depend on anything else.
 {

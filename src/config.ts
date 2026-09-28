@@ -219,7 +219,14 @@ export interface PerkFx {
   addSlots?: number; addArmor?: number; addChain?: number;
   // rule changers
   addFusion?: number; addLpi?: number; addArc?: number; addScav?: number; addFrag?: number; markDmg?: number;
+  addBlackout?: number; addCounterSead?: number; addKillChain?: number; addOverkill?: number; addLastStand?: number;
 }
+// Rule-perk numbers.
+export const BLACKOUT = { dark: 2, lit: 0.7 }; // contact memory x while silent / while radiating
+export const COUNTER_SEAD = 0.2; // share of power storage restored per ARM shot down
+export const KILL_CHAIN = { every: 5, time: 8 }; // kills per extra lock slot, s it lasts
+export const OVERKILL_R = 8; // m an overkill's excess damage can jump
+export const LAST_STAND = { hp: 0.25, rate: 1.5, gen: 0.6 };
 // `min`: base level before it's offered; `need`: upgrade that must be owned. Rule perks (`rule`) are one-offs
 // that change how the game plays; from base level 5 every draft includes one while any are left.
 export const PERKS: { id: string; name: string; desc: string; fx: PerkFx; rule?: boolean; min?: number; need?: string }[] = [
@@ -240,6 +247,11 @@ export const PERKS: { id: string; name: string; desc: string; fx: PerkFx; rule?:
   { id: 'overwatch', name: 'OVERWATCH', desc: 'your marked target takes x2 damage · -1 lock slot', fx: { markDmg: 2, addSlots: -1 }, rule: true, min: 5 },
   { id: 'arc', name: 'ARC LASER', desc: 'laser jumps to 2 more targets at 60% · -10% damage', fx: { addArc: 2, dmg: 0.9 }, rule: true, min: 5, need: 'pulse' },
   { id: 'scav', name: 'SCAVENGER', desc: 'every kill refunds 2 interceptors · -10% max HP', fx: { addScav: 2, hp: 0.9 }, rule: true, min: 5 },
+  { id: 'blackout', name: 'BLACKOUT PROTOCOL', desc: 'contacts coast x2 as long while the radar is dark · -30% contact memory while radiating', fx: { addBlackout: 1 }, rule: true, min: 3 },
+  { id: 'csead', name: 'COUNTER-SEAD', desc: 'every ARM shot down restores 20% power · -10% credits', fx: { addCounterSead: 1, credits: 0.9 }, rule: true, min: 3 },
+  { id: 'killchain', name: 'KILL CHAIN', desc: 'every 5 kills: +1 lock slot for 8s · -10% damage', fx: { addKillChain: 1, dmg: 0.9 }, rule: true, min: 3 },
+  { id: 'overkill', name: 'OVERKILL', desc: 'damage past a kill jumps to the nearest contact within 8m · -10% fire rate', fx: { addOverkill: 1, rate: 0.9 }, rule: true, min: 3 },
+  { id: 'laststand', name: 'LAST STAND', desc: 'below 25% HP: +50% fire rate, -40% power gen', fx: { addLastStand: 1 }, rule: true, min: 3 },
   { id: 'frag', name: 'FRAG WARHEADS', desc: 'PAC-3 hits splash for 50% · -15% fire rate', fx: { addFrag: 0.5, rate: 0.85 }, rule: true, min: 5 },
 ];
 
@@ -263,7 +275,8 @@ export const baseLevel = (bought: number) => {
 export function deriveStats(lv: Record<string, number>, perks: string[]) {
   const L = (id: string) => lv[id] ?? 0;
   const p = { dmg: 1, rate: 1, gen: 1, range: 1, sweep: 1, aprod: 1, credits: 1, hp: 1, persist: 1, drain: 1, trange: 1, addSlots: 0, addArmor: 0, addChain: 0,
-    addFusion: 0, addLpi: 0, addArc: 0, addScav: 0, addFrag: 0, markDmg: 1 };
+    addFusion: 0, addLpi: 0, addArc: 0, addScav: 0, addFrag: 0, markDmg: 1,
+    addBlackout: 0, addCounterSead: 0, addKillChain: 0, addOverkill: 0, addLastStand: 0 };
   for (const id of perks) {
     const fx = PERKS.find(x => x.id === id)!.fx;
     for (const [k, v] of Object.entries(fx) as [keyof typeof p, number][]) {
@@ -297,6 +310,7 @@ export function deriveStats(lv: Record<string, number>, perks: string[]) {
     credits: p.credits,
     chain: p.addChain,
     fusion: p.addFusion > 0, lpi: p.addLpi > 0, arc: p.addArc, scav: p.addScav, frag: p.addFrag, markDmg: p.markDmg,
+    blackout: p.addBlackout > 0, counterSead: p.addCounterSead > 0, killChain: p.addKillChain > 0, overkill: p.addOverkill > 0, lastStand: p.addLastStand > 0,
     perim: {
       mantis: { ...PERIM.mantis, dmg: PERIM.mantis.dmg * (1 + 0.25 * L('dmg')) * p.dmg, rate: PERIM.mantis.rate * (1 + 0.15 * L('rate')) * p.rate },
       stinger: { ...PERIM.stinger, dmg: PERIM.stinger.dmg * (1 + 0.25 * L('dmg')) * p.dmg, rate: PERIM.stinger.rate * (1 + 0.15 * L('rate')) * p.rate },
