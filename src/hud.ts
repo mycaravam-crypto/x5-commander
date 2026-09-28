@@ -161,6 +161,11 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   };
   const popups = Array.from({ length: 32 }, () => $('popups').appendChild(document.createElement('div')));
   let nextPop = 0;
+  const pop = (project: Project, x: number, z: number, text: string, cls: string) => {
+    const el = popups[nextPop = (nextPop + 1) % popups.length], [px, py] = project(x, z);
+    el.textContent = text; el.style.left = `${px}px`; el.style.top = `${py}px`;
+    el.className = cls; void el.offsetWidth; el.classList.add('go');
+  };
 
   // ---- mini radar: same look as the main view. Afterglow comes from fading the last frame instead of clearing it. ----
   const cv = $('radar') as HTMLCanvasElement, g = cv.getContext('2d')!;
@@ -276,7 +281,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       ['SCAN [V]', scan], ['RANGE', `${Math.round(radarRange(s))}m`], ['PERIMETER', `${s.perim.length} / ${perimSlots(s.level)} pads`], ['RADAR [F]', radar],
       ...s.placing ? [['PAD', `<span class="hot">CLICK MAP · ${Math.max(0, PLACE_TIME - (s.t - s.placing.since)).toFixed(0)}s</span>`]] : [],
       ...s.raid ? [['RAID', `<span class="alert">${pad3(bearing(Math.cos(s.raid.a), Math.sin(s.raid.a)))}° T-${Math.max(0, s.raid.at - s.t).toFixed(0)}s</span>`]]
-        : s.raidLeft ? [['RAID', `<span class="alert">${s.raidLeft} LEFT</span>${s.raidClean ? ' · HELD' : ' · <span class="alert">LOST</span>'}`]]
+        : s.raidLeft ? [['RAID', `<span class="alert">${s.raidLeft}</span> · ${s.raidClean ? 'HELD' : '<span class="alert">LOST</span>'}`]]
         : s.t < s.calmUntil ? [['RECOVERY', `${Math.ceil(s.calmUntil - s.t)}s`]] : [],
     ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
     document.body.classList.toggle('crit', s.phase === 'play' && s.hp / st.maxHp < 0.3);
@@ -342,13 +347,15 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       for (const e of s.events) tip(e.k, s.t);
       if (tipEl.classList.contains('on') && (s.t > tipUntil || s.t < tipUntil - 9 || s.phase === 'start')) tipEl.classList.remove('on');
       for (const e of s.events) {
-        if (e.k === 'kill' && e.n) {
-          const el = popups[nextPop = (nextPop + 1) % popups.length];
-          const [x, y] = project(e.x, e.z);
-          el.textContent = `+${e.n}`; el.style.left = `${x}px`; el.style.top = `${y}px`;
-          el.classList.remove('go'); void el.offsetWidth; el.classList.add('go');
-        } else if (e.k === 'warning') { say('⚠ STRIKE AIRCRAFT', 'warn'); log('SU-34 PACKAGE INBOUND', 'alert'); }
-        else if (e.k === 'baseHit') log(`IMPACT · ${ENEMIES[e.kind!].code}`, 'alert');
+        if (e.k === 'kill') {
+          if (e.n) pop(project, e.x, e.z, `+${e.n}`, '');
+          if (e.kind === 'arm' || e.kind === 'tbm') log(`${ENEMIES[e.kind].code} INTERCEPTED BRG ${pad3(bearing(e.x, e.z))}`);
+          else if (e.kind === 'ew') { say('JAMMER DOWN', 'info'); log(`JAMMER DOWN BRG ${pad3(bearing(e.x, e.z))} · SECTOR CLEAR`); }
+          else if (e.kind === 'elite') log('SU-34 SPLASHED');
+        }
+        else if (e.k === 'lost' && s.phase === 'play' && emitting(s)) log(`LOCK LOST${e.n! > 1 ? ` x${e.n}` : ''} BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
+        else if (e.k === 'lost' && e.n! > 0 && !emitting(s)) log(`${e.n} LOCK${e.n! > 1 ? 'S' : ''} DROPPED · RADAR DARK`, 'alert'); else if (e.k === 'warning') { say('⚠ STRIKE AIRCRAFT', 'warn'); log('SU-34 PACKAGE INBOUND', 'alert'); }
+        else if (e.k === 'baseHit') { log(`IMPACT · ${ENEMIES[e.kind!].code} · -${Math.ceil(e.n!)} HP`, 'alert'); pop(project, 0, 0, `-${Math.ceil(e.n!)}`, 'dmg'); }
         else if (e.k === 'arm') {
           log(`ARM LAUNCH BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
           if (s.t - armSaid > 3 && !s.emcon) { armSaid = s.t; say('⚠ ARM INBOUND · [F] EMCON', 'warn'); }

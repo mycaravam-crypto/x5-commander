@@ -173,6 +173,18 @@ ok(s.enemies.every(e => !e.locked) && s.sweepSpeed === 0, 'dark radar: no locks,
 run(s, 10);
 ok(emitting(s), 'radar comes back');
 
+// Feedback events: fire control reports locks gained and lost, base hits carry the damage.
+{
+  const g = quiet(); const e = spawnEnemy(g, 'tank', 0, 30); e.hp = 1e9; e.speed = 0;
+  const ks: string[] = []; run(g, 4, () => { for (const v of g.events) ks.push(v.k); });
+  ok(ks.includes('acquire') && e.locked, 'lock acquired event');
+  toggleEmcon(g); update(g, 1 / 60);
+  ok(g.events.some(v => v.k === 'lost' && v.n === 1), 'lock lost event when the radar goes dark');
+  const h = quiet(); spawnEnemy(h, 'drone', 0, 5); h.st.slots = 0; let dmg = 0;
+  run(h, 3, () => { for (const v of h.events) if (v.k === 'baseHit') dmg = v.n!; });
+  ok(dmg > 0, 'base hit carries its damage');
+}
+
 // EMCON before it arrives: the ARM loses the emitter and misses.
 s = quiet(); s.st.slots = 0; spawnEnemy(s, 'arm', 1, 40); toggleEmcon(s);
 const pw = s.power;

@@ -23,7 +23,7 @@ export interface Shot {
   dmg: number; splash: number; life: number; target: number; src: string; // src: weapon, for the debrief
 }
 export type Ev =
-  | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect' | 'arm' | 'tbm' | 'jam' | 'ident'; x: number; z: number; kind?: EnemyKind; n?: number }
+  | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect' | 'arm' | 'tbm' | 'jam' | 'ident' | 'acquire' | 'lost'; x: number; z: number; kind?: EnemyKind; n?: number }
   | { k: 'beam' | 'rail' | 'gun'; x: number; z: number; x2: number; z2: number }
   | { k: 'raid'; x: number; z: number; name: string }
   | { k: 'package'; x: number; z: number; name: string }
@@ -454,7 +454,7 @@ function moveEnemies(s: State, dt: number) {
       if (e.dmg > 0) {
         s.hp -= e.dmg * armor;
         s.shake = Math.min(1.5, s.shake + 0.3 + e.dmg / 40);
-        s.events.push({ k: 'baseHit', x: e.x, z: e.z, kind: e.kind });
+        s.events.push({ k: 'baseHit', x: e.x, z: e.z, kind: e.kind, n: e.dmg * armor });
       }
       removeAt(s, i);
     }
@@ -599,6 +599,14 @@ function score(s: State, e: Enemy) {
 }
 
 function track(s: State, dt: number) {
+  // Feedback: locks gained and lost this frame (a classified decoy being released isn't a loss: 'ident' says so).
+  let lost = 0, got = 0, lx = 0, lz = 0, gx = 0, gz = 0;
+  const drop = (e: Enemy) => { e.locked = false; if (!e.ided) { lost++; lx = e.x; lz = e.z; } };
+  const lock = (e: Enemy) => { e.locked = true; got++; gx = e.x; gz = e.z; };
+  const report = () => {
+    if (lost) s.events.push({ k: 'lost', x: lx, z: lz, n: lost });
+    if (got) s.events.push({ k: 'acquire', x: gx, z: gz, n: got });
+  };
   const dark = !emitting(s);
   if (dark && !s.dark && s.st.blackout) // BLACKOUT PROTOCOL: what's on the scope coasts twice as long
     for (const e of s.enemies) if (e.seenUntil > s.t) e.seenUntil = s.t + (e.seenUntil - s.t) * BLACKOUT.dark;
@@ -607,9 +615,9 @@ function track(s: State, dt: number) {
     // Radar dark: fire control drops every track and contacts coast on track memory. TRACK FUSION keeps them.
     for (const e of s.enemies) if (e.locked) {
       if (s.st.fusion && e.x * e.x + e.z * e.z <= s.st.trackRange ** 2) e.seenUntil = Math.max(e.seenUntil, s.t + 0.5);
-      else { e.locked = false; e.seenUntil = s.t + s.st.persist * (s.st.blackout ? BLACKOUT.dark : 1); }
+      else { drop(e); e.seenUntil = s.t + s.st.persist * (s.st.blackout ? BLACKOUT.dark : 1); }
     }
-    return;
+    return report();
   }
   const tr2 = s.st.trackRange ** 2;
   let locks = 0;
@@ -619,21 +627,21 @@ function track(s: State, dt: number) {
       s.events.push({ k: 'ident', x: e.x, z: e.z });
     }
     // A classified decoy is released, unless the operator insists.
-    if (e.locked && (e.x * e.x + e.z * e.z > tr2 || e.ided && e.id !== s.marked)) e.locked = false;
+    if (e.locked && (e.x * e.x + e.z * e.z > tr2 || e.ided && e.id !== s.marked)) drop(e);
     if (e.locked) { locks++; e.seenUntil = Math.max(e.seenUntil, s.t + 0.5); }
   }
   // Too many locks (slots lowered by a perk) → drop extras
   const n = slots(s);
-  if (locks > n) for (const e of s.enemies) if (e.locked && locks > n && e.id !== s.marked) { e.locked = false; locks--; }
+  if (locks > n) for (const e of s.enemies) if (e.locked && locks > n && e.id !== s.marked) { drop(e); locks--; }
   // Manual mark always gets a slot.
   const m = s.marked ? s.enemies.find(e => e.id === s.marked) : undefined;
   if (m && !m.locked && visible(s, m) && m.x * m.x + m.z * m.z <= tr2) {
     if (locks >= n) {
-      let drop: Enemy | null = null;
-      for (const e of s.enemies) if (e.locked && (!drop || score(s, e) < score(s, drop))) drop = e;
-      if (drop) { drop.locked = false; locks--; }
+      let worst: Enemy | null = null;
+      for (const e of s.enemies) if (e.locked && (!worst || score(s, e) < score(s, worst))) worst = e;
+      if (worst) { drop(worst); locks--; }
     }
-    m.locked = true; locks++;
+    lock(m); locks++;
   }
   while (locks < n) {
     let best: Enemy | null = null, bs = -Infinity;
@@ -643,8 +651,9 @@ function track(s: State, dt: number) {
       if (sc > bs) { bs = sc; best = e; }
     }
     if (!best) break;
-    best.locked = true; locks++;
+    lock(best); locks++;
   }
+  report();
 }
 
 // Emergency intercept target, while one is running and fire control holds it.
