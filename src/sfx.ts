@@ -37,7 +37,7 @@ function noise(dur: number, vol = 0.08, freq = 1200) {
 }
 
 const last: Record<string, number> = {};
-const GAP: Record<string, number> = { gun: 0.07, shot: 0.05, beam: 0.06, hit: 0.04, kill: 0.04, detect: 0.25, missile: 0.08, baseHit: 0.1, arm: 0.5, tbm: 0.8, ident: 0.1 };
+const GAP: Record<string, number> = { gun: 0.07, shot: 0.05, beam: 0.06, hit: 0.04, kill: 0.04, detect: 0.25, missile: 0.08, baseHit: 0.1, arm: 0.5, tbm: 0.8, ident: 0.1, acquire: 0.12, lost: 0.25 };
 
 export function play(k: string) {
   if (!ctx || muted) return;
@@ -68,6 +68,8 @@ export function play(k: string) {
     case 'killChain': tone(988, 0.06, 'square', 0.03); tone(1319, 0.08, 'square', 0.03, 1319, 0.06); break;
     case 'counterSead': tone(440, 0.15, 'triangle', 0.04, 880); break;
     case 'lastStand': [220, 277, 330].forEach((f, i) => tone(f, 0.3, 'sawtooth', 0.05, f, i * 0.12)); break;
+    case 'acquire': tone(1480, 0.03, 'square', 0.012); break; // fire control has it
+    case 'lost': tone(700, 0.12, 'triangle', 0.025, 350); break;
     case 'emcon': tone(700, 0.12, 'triangle', 0.04, 350); break;
     case 'jam': noise(0.8, 0.04, 6000); break;
     case 'ident': tone(1100, 0.06, 'triangle', 0.025, 700); break;

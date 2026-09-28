@@ -405,6 +405,8 @@ export function createRenderer() {
         case 'tbm': wave(e.x, e.z, 4, ALERT, 0.6); break;
         case 'jam': wave(e.x, e.z, 8, ALERT, 1.2); break;
         case 'ident': wave(e.x, e.z, 3, MID, 0.4); break;
+        case 'acquire': wave(e.x, e.z, 3.5, HOT, 0.25, 0.8); break; // brackets snap on
+        case 'lost': wave(e.x, e.z, 2.5, ALERT, 0.3, 0.6); break;
         case 'radarDown': wave(0, 0, 14, ALERT, 0.8, 1.5); shards(0, 1.9, 30, ALERT, 14, 1, 2.5); gridFlash = 1; break;
         case 'intercept': wave(e.x, e.z, 8, HOT, 0.6, 1.5); wave(0, 0, 12, HOT, 0.5); break;
         case 'emcon': wave(0, 0, radarRange(s), MID, 0.6); break;
