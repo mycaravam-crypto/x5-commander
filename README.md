@@ -30,6 +30,8 @@ The game runs entirely in the browser, with no backend and no asset files. `dist
 | Input                  | Action                                    |
 |------------------------|-------------------------------------------|
 | Space / Enter          | Start game                                |
+| Space (in play)        | Emergency intercept                       |
+| G                      | Cycle fire discipline: CONSERVE / BALANCED / MAXIMUM |
 | D                      | Start today's daily op                    |
 | Left click             | Mark a contact as the priority target, or place a bought pad |
 | Mouse wheel            | Zoom                                      |
@@ -67,7 +69,11 @@ The enemy fights your radar, not just your base.
 - **Jammer helicopters (Mi-8MTPR-1)** stop outside the battery and circle it. Inside the sector they cover, detection chance drops to about a third. You see the jammer's bearing as an amber strobe, not its range. The jammer itself shows up clearly on radar, so mark it and kill it.
 
 ### Locking and targeting
-Detected enemies are locked, up to your number of **lock slots**. A lock holds as long as the enemy stays within tracking range. All weapons fire automatically at locked targets. Left-click a contact to mark it as the priority target; it always gets a lock slot. Otherwise, the auto mode picks targets (`T` to cycle): **CLOSEST**, then **WEAKEST**, **RICHEST** and **FASTEST**, each unlocked by the *Target Logic* upgrade.
+Detected enemies are locked, up to your number of **lock slots**. A lock holds as long as the enemy stays within tracking range. All weapons fire automatically at locked targets. Left-click a contact to mark it as the **priority target**: it always gets a lock slot, is engaged first and takes +25% damage, but painting it costs 1.2 power/s for as long as you hold it. Otherwise, the auto mode picks targets (`T` to cycle): **CLOSEST**, then **WEAKEST**, **RICHEST** and **FASTEST**, each unlocked by the *Target Logic* upgrade.
+
+### Commands
+- **Fire discipline (`G`)**: **CONSERVE** fires 25% slower, at 75% of weapon range, for 25% less ammo and power per shot. **BALANCED** is the default. **MAXIMUM** fires 40% faster and keeps firing until 1.6× a target's HP is in the air, for 30% more per shot.
+- **Emergency intercept (`Space`)**: for 4 s every weapon, and every perimeter pad in reach, fires only at the priority target (or, with none marked, the visible threat nearest impact), 60% faster and past a sure kill. Costs 25 power and needs the radar up; 30 s cooldown.
 
 ### Weapons
 | Weapon                   | Uses         | Notes                                                   |

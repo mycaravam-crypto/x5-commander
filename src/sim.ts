@@ -1,6 +1,6 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, PHASE_LEN, ELITE_EVERY,
-  ENEMIES, KINDS, WEAPONS, PHASES, DOCTRINES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, SWEEP_CAP, grow, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty,
+  ENEMIES, KINDS, WEAPONS, PHASES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, SWEEP_CAP, grow, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty,
   ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   type EnemyKind, type PerimKind, type WeaponKind, type Mod,
 } from './config.ts';
@@ -25,7 +25,8 @@ export type Ev =
   | { k: 'beam' | 'rail' | 'gun'; x: number; z: number; x2: number; z2: number }
   | { k: 'raid'; x: number; z: number; name: string }
   | { k: 'raidClear' | 'raidLeak'; n: number }
-  | { k: 'level' | 'warning' | 'buy' | 'placing' | 'lock' | 'over' | 'emcon' | 'radarDown' | 'aesa' };
+  | { k: 'intercept'; x: number; z: number }
+  | { k: 'level' | 'warning' | 'buy' | 'placing' | 'lock' | 'over' | 'emcon' | 'radarDown' | 'aesa' | 'discipline' };
 
 export type Phase = 'start' | 'play' | 'pause' | 'perk' | 'over';
 
@@ -84,6 +85,9 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     stats: { kills: {} as Partial<Record<EnemyKind, number>>, dmg: {} as Record<string, number>, raids: 0, clean: 0, armsEvaded: 0, radarHits: 0 },
     mode: 0,
     marked: 0,
+    discipline: 1, // index into DISCIPLINES, BALANCED
+    intercept: { until: 0, target: 0 }, // emergency intercept in progress
+    interceptReady: 0, // time the next intercept can be called
     nextId: 1,
     events: [] as Ev[],
     shake: 0,
@@ -217,6 +221,46 @@ export function markAt(s: State, x: number, z: number) {
 }
 
 export const cycleMode = (s: State) => { s.mode = (s.mode + 1) % s.st.modes; };
+
+export function cycleDiscipline(s: State) {
+  if (s.phase !== 'play') return;
+  s.discipline = (s.discipline + 1) % DISCIPLINES.length;
+  s.events.push({ k: 'discipline' });
+}
+
+// The contact an emergency intercept would go after: the priority target, else the visible threat nearest impact.
+export function interceptTarget(s: State) {
+  const m = s.marked ? s.enemies.find(e => e.id === s.marked && visible(s, e)) : undefined;
+  if (m) return m;
+  let best: Enemy | undefined, bt = Infinity;
+  for (const e of s.enemies) {
+    if (!visible(s, e) || e.ided) continue;
+    const t = Math.hypot(e.x, e.z) / e.speed;
+    if (t < bt) { bt = t; best = e; }
+  }
+  return best;
+}
+export const interceptActive = (s: State) => s.t < s.intercept.until;
+// '' = ready, else why not.
+export function interceptBlock(s: State) {
+  if (interceptActive(s)) return 'ACTIVE';
+  if (s.t < s.interceptReady) return `${Math.ceil(s.interceptReady - s.t)}s`;
+  if (!emitting(s)) return 'NO RADAR';
+  if (s.power < INTERCEPT.power) return 'LOW PWR';
+  return '';
+}
+
+export function emergencyIntercept(s: State) {
+  if (s.phase !== 'play' || interceptBlock(s)) return false;
+  const e = interceptTarget(s);
+  if (!e) return false;
+  s.power -= INTERCEPT.power;
+  s.interceptReady = s.t + INTERCEPT.cooldown;
+  s.intercept = { until: s.t + INTERCEPT.time, target: e.id };
+  s.marked = e.id; // becomes the priority target, so fire control locks it now
+  s.events.push({ k: 'intercept', x: e.x, z: e.z });
+  return true;
+}
 
 export function toggleEmcon(s: State) {
   if (s.phase !== 'play') return;
@@ -380,8 +424,10 @@ function perimeter(s: State, dt: number) {
     p.cd = Math.max(0, p.cd - dt);
     if (p.cd > 0 || s.ammo < w.ammo) continue;
     let best: Enemy | null = null, bd = w.range ** 2;
+    const ic = interceptActive(s) ? s.enemies.find(e => e.id === s.intercept.target) : undefined;
     for (const e of s.enemies) {
-      if (!visible(s, e) || e.ided || e.incoming >= e.hp || ENEMIES[e.kind].pacOnly) continue;
+      if (!visible(s, e) || e.ided || e.incoming >= e.hp && e !== ic || ENEMIES[e.kind].pacOnly) continue;
+      if (ic && e !== ic && (ic.x - p.x) ** 2 + (ic.z - p.z) ** 2 < bd) continue; // intercept target in reach: only it
       const d = (e.x - p.x) ** 2 + (e.z - p.z) ** 2;
       if (d < bd) { bd = d; best = e; }
     }
@@ -422,6 +468,7 @@ function powerAndAmmo(s: State, dt: number) {
   const st = s.st;
   s.power = Math.min(st.powerCap, s.power + st.gen * dt);
   // Radar gets what's left; starving it slows the sweep (floor 25%). Silent radar draws nothing.
+  if (s.marked) s.power = Math.max(0, s.power - PRIORITY_POWER * dt); // painting the priority target
   const on = emitting(s), want = on ? st.drain * dt : 0, got = Math.min(want, s.power);
   s.power -= got;
   s.sweepSpeed = on ? st.sweep * Math.max(0.25, got / want) : 0;
@@ -504,22 +551,35 @@ function track(s: State, dt: number) {
   }
 }
 
+// Emergency intercept target, while one is running and fire control holds it.
+function interceptLock(s: State) {
+  if (!interceptActive(s)) return undefined;
+  const e = s.enemies.find(e => e.id === s.intercept.target && e.locked);
+  if (!e && !s.enemies.some(e => e.id === s.intercept.target)) s.intercept.until = 0; // it's dead: stand down
+  return e;
+}
+
 function fire(s: State, dt: number) {
-  const targets = s.enemies.filter(e => e.locked && e.incoming < e.hp);
+  const D = DISCIPLINES[s.discipline], ic = interceptLock(s);
+  // Commit: how much damage may already be in flight before a target is left alone.
+  const open = (e: Enemy) => e === ic || e.incoming < e.hp * D.commit;
+  const targets = ic ? [ic] : s.enemies.filter(e => e.locked && open(e));
   targets.sort((a, b) => (b.id === s.marked ? 1e12 : score(s, b)) - (a.id === s.marked ? 1e12 : score(s, a)));
+  const rate = D.rate * (ic ? INTERCEPT.rate : 1);
   let wi = 0;
   for (const k of ['cannon', 'pulse', 'missile', 'rail'] as WeaponKind[]) {
     const w = s.st.weapons[k];
     s.cooldown[k] = Math.max(0, s.cooldown[k] - dt);
     if (!w || s.cooldown[k] > 0) continue;
-    const r2 = w.range ** 2;
+    const r2 = (w.range * (ic ? 1 : D.range)) ** 2;
     // Spread weapons over locks; fall back to any lock in range.
-    const inRange = targets.filter(e => e.x * e.x + e.z * e.z <= r2 && e.incoming < e.hp && (k === 'cannon' || !ENEMIES[e.kind].pacOnly));
+    const inRange = targets.filter(e => e.x * e.x + e.z * e.z <= r2 && open(e) && (k === 'cannon' || !ENEMIES[e.kind].pacOnly));
     const e = inRange[wi++ % Math.max(1, inRange.length)];
     if (!e) continue;
-    if (s.ammo < w.ammo || s.power < w.power) continue;
-    s.ammo -= w.ammo; s.power -= w.power;
-    s.cooldown[k] = 1 / w.rate;
+    const ammo = w.ammo * D.cost, power = w.power * D.cost;
+    if (s.ammo < ammo || s.power < power) continue;
+    s.ammo -= ammo; s.power -= power;
+    s.cooldown[k] = 1 / (w.rate * rate);
     if (k === 'cannon') {
       // Lead the target: solve |p + v t| = speed * t (one Newton-ish pass is plenty)
       const d = Math.hypot(e.x, e.z), tt = d / w.speed;
@@ -611,7 +671,7 @@ function explode(s: State, x: number, z: number, r: number, dmg: number, src: st
 function damage(s: State, e: Enemy, dmg: number, src: string) {
   if (e.hp <= 0) return; // already dead this frame
   if (ENEMIES[e.kind].pacOnly && src !== 'PAC-3') return;
-  if (e.id === s.marked) dmg *= s.st.markDmg;
+  if (e.id === s.marked) dmg *= PRIORITY_DMG * s.st.markDmg;
   s.stats.dmg[src] = (s.stats.dmg[src] ?? 0) + Math.min(dmg, e.hp);
   e.hp -= dmg;
   if (e.hp > 0) { s.events.push({ k: 'hit', x: e.x, z: e.z }); return; }

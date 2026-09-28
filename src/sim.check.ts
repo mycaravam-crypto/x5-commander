@@ -1,5 +1,5 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, emitting, jamFactor, phase, draft, placePad, rand, dailySeed, type State } from './sim.ts';
+import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, draft, placePad, rand, dailySeed, type State } from './sim.ts';
 import { baseLevel, difficulty, UPGRADES, PERKS, deriveStats, EW_ORBIT, MODS, PHASES, PHASE_LEN, RAID_WARN } from './config.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
@@ -106,6 +106,47 @@ s = newGame(); s.phase = 'play'; run(s, 20);
 const v = s.enemies.find(e => visible(s, e));
 if (v) { markAt(s, v.x, v.z); ok(s.marked === v.id, 'markAt'); }
 
+// Fire discipline: CONSERVE fires fewer interceptors at the same raid than MAXIMUM.
+{
+  const shots = (d: number) => {
+    const g = quiet(); g.discipline = d; let n = 0;
+    for (let i = 0; i < 6; i++) spawnEnemy(g, 'tank', i, 50).hp = 1e9;
+    run(g, 15, () => { n += g.events.filter(e => e.k === 'shot').length; });
+    return n;
+  };
+  const c = quiet(); cycleDiscipline(c); ok(c.discipline === 2, 'G cycles discipline');
+  ok(shots(0) < shots(1) && shots(1) < shots(2), `discipline sets the rate of fire (${shots(0)} < ${shots(1)} < ${shots(2)})`);
+}
+
+// Priority target: takes extra damage, and holding it costs power.
+{
+  const dealt = (mark: boolean) => {
+    const g = quiet(); g.st.slots = 1; const e = spawnEnemy(g, 'tank', 0, 30); e.hp = e.maxHp = 1e9;
+    run(g, 3); if (mark) markAt(g, e.x, e.z);
+    const d0 = g.stats.dmg['PAC-3'] ?? 0, p0 = g.power; g.st.gen = 0; g.st.ammoProd = 0; g.ammo = 1e9;
+    run(g, 6);
+    return [g.stats.dmg['PAC-3'] - d0, p0 - g.power];
+  };
+  const [dm, pm] = dealt(true), [du, pu] = dealt(false);
+  ok(dm > du * 1.15 && pm > pu, `priority target: more damage (${dm.toFixed(0)} vs ${du.toFixed(0)}), costs power`);
+}
+
+// Emergency intercept: costs power, starts a cooldown, puts every weapon on one target.
+{
+  const g = quiet(); g.lv.pulse = 1; g.st = deriveStats(g.lv, []); g.st.slots = 3;
+  const far = spawnEnemy(g, 'tank', 0, 30), near = spawnEnemy(g, 'tank', 2, 20);
+  far.hp = far.maxHp = near.hp = near.maxHp = 1e9;
+  run(g, 3);
+  ok(interceptBlock(g) === '', 'intercept ready');
+  const pw = g.power;
+  ok(emergencyIntercept(g) && g.power < pw && g.marked === near.id, 'intercept picks the nearest threat and costs power');
+  ok(!emergencyIntercept(g), 'intercept has a cooldown');
+  const d0 = g.stats.dmg.HEL ?? 0; far.incoming = 0;
+  let farShot = false;
+  run(g, 3, () => { for (const p of g.shots) if (p.target === far.id) farShot = true; });
+  ok(!farShot && (g.stats.dmg.HEL ?? 0) > d0, 'all weapons on the intercept target');
+  run(g, 30); ok(interceptBlock(g) === '' || interceptBlock(g) === 'LOW PWR', 'intercept recharges');
+}
 
 // ARM vs a radiating radar: it connects and the radar goes dark.
 s = quiet(); s.st.slots = 0; spawnEnemy(s, 'arm', 0, 40);

@@ -62,6 +62,8 @@ export function play(k: string) {
     case 'arm': for (let i = 0; i < 5; i++) tone(2400, 0.045, 'square', 0.03, 2400, i * 0.08); break; // RWR launch warning
     case 'tbm': for (let i = 0; i < 4; i++) tone(i % 2 ? 660 : 990, 0.12, 'square', 0.04, i % 2 ? 660 : 990, i * 0.13); break; // ballistic warning
     case 'radarDown': noise(0.7, 0.15, 1500); tone(900, 0.9, 'sawtooth', 0.06, 50); break;
+    case 'intercept': [1320, 1760, 1320, 1760].forEach((f, i) => tone(f, 0.07, 'square', 0.035, f, i * 0.07)); break;
+    case 'discipline': tone(520, 0.06, 'square', 0.03, 780); break;
     case 'emcon': tone(700, 0.12, 'triangle', 0.04, 350); break;
     case 'jam': noise(0.8, 0.04, 6000); break;
     case 'ident': tone(1100, 0.06, 'triangle', 0.025, 700); break;
