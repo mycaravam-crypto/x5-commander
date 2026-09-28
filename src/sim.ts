@@ -1,8 +1,8 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, PHASE_LEN, ELITE_EVERY,
-  ENEMIES, KINDS, WEAPONS, PHASES, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, SWEEP_CAP, grow, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty,
+  ENEMIES, KINDS, WEAPONS, PHASES, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, RAID_SPAWN, RAID_RECOVER, RAID_CALM, RAID_PRESS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, SWEEP_CAP, grow, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty,
   ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
-  type EnemyKind, type PerimKind, type WeaponKind, type Mod,
+  type EnemyKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
 } from './config.ts';
 
 export interface Enemy {
@@ -27,7 +27,8 @@ export type Ev =
   | { k: 'beam' | 'rail' | 'gun'; x: number; z: number; x2: number; z2: number }
   | { k: 'raid'; x: number; z: number; name: string }
   | { k: 'package'; x: number; z: number; name: string }
-  | { k: 'raidClear' | 'raidLeak'; n: number }
+  | { k: 'raidStart'; x: number; z: number; name: string }
+  | { k: 'raidClear' | 'raidLeak' | 'raidEnd'; n: number }
   | { k: 'intercept'; x: number; z: number }
   | { k: 'level' | 'warning' | 'buy' | 'placing' | 'lock' | 'over' | 'emcon' | 'radarDown' | 'aesa' | 'discipline' };
 
@@ -82,8 +83,11 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     spawnAcc: 0,
     nextElite: ELITE_EVERY,
     nextRaid: RAID_FIRST,
-    raid: null as null | { name: string; a: number; at: number; g: Partial<Record<EnemyKind, number>> }, // announced, not yet here
-    raidId: 0, raidLeft: 0, raidClean: true, raidReward: 0,
+    // Announced, not yet here: composition (in aircraft) and the bonus it pays if the objective holds.
+    raid: null as null | { name: string; a: number; at: number; g: Partial<Record<EnemyKind, number>>; obj: RaidObjective; n: Partial<Record<EnemyKind, number>>; bonus: number },
+    // The raid in the air: its id, aircraft left, objective still held, reward so far, bearing, objective, name.
+    raidId: 0, raidLeft: 0, raidClean: true, raidReward: 0, raidA: 0, raidObj: 'battery' as RaidObjective, raidName: '',
+    calmUntil: 0, // recovery lull after a raid defended
     // debrief counters
     stats: { kills: {} as Partial<Record<EnemyKind, number>>, dmg: {} as Record<string, number>, raids: 0, clean: 0, armsEvaded: 0, radarHits: 0 },
     mode: 0,
@@ -310,12 +314,15 @@ export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2
   return s.enemies[s.enemies.length - 1];
 }
 
+// Packs of `kind` a group of `n` brings at `scale`. One escort jammer is enough, however big the group.
+export const groupCount = (kind: EnemyKind, n: number, scale: number) => kind === 'ew' ? n : Math.max(1, Math.round(n * scale));
+
 // A group flying in together from bearing `a`, in rows, counts in packs. Escort jammers hold its bearing.
 function spawnGroup(s: State, g: Partial<Record<EnemyKind, number>>, a: number, scale: number, rw: () => number) {
   const id = s.nextPkg++, out: Enemy[] = [];
   let row = 0;
   for (const [kind, n] of Object.entries(g) as [EnemyKind, number][]) {
-    for (let i = 0; i < Math.max(1, Math.round(n * scale)); i++, row++) for (let j = 0; j < ENEMIES[kind].pack; j++) {
+    for (let i = 0; i < groupCount(kind, n, scale); i++, row++) for (let j = 0; j < ENEMIES[kind].pack; j++) {
       const e = spawnEnemy(s, kind, a + (rw() - 0.5) * 0.35, ARENA_R + 2 + row * 1.5 + rw() * 2, rw);
       e.pkg = id;
       // The escort goes in ahead, on the axis, so it's on station jamming before the package is in radar range.
@@ -329,7 +336,7 @@ function spawnGroup(s: State, g: Partial<Record<EnemyKind, number>>, a: number, 
 function spawn(s: State, dt: number) {
   const rw = () => rand(s.world);
   const { w, mod, pk } = phase(s);
-  s.spawnAcc += difficulty(s.t).spawnRate * (mod.spawn ?? 1) * dt;
+  s.spawnAcc += difficulty(s.t).spawnRate * (mod.spawn ?? 1) * (s.raidLeft ? RAID_SPAWN : s.t < s.calmUntil ? RAID_CALM : 1) * dt;
   const total = KINDS.reduce((a, k) => a + (w[k] ?? 0), 0);
   while (s.spawnAcc >= 1) {
     s.spawnAcc--;
@@ -353,15 +360,24 @@ function spawn(s: State, dt: number) {
   }
   if (!s.raid && s.t >= s.nextRaid - RAID_WARN) {
     const r = pick(s.world, RAIDS.filter(r => s.t >= r.from)), a = rw() * TAU;
-    s.raid = { name: r.name, a, at: s.nextRaid, g: r.g };
+    // Same rounding spawnGroup will use at arrival, so the briefing matches what shows up.
+    const scale = grow(s.nextRaid / 60, 0.7), n: Partial<Record<EnemyKind, number>> = {};
+    let reward = 0;
+    for (const [k, c] of Object.entries(r.g) as [EnemyKind, number][]) {
+      n[k] = groupCount(k, c, scale) * ENEMIES[k].pack;
+      if (k !== 'ew') reward += n[k]! * ENEMIES[k].reward;
+    }
+    s.raid = { name: r.name, a, at: s.nextRaid, g: r.g, obj: r.obj ?? 'battery', n, bonus: Math.round(reward * RAID_BONUS) + 25 };
     s.nextRaid += RAID_EVERY;
     s.events.push({ k: 'raid', x: Math.cos(a) * ARENA_R, z: Math.sin(a) * ARENA_R, name: r.name });
   }
   if (s.raid && s.t >= s.raid.at) {
-    const { a, g } = s.raid, scale = grow(s.t / 60, 0.7);
+    const { a, g, name, obj } = s.raid, scale = grow(s.raid.at / 60, 0.7);
     s.raid = null;
-    s.raidId++; s.raidLeft = 0; s.raidClean = true; s.raidReward = 0;
-    for (const e of spawnGroup(s, g, a, scale, rw)) { e.raid = s.raidId; s.raidLeft++; s.raidReward += e.reward; }
+    s.raidId++; s.raidLeft = 0; s.raidClean = true; s.raidReward = 0; s.raidA = a; s.raidObj = obj; s.raidName = name; s.calmUntil = 0;
+    // The escort jammer flies with the raid but doesn't count: the raid is over once the strikers are gone.
+    for (const e of spawnGroup(s, g, a, scale, rw)) if (e.kind !== 'ew') { e.raid = s.raidId; s.raidLeft++; s.raidReward += e.reward; }
+    s.events.push({ k: 'raidStart', x: Math.cos(a) * ARENA_R, z: Math.sin(a) * ARENA_R, name });
   }
 }
 
@@ -396,11 +412,13 @@ function moveEnemies(s: State, dt: number) {
     // Su-34s loose Kh-31Ps at a radiating radar once in range.
     if (e.kind === 'elite' && (e.cd -= dt) <= 0 && d < ARM_LAUNCH_R && emitting(s)) {
       e.cd = ARM_EVERY;
-      spawnEnemy(s, 'arm', Math.atan2(e.z, e.x), d - 1);
+      const arm = spawnEnemy(s, 'arm', Math.atan2(e.z, e.x), d - 1);
+      if (e.raid && e.raid === s.raidId) { arm.raid = e.raid; s.raidLeft++; } // part of the raid
     }
     e.x += e.vx * dt; e.z += e.vz * dt;
     if (d < BASE_R + e.size * 0.5) {
-      if (e.raid === s.raidId && (e.dmg > 0 || e.kind === 'arm')) s.raidClean = false;
+      // Objective lost: PROTECT BATTERY by anything of the raid landing, PROTECT RADAR by any ARM hit while it's on.
+      if (s.raidClean && s.raidLeft && (s.raidObj === 'radar' ? e.kind === 'arm' : e.raid === s.raidId && e.dmg > 0)) raidLost(s);
       if (e.kind === 'arm') {
         s.radarDownUntil = Math.min(Math.max(s.radarDownUntil, s.t) + ARM_STUN, s.t + 2 * ARM_STUN);
         s.events.push({ k: 'radarDown' });
@@ -471,6 +489,13 @@ function perimeter(s: State, dt: number) {
   }
 }
 
+// The enemy presses the advantage: no bonus, no recovery lull, and the next raid comes sooner.
+function raidLost(s: State) {
+  s.raidClean = false;
+  s.nextRaid = Math.max(s.t + RAID_WARN + 5, s.nextRaid - RAID_PRESS);
+  s.events.push({ k: 'raidLeak', n: RAID_PRESS });
+}
+
 function removeAt(s: State, i: number) {
   const e = s.enemies[i];
   if (s.marked === e.id) s.marked = 0;
@@ -478,9 +503,10 @@ function removeAt(s: State, i: number) {
   s.enemies.pop();
   if (e.raid && e.raid === s.raidId && --s.raidLeft === 0) {
     s.stats.raids++;
-    if (!s.raidClean) { s.events.push({ k: 'raidLeak', n: 0 }); return; }
+    if (!s.raidClean) { s.events.push({ k: 'raidEnd', n: 0 }); return; }
+    s.calmUntil = s.t + RAID_RECOVER;
     s.stats.clean++;
-    const n = Math.round(s.raidReward * RAID_BONUS * s.st.credits) + 25;
+    const n = Math.round((s.raidReward * RAID_BONUS + 25) * s.st.credits);
     s.credits += n; s.earned += n;
     s.events.push({ k: 'raidClear', n });
   }

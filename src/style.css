@@ -37,6 +37,17 @@ b { font-weight: 600; }
 #combo { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 6px; color: var(--hot);
   font-weight: 700; font-size: 16px; white-space: nowrap; }
 
+/* Raid briefing (preparation window), then a compact status line while the attack is on. */
+#raidcard { top: 92px; left: 50%; transform: translateX(-50%); padding: 8px 18px; text-align: center; --c: var(--alert);
+  border-color: color-mix(in srgb, var(--alert) 45%, transparent); color: var(--alert); text-shadow: 0 0 8px var(--alert); display: none; }
+#raidcard.on { display: block; }
+#raidcard b { display: block; font-size: 20px; letter-spacing: 0.25em; margin: 2px 0; }
+#raidcard small { color: var(--alert); opacity: 0.8; }
+#raidcard .obj { color: var(--hot); text-shadow: var(--glow); }
+#raidcard.brief { animation: raidpulse 0.8s steps(1) infinite; }
+@keyframes raidpulse { 50% { border-color: var(--alert); } }
+body.raid #top, body.raid #left { --c: var(--alert); border-color: color-mix(in srgb, var(--alert) 35%, transparent); }
+
 #left { top: 12px; left: 12px; width: 240px; padding: 10px; }
 .bar { margin-bottom: 6px; }
 .bar small { display: flex; justify-content: space-between; }
@@ -163,4 +174,6 @@ b { font-weight: 600; }
   .perks { flex-wrap: wrap; }
   .card h1 { font-size: 32px; }
   #banner { font-size: 18px; white-space: normal; width: 90%; }
+  #raidcard { top: 56px; font-size: 11px; width: 92%; }
+  #raidcard b { font-size: 15px; }
 }

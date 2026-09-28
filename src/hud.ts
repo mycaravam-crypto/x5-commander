@@ -1,4 +1,4 @@
-import { ARENA_R, BASE_R, PLACE_TIME, DOCTRINES, PACKAGES, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
+import { ARENA_R, BASE_R, PLACE_TIME, DOCTRINES, PACKAGES, OBJECTIVES, RAID_PRESS, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
 import type { Records } from './config.ts';
 import { cost, emitting, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
@@ -28,7 +28,7 @@ const TIPS: Record<string, string> = {
   start: 'Click a contact to make it the priority target: engaged first, +25% damage, costs power while held. Spend credits in the shop [Tab].',
   discipline: 'Fire discipline [G]: CONSERVE saves interceptors and fires late, MAXIMUM fires fast and overkills.',
   intercept: 'Emergency intercept: every weapon on one threat for a few seconds. Long cooldown, costs power.',
-  raid: 'Raid inbound from one bearing. Kill all of it before anything lands for a clean-raid bonus.',
+  raid: 'Raid inbound: you have a few seconds to prepare. Set radar, fire discipline and priority before it arrives. Hold the objective for the bonus and a recovery lull; lose it and the next raid comes sooner.',
   warning: 'Su-34s are tough and fire anti-radiation missiles at a radiating radar. Click one to focus fire on it.',
   arm: 'ARM launch: it homes on your radar. Press [F] for EMCON before it gets close. While silent you lose every lock.',
   tbm: 'Ballistic missile: only PAC-3 can hit it. Keep interceptors in stock and a lock slot free.',
@@ -264,10 +264,12 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       ...ffSpeed > 1 ? [['SPEED [X]', `<span class="hot">${ffSpeed}×</span>`]] : [],
       ['RANGE', `${Math.round(st.radarRange)}m`], ['PERIMETER', `${s.perim.length} / ${perimSlots(s.level)} pads`], ['RADAR [F]', radar],
       ...s.placing ? [['PAD', `<span class="hot">CLICK MAP · ${Math.max(0, PLACE_TIME - (s.t - s.placing.since)).toFixed(0)}s</span>`]] : [],
-      ...s.raid ? [['RAID', `<span class="alert">BRG ${pad3(bearing(Math.cos(s.raid.a), Math.sin(s.raid.a)))} · T-${Math.max(0, s.raid.at - s.t).toFixed(0)}s</span>`]]
-        : s.raidLeft ? [['RAID', `${s.raidLeft} left${s.raidClean ? ' · CLEAN' : ''}`]] : [],
+      ...s.raid ? [['RAID', `<span class="alert">${pad3(bearing(Math.cos(s.raid.a), Math.sin(s.raid.a)))}° T-${Math.max(0, s.raid.at - s.t).toFixed(0)}s</span>`]]
+        : s.raidLeft ? [['RAID', `<span class="alert">${s.raidLeft} LEFT</span>${s.raidClean ? ' · HELD' : ' · <span class="alert">LOST</span>'}`]]
+        : s.t < s.calmUntil ? [['RECOVERY', `${Math.ceil(s.calmUntil - s.t)}s`]] : [],
     ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
     document.body.classList.toggle('crit', s.phase === 'play' && s.hp / st.maxHp < 0.3);
+    raidCard(s);
     const m = s.marked ? s.enemies.find(e => e.id === s.marked) : undefined;
     const d = m ? Math.hypot(m.x, m.z) : 0;
     $('target').innerHTML = m ? `<b>${tag(m)}</b><br>${ENEMIES[shownKind(m)].name}<br>BRG ${pad3(bearing(m.x, m.z))} · RNG ${pad3(d)}m · ETA ${Math.max(0, (d - BASE_R) / m.speed).toFixed(1)}s<br>HP ${fmt(Math.max(0, m.hp))} / ${fmt(m.maxHp)}<b class="seg" style="--r:${Math.max(0, m.hp / m.maxHp)}"></b>` : '';
@@ -280,6 +282,26 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       b.classList.toggle('max', c === Infinity && !why);
       b.classList.toggle('locked', !!why);
     }
+  }
+
+  // ---- raid card: full briefing during the preparation window, a status line during the attack ----
+  const rc = $('raidcard');
+  let rcHtml = '';
+  function raidCard(s: State) {
+    let h = '', cls = '';
+    const on = s.phase === 'play' || s.phase === 'pause';
+    if (on && s.raid) {
+      const r = s.raid, comp = (Object.entries(r.n) as [keyof typeof ENEMIES, number][]).map(([k, n]) => `${n} × ${ENEMIES[k].code}`).join(' &nbsp; ');
+      h = `<small>INCOMING RAID · SECTOR ${pad3(bearing(Math.cos(r.a), Math.sin(r.a)))}° · T-${Math.max(0, r.at - s.t).toFixed(0)}s</small><b>${r.name}</b>${comp}<br>
+        <small>OBJECTIVE</small> <span class="obj">${OBJECTIVES[r.obj]}</span> &nbsp; <small>BONUS</small> <span class="obj">+${fmt(r.bonus * s.st.credits)} CR</span>`;
+      cls = 'on brief';
+    } else if (on && s.raidLeft) {
+      h = `<small>${s.raidName} · ${s.raidLeft} LEFT · ${OBJECTIVES[s.raidObj]}</small> ${s.raidClean ? '<span class="obj">HELD</span>' : 'LOST'}`;
+      cls = 'on';
+    }
+    if (h !== rcHtml) { rcHtml = h; rc.innerHTML = h; }
+    if (rc.className !== cls) rc.className = cls;
+    document.body.classList.toggle('raid', !!cls);
   }
 
   return {
@@ -313,8 +335,10 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
           log(`${e.name} BRG ${pad3(bearing(e.x, e.z))} · KILL ${ENEMIES[p.first].code} FIRST`, 'alert');
           log(p.why.toUpperCase());
         }
-        else if (e.k === 'raidClear') { say(`RAID DEFEATED · +${fmt(e.n)}`, 'info'); log(`RAID CLEAN · +${fmt(e.n)}`); }
-        else if (e.k === 'raidLeak') log('RAID LEAKED · NO BONUS', 'alert');
+        else if (e.k === 'raidStart') { say(`${e.name} · ENGAGE`, 'warn'); log(`RAID IN · ${e.name} · ${OBJECTIVES[s.raidObj]}`, 'alert'); }
+        else if (e.k === 'raidClear') { say(`OBJECTIVE HELD · +${fmt(e.n)}`, 'info'); log(`RAID DEFEATED · +${fmt(e.n)} CR · RECOVERY`); }
+        else if (e.k === 'raidLeak') { say('OBJECTIVE LOST', 'warn'); log(`OBJECTIVE LOST · NEXT RAID ${RAID_PRESS}s SOONER`, 'alert'); }
+        else if (e.k === 'raidEnd') log('RAID OVER · NO BONUS · NO RECOVERY', 'alert');
         else if (e.k === 'aesa') { say('LTAMDS ONLINE · 360° STARE', 'info'); log('AESA ONLINE · SWEEP RETIRED'); }
         else if (e.k === 'level') log(`BATTERY LV ${s.level} · LAUNCHER EMPLACED · ${perimSlots(s.level)} PERIMETER PADS`);
         else if (e.k === 'buy' || e.k === 'discipline') { acc = 1; if (e.k === 'discipline') log(`FIRE DISCIPLINE · ${DISCIPLINES[s.discipline].name}`); }

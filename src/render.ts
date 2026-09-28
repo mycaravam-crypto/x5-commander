@@ -389,6 +389,8 @@ export function createRenderer() {
         case 'emcon': wave(0, 0, s.st.radarRange, MID, 0.6); break;
         case 'raid': wave(e.x, e.z, 14, ALERT, 1.2, 1.5); break;
         case 'package': wave(e.x, e.z, 9, ALERT, 1); break;
+        case 'raidStart': wave(e.x, e.z, 20, ALERT, 1.5, 1.5); wave(0, 0, ARENA_R, ALERT, 1.2); break;
+        case 'raidLeak': wave(0, 0, 18, ALERT, 1, 1.5); gridFlash = 0.8; break;
         case 'raidClear': wave(0, 0, 30, HOT, 1, 1.5); shards(0, 0, 30, HOT, 18, 1, 3); break;
       }
     }
@@ -421,7 +423,7 @@ export function createRenderer() {
     trackRing.scale.setScalar(s.st.trackRange);
     gridFlash = Math.max(0, gridFlash - dt * 2.5);
     gridMat.color.setScalar((phase(s).mod.dark ? 0.45 : 1) + gridFlash * 4);
-    raidMark.visible = !!s.raid;
+    raidMark.visible = !!s.raid || s.raidLeft > 0; // warning: pulsing in; attack: held steady on the raid's bearing
     padMarks.count = 0;
     if (s.placing) for (const i of freeSlots(s)) {
       dummy.position.set(Math.cos(padAngle(i)) * PERIM_R, 0.15, Math.sin(padAngle(i)) * PERIM_R);
@@ -429,10 +431,10 @@ export function createRenderer() {
       dummy.updateMatrix(); padMarks.setMatrixAt(padMarks.count, dummy.matrix);
       padMarks.setColorAt(padMarks.count++, tmpC.setHex(HOT));
     }
-    if (s.raid) {
-      const pulse = (clock * 1.5) % 1;
-      raidMark.position.set(Math.cos(s.raid.a) * (ARENA_R - 1 - pulse * 3), 0.2, Math.sin(s.raid.a) * (ARENA_R - 1 - pulse * 3));
-      raidMark.rotation.y = -s.raid.a; raidMark.scale.setScalar(2.2);
+    if (raidMark.visible) {
+      const a = s.raid ? s.raid.a : s.raidA, pulse = s.raid ? (clock * 1.5) % 1 : 0.5 + 0.2 * Math.sin(clock * 3);
+      raidMark.position.set(Math.cos(a) * (ARENA_R - 1 - pulse * 3), 0.2, Math.sin(a) * (ARENA_R - 1 - pulse * 3));
+      raidMark.rotation.y = -a; raidMark.scale.setScalar(2.2);
       (raidMark.material as THREE.MeshBasicMaterial).color.setHex(ALERT).multiplyScalar(0.6 + 0.8 * (1 - pulse));
     }
     let da = ((s.aim - turretA + Math.PI) % TAU + TAU) % TAU - Math.PI;

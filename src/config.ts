@@ -76,17 +76,23 @@ export const MODS: Mod[] = [
   { name: 'SEAD WAVE', desc: 'strike aircraft and ARMs', w: { arm: 0.8, elite: 0.3 } },
 ];
 
-// Raids: a named group from one bearing, announced RAID_WARN s ahead. Counts are packs, scaled up over time.
-// Kill the whole raid without a hit on the battery (or the radar) for a bonus.
-export const RAID_FIRST = 110, RAID_EVERY = 80, RAID_WARN = 6; // s
+// Raids: a named group from one bearing. Announced RAID_WARN s ahead (the preparation window) with its
+// composition, objective and bonus. Counts are packs, scaled up over time. While the attack is on, normal
+// spawns thin out (RAID_SPAWN) so the raid stands out.
+// Objective held (nothing in the raid reaches the battery; for 'radar', no ARM hits the radar): bonus, then a
+// RAID_RECOVER s recovery lull. Objective lost: no bonus, no lull, and the next raid comes RAID_PRESS s sooner.
+export const RAID_FIRST = 110, RAID_EVERY = 80, RAID_WARN = 10; // s
 export const RAID_BONUS = 0.5; // share of the raid's total reward, + 25 flat
-export const RAIDS: { name: string; from: number; g: Partial<Record<EnemyKind, number>> }[] = [
+export const RAID_SPAWN = 0.4, RAID_RECOVER = 15, RAID_CALM = 0.3, RAID_PRESS = 20; // spawn x during attack, s, spawn x during recovery, s
+export type RaidObjective = 'battery' | 'radar';
+export const OBJECTIVES: Record<RaidObjective, string> = { battery: 'PROTECT BATTERY', radar: 'PROTECT RADAR' };
+export const RAIDS: { name: string; from: number; g: Partial<Record<EnemyKind, number>>; obj?: RaidObjective }[] = [
   { name: 'SHAHED WAVE', from: 0, g: { drone: 6 } },
   { name: 'LANCET PACK', from: 0, g: { scout: 7 } },
   { name: 'FPV SWARM', from: 0, g: { swarm: 3 } },
   { name: 'DECOY SCREEN', from: 150, g: { decoy: 2, drone: 4 } },
   { name: 'HELO ASSAULT', from: 200, g: { tank: 3, scout: 3 } },
-  { name: 'SEAD STRIKE', from: 280, g: { elite: 1, arm: 2, decoy: 2, drone: 2 } },
+  { name: 'SEAD STRIKE', from: 280, g: { elite: 1, arm: 2, decoy: 2, drone: 2 }, obj: 'radar' },
   { name: 'SWARM ASSAULT', from: 200, g: { ew: 1, swarm: 3, drone: 4 } },
   { name: 'SATURATION STRIKE', from: 360, g: { decoy: 2, ew: 1, scout: 5, tank: 2 } },
   { name: 'ISKANDER SALVO', from: 240, g: { tbm: 3 } },

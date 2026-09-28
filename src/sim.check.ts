@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
 import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, draft, placePad, rand, dailySeed, type State } from './sim.ts';
-import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, PHASES, PHASE_LEN, RAID_WARN } from './config.ts';
+import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, PHASES, PHASE_LEN, RAID_WARN, RAID_PRESS } from './config.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
 const rng = { seed: 12345 };
@@ -194,6 +194,32 @@ const raidRun = (slots: number) => {
 };
 ok(raidRun(2).includes('raidClear'), 'clean raid pays');
 ok(raidRun(0).includes('raidLeak'), 'leaked raid does not');
+
+// Raid event: briefing matches what arrives; held = recovery lull; lost = next raid sooner.
+{
+  const g = quiet(); g.nextRaid = RAID_WARN; g.st.slots = 0; g.st.maxHp = g.hp = 1e9;
+  run(g, 1 / 60);
+  const brief = g.raid!, total = Object.values(brief.n).reduce((a, b) => a + b, 0) - (brief.n.ew ?? 0);
+  ok(brief.bonus > 25 && brief.obj, 'briefing has objective and bonus');
+  const next = g.nextRaid;
+  run(g, RAID_WARN);
+  ok(g.raidLeft === total && g.raidName === brief.name, `briefing matches the raid (${g.raidLeft}/${total})`);
+  run(g, 25);
+  ok(!g.raidClean && g.nextRaid === next - RAID_PRESS && g.calmUntil === 0, 'lost objective: next raid sooner, no recovery');
+}
+{
+  const g = quiet(); g.nextRaid = RAID_WARN; g.st.slots = 2;
+  run(g, 1 / 60, () => { if (g.raid) g.raid.g = { drone: 1 }; });
+  run(g, 40);
+  ok(g.stats.clean === 1 && g.calmUntil > 0, 'held objective: recovery lull');
+}
+{
+  // PROTECT RADAR: an ARM on the radar loses it even though nothing landed on the battery.
+  const g = quiet(); g.nextRaid = RAID_WARN; g.st.slots = 0;
+  run(g, 1 / 60); g.raid!.g = { arm: 1, drone: 1 }; g.raid!.obj = 'radar';
+  run(g, 20);
+  ok(!g.raidClean && g.stats.radarHits > 0, 'ARM hit loses PROTECT RADAR');
+}
 
 // Attack packages: turn up in normal waves once their time comes, all from one bearing, escort jamming it.
 {

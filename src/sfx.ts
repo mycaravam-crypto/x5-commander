@@ -69,6 +69,8 @@ export function play(k: string) {
     case 'ident': tone(1100, 0.06, 'triangle', 0.025, 700); break;
     case 'raid': for (let i = 0; i < 2; i++) { tone(587, 0.25, 'sawtooth', 0.05, 587, i * 0.5); tone(440, 0.25, 'sawtooth', 0.05, 440, i * 0.5 + 0.25); } break;
     case 'package': tone(494, 0.18, 'sawtooth', 0.04, 494); tone(392, 0.25, 'sawtooth', 0.04, 392, 0.2); break;
+    case 'raidStart': tone(300, 0.9, 'sawtooth', 0.05, 900); tone(900, 0.9, 'sawtooth', 0.05, 300, 0.9); break; // air-raid siren
+    case 'raidLeak': tone(330, 0.3, 'square', 0.05, 110); tone(220, 0.4, 'square', 0.05, 80, 0.3); break;
     case 'raidClear': [659, 784, 988, 1319].forEach((f, i) => tone(f, 0.15, 'square', 0.04, f, i * 0.07)); break;
     case 'over': [392, 330, 262, 196].forEach((f, i) => tone(f, 0.35, 'sawtooth', 0.06, f * 0.9, i * 0.22)); break;
   }
