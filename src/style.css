@@ -174,25 +174,73 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
   text-transform: none; --c: var(--hot); opacity: 0; transition: opacity 0.4s; }
 #tip.on { opacity: 1; }
 
-/* Touch screens: on-screen buttons for the keys, a smaller HUD, no keyboard help. */
-#touch { display: none; bottom: 12px; right: 12px; gap: 6px; pointer-events: auto; }
-#touch button { all: unset; padding: 10px 12px; border: 1px solid var(--mid); background: var(--panel); color: var(--bright); font-size: 12px; letter-spacing: 0.1em; }
-#touch button:active { background: var(--bright); color: var(--bg); }
-@media (pointer: coarse) {
-  #touch { display: flex; }
+/* Desktop: the view toggles and touch buttons are phone-only. */
+#views, #touch { display: none; }
+.bar i { font-style: normal; }
+svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--bright) 60%, transparent)); }
+
+/* Phones and tablets (touch, narrow, or short landscape): compact HUD.
+   Short labels / icons, a thin vitals strip top-left, mini radar and details on toggles, icon action bar at the bottom. */
+@media (pointer: coarse), (max-width: 760px), (max-height: 500px) {
   #help { display: none; }
-  #tip { bottom: 64px; }
-}
-@media (max-width: 760px) {
-  #top { gap: 10px; padding: 6px 10px; top: 6px; }
-  .stat b { font-size: 14px; }
-  #left { transform: scale(0.72); transform-origin: top left; top: 60px; left: 6px; }
-  #shop { top: 60px; right: 6px; bottom: 64px; width: 210px; }
+  small[data-s], .bar i[data-s] { font-size: 0; letter-spacing: 0; }
+  small[data-s]::before, .bar i[data-s]::before { content: attr(data-s); font-size: 9px; letter-spacing: 0.08em; }
+  #top { top: max(6px, env(safe-area-inset-top)); gap: 12px; padding: 4px 10px; }
+  .stat { min-width: 0; }
+  .stat b { font-size: 13px; }
+  #combo { font-size: 12px; margin-top: 2px; }
+
+  #left { top: calc(max(6px, env(safe-area-inset-top)) + 42px); left: max(6px, env(safe-area-inset-left)); width: 150px; padding: 6px 7px;
+    max-height: calc(100% - 140px); overflow-y: auto; scrollbar-width: none; pointer-events: auto; }
+  .bar { margin-bottom: 3px; }
+  .bar small { font-size: 9px; }
+  .seg { height: 5px; margin-top: 1px; }
+  #views { display: flex; gap: 4px; margin-top: 5px; }
+  #views button { all: unset; flex: 1; display: grid; place-items: center; height: 30px; border: 1px solid var(--line); color: var(--mid); }
+  #views button svg { width: 18px; height: 18px; }
+  #views button.on, body.ui-map #views [data-k=UiMap], body.ui-info #views [data-k=UiInfo] { color: var(--hot); border-color: var(--mid);
+    background: color-mix(in srgb, var(--bright) 12%, transparent); }
+  #info { display: none; margin: 6px 0 0; font-size: 10px; gap: 1px 6px; }
+  #info dt { font-size: 9px; }
+  #info dd { white-space: nowrap; }
+  #info kbd { display: none; }
+  body.ui-info #info { display: grid; }
+  #radar { display: none; width: 136px; height: 136px; margin-top: 6px; }
+  body.ui-map #radar { display: block; }
+
+  #shop { top: calc(max(6px, env(safe-area-inset-top)) + 42px); right: max(6px, env(safe-area-inset-right)); bottom: calc(max(6px, env(safe-area-inset-bottom)) + 66px);
+    width: min(230px, calc(100% - 172px)); font-size: 11px; }
+  #shop button { padding: 7px 6px; }
   #bottom { display: none; }
-  #tip { max-width: calc(100% - 24px); }
+
+  #touch { display: flex; gap: 5px; pointer-events: auto; bottom: max(6px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%);
+    width: min(440px, calc(100% - 12px)); }
+  #touch button { all: unset; flex: 1; min-width: 0; height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--bright); }
+  #touch button span { font-size: 9px; letter-spacing: 0.05em; color: var(--mid); white-space: nowrap; overflow: hidden; max-width: 100%; }
+  #touch button.on { border-color: var(--hot); color: var(--hot); }
+  #touch button.on span { color: var(--hot); }
+  #touch button:active { background: var(--bright); color: var(--bg); }
+  #touch button:active span { color: var(--bg); }
+  body.silent #touch [data-k=KeyF] { border-color: var(--alert); color: var(--alert); }
+
+  #raidcard { top: auto; bottom: calc(max(6px, env(safe-area-inset-bottom)) + 64px); padding: 4px 10px; font-size: 10px; width: max-content; max-width: calc(100% - 12px); }
+  #raidcard b { font-size: 13px; letter-spacing: 0.15em; }
+  #tip { bottom: calc(max(6px, env(safe-area-inset-bottom)) + 64px); width: max-content; max-width: min(460px, calc(100% - 24px)); font-size: 10px; padding: 6px 10px; }
+  body.raid #tip { bottom: calc(max(6px, env(safe-area-inset-bottom)) + 118px); }
+  #blind b { font-size: 18px; letter-spacing: 0.2em; }
+  #banner { font-size: 18px; white-space: normal; width: 90%; }
   .perks { flex-wrap: wrap; }
   .card h1 { font-size: 32px; }
-  #banner { font-size: 18px; white-space: normal; width: 90%; }
-  #raidcard { top: 56px; font-size: 11px; width: 92%; }
-  #raidcard b { font-size: 15px; }
+}
+/* Short landscape: the action bar sits clear of the strip, so the strip can run the full height. */
+@media (max-height: 500px) and (orientation: landscape) {
+  #left { max-height: calc(100% - 60px); }
+  #radar { width: 116px; height: 116px; }
+}
+/* Very narrow portrait: tighter top bar. */
+@media (max-width: 420px) {
+  #top { gap: 8px; }
+  #top .stat:nth-child(2) small { display: none; }
 }

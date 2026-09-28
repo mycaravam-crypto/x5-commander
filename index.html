@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>X5 Commander</title>
   <link rel="icon" href="data:," />
   <link rel="stylesheet" href="/src/style.css" />
@@ -11,20 +11,21 @@
   <div id="hud">
     <div id="labels"></div>
     <div id="top" class="frame">
-      <div class="stat"><small>CREDITS</small><b id="credits" class="hot">0</b></div>
+      <div class="stat"><small data-s="CR">CREDITS</small><b id="credits" class="hot">0</b></div>
       <div class="stat"><small>PHASE</small><b id="phase">1</b></div>
-      <div class="stat"><small>TIME</small><b id="time">0:00</b></div>
-      <div class="stat"><small>KILLS</small><b id="kills">0</b></div>
-      <div class="stat"><small>BATTERY LV</small><b id="level">1</b></div>
+      <div class="stat"><small data-s="T">TIME</small><b id="time">0:00</b></div>
+      <div class="stat"><small data-s="K">KILLS</small><b id="kills">0</b></div>
+      <div class="stat"><small data-s="LV">BATTERY LV</small><b id="level">1</b></div>
       <div id="combo"></div>
     </div>
     <div id="raidcard" class="frame"></div>
     <div id="blind"></div>
     <div id="raidarrow"></div>
     <div id="left" class="frame">
-      <div class="bar"><small>BATTERY <span id="hpTxt"></span></small><b id="hpBar" class="seg"></b></div>
-      <div class="bar"><small>POWER <span id="pwTxt"></span></small><b id="pwBar" class="seg"></b></div>
-      <div class="bar"><small>INTERCEPTORS <span id="amTxt"></span></small><b id="amBar" class="seg"></b></div>
+      <div class="bar"><small><i data-s="✚ HP">BATTERY</i> <span id="hpTxt"></span></small><b id="hpBar" class="seg"></b></div>
+      <div class="bar"><small><i data-s="ϟ PWR">POWER</i> <span id="pwTxt"></span></small><b id="pwBar" class="seg"></b></div>
+      <div class="bar"><small><i data-s="▲ MSL">INTERCEPTORS</i> <span id="amTxt"></span></small><b id="amBar" class="seg"></b></div>
+      <div id="views"><button data-k="UiMap" title="Mini radar"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><path d="M12 12l6-6"/></svg></button><button data-k="UiInfo" title="Details"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></button><button data-k="KeyX" title="2× speed"><svg viewBox="0 0 24 24"><path d="M4 6l7 6-7 6M13 6l7 6-7 6"/></svg></button><button data-k="KeyP" title="Pause"><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg></button></div>
       <dl id="info"></dl>
       <canvas id="radar" width="220" height="220"></canvas>
     </div>
@@ -32,7 +33,7 @@
     <div id="bottom"><div id="target" class="frame"></div><div id="log" class="frame"></div></div>
     <div id="help">LMB priority target · Space intercept · G fire discipline · T mode · V radar mode · F EMCON · X 2× speed · wheel zoom · RMB/Q/E rotate · P pause · D daily op · M mute · Tab shop</div>
     <div id="tip" class="frame"></div>
-    <div id="touch"><button data-k="Tab">SHOP</button><button data-k="Space">INTCPT</button><button data-k="KeyG">FIRE</button><button data-k="KeyV">RADAR</button><button data-k="KeyF">EMCON</button><button data-k="KeyT">MODE</button><button data-k="KeyX">2×</button><button data-k="KeyP">PAUSE</button></div>
+    <div id="touch"><button data-k="Tab"><svg viewBox="0 0 24 24"><path d="M4 8h16l-1.5 12h-13z"/><path d="M9 8V5h6v3"/></svg><span>SHOP</span></button><button data-k="Space"><svg viewBox="0 0 24 24"><path d="M12 3l3 6v7H9V9z"/><path d="M9 16l-2 4M15 16l2 4M12 16v5"/></svg><span>INTCPT</span></button><button data-k="KeyG"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/></svg><span>FIRE</span></button><button data-k="KeyV"><svg viewBox="0 0 24 24"><path d="M3 20A17 17 0 0 1 20 3"/><path d="M8 20A12 12 0 0 1 20 8"/><path d="M13 20a7 7 0 0 1 7-7"/><circle cx="19" cy="19" r="1.5"/></svg><span>SCAN</span></button><button data-k="KeyF"><svg viewBox="0 0 24 24"><path d="M2 9a14 14 0 0 1 20 0M5.5 12.5a9 9 0 0 1 13 0M9 16a4 4 0 0 1 6 0"/><circle cx="12" cy="19.5" r="1"/><path d="M3 3l18 18"/></svg><span>EMCON</span></button><button data-k="KeyT"><svg viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg><span>MODE</span></button></div>
     <div id="popups"></div>
     <div id="banner"></div>
     <div id="overlay"></div>

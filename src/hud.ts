@@ -257,6 +257,15 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   const set = (id: string, v: string) => { const el = $(id); if (el.textContent !== v) el.textContent = v; };
   const bar = (id: string, r: number, crit = false) => { const el = $(id); el.style.setProperty('--r', String(Math.round(Math.max(0, Math.min(1, r)) * 20) / 20)); el.classList.toggle('crit', crit); };
 
+  const touchBtns = Array.from(document.querySelectorAll<HTMLElement>('#touch [data-k], #views [data-k]'));
+  const touch = (k: string, label: string, on = false) => {
+    for (const el of touchBtns) if (el.dataset.k === k) {
+      el.classList.toggle('on', on);
+      const sp = el.querySelector('span');
+      if (sp && sp.textContent !== label) sp.textContent = label;
+    }
+  };
+
   function text(s: State) {
     const st = s.st;
     set('credits', fmt(s.credits)); set('phase', phaseName(s)); set('time', clock(s.t));
@@ -274,17 +283,26 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       : sweepPct < 100 ? `<span class="alert">${sweepPct}% LOW PWR</span>` : 'RADIATING';
     const M = radarMode(s), scan = s.radarMode === 0 ? M.name : `<span class="hot">${M.name}${radarSector(s) ? ` ${pad3(bearing(Math.cos(focusBearing(s)), Math.sin(focusBearing(s))))}°` : ''}</span>`;
     $('info').innerHTML = [
-      ['TRACKS', contacts], ['ENGAGED', `${locks} / ${slots(s)}${s.t < s.chainUntil ? ' <span class="hot">+CHAIN</span>' : ''}`], ['MODE [T]', MODES[s.mode]],
-      ['FIRE [G]', s.discipline === 1 ? DISCIPLINES[1].name : `<span class="hot">${DISCIPLINES[s.discipline].name}</span>`],
-      ['INTERCEPT [SPC]', interceptActive(s) ? '<span class="hot">ENGAGING</span>' : (w => w ? `<span class="${w.endsWith('s') ? 'dim' : 'alert'}">${w}</span>` : '<span class="hot">READY</span>')(interceptBlock(s))],
-      ...ffSpeed > 1 ? [['SPEED [X]', `<span class="hot">${ffSpeed}×</span>`]] : [],
-      ['SCAN [V]', scan], ['RANGE', `${Math.round(radarRange(s))}m`], ['PERIMETER', `${s.perim.length} / ${perimSlots(s.level)} pads`], ['RADAR [F]', radar],
+      ['TRACKS', contacts], ['ENGAGED', `${locks} / ${slots(s)}${s.t < s.chainUntil ? ' <span class="hot">+CHAIN</span>' : ''}`], ['MODE <kbd>[T]</kbd>', MODES[s.mode]],
+      ['FIRE <kbd>[G]</kbd>', s.discipline === 1 ? DISCIPLINES[1].name : `<span class="hot">${DISCIPLINES[s.discipline].name}</span>`],
+      ['INTERCEPT <kbd>[SPC]</kbd>', interceptActive(s) ? '<span class="hot">ENGAGING</span>' : (w => w ? `<span class="${w.endsWith('s') ? 'dim' : 'alert'}">${w}</span>` : '<span class="hot">READY</span>')(interceptBlock(s))],
+      ...ffSpeed > 1 ? [['SPEED <kbd>[X]</kbd>', `<span class="hot">${ffSpeed}×</span>`]] : [],
+      ['SCAN <kbd>[V]</kbd>', scan], ['RANGE', `${Math.round(radarRange(s))}m`], ['PERIMETER', `${s.perim.length} / ${perimSlots(s.level)} pads`], ['RADAR <kbd>[F]</kbd>', radar],
       ...s.placing ? [['PAD', `<span class="hot">CLICK MAP · ${Math.max(0, PLACE_TIME - (s.t - s.placing.since)).toFixed(0)}s</span>`]] : [],
       ...s.raid ? [['RAID', `<span class="alert">${pad3(bearing(Math.cos(s.raid.a), Math.sin(s.raid.a)))}° T-${Math.max(0, s.raid.at - s.t).toFixed(0)}s</span>`]]
         : s.raidLeft ? [['RAID', `<span class="alert">${s.raidLeft}</span> · ${s.raidClean ? 'HELD' : '<span class="alert">LOST</span>'}`]]
         : s.t < s.calmUntil ? [['RECOVERY', `${Math.ceil(s.calmUntil - s.t)}s`]] : [],
     ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
     document.body.classList.toggle('crit', s.phase === 'play' && s.hp / st.maxHp < 0.3);
+    // Touch buttons: live value under the icon, lit while the thing is on.
+    const ib = interceptBlock(s);
+    touch('Space', interceptActive(s) ? 'FIRING' : ib || 'READY', interceptActive(s) || !ib);
+    touch('KeyG', DISCIPLINES[s.discipline].name, s.discipline !== 1);
+    touch('KeyV', M.name, s.radarMode !== 0);
+    touch('KeyF', s.emcon ? 'SILENT' : 'EMCON', s.emcon);
+    touch('KeyT', MODES[s.mode]);
+    touch('Tab', 'SHOP', !shop.classList.contains('hidden'));
+    touch('KeyX', '', ffSpeed > 1); touch('KeyP', '', s.phase === 'pause');
     raidCard(s);
     const live = s.phase === 'play' || s.phase === 'pause', down = live && s.t < s.radarDownUntil, silent = live && !down && s.emcon;
     document.body.classList.toggle('blind', down);
