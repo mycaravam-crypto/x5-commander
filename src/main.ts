@@ -104,6 +104,9 @@ addEventListener('keydown', e => {
 document.getElementById('touch')!.onclick = e => { const k = (e.target as HTMLElement).closest<HTMLElement>('[data-k]')?.dataset.k; if (k) key(k); };
 addEventListener('blur', () => { if (s.phase === 'play') s.phase = 'pause'; });
 
+// Dev builds only: poke the running game from the console, e.g. x5().nextRaid = x5().t + 12.
+if (import.meta.env.DEV) Object.assign(window, { x5: () => s });
+
 // ---- loop ----
 let last = performance.now();
 function frame(now: number) {

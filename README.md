@@ -105,7 +105,16 @@ A new phase starts every 75 seconds and changes the enemy mix: **PROBING → SAT
 
 An EW helicopter in a package is an **escort**: it goes in first and holds station on the package's bearing instead of circling, so its jammed sector stays over the package.
 
-**Raids:** from 1:50, a named raid arrives every 80 seconds, all from one bearing. It's announced 6 seconds ahead, with chevrons at the rim and a countdown in the side panel. Raids include SHAHED WAVE, LANCET PACK, FPV SWARM, DECOY SCREEN, HELO ASSAULT, SEAD STRIKE and ISKANDER SALVO. Destroy the whole raid before anything hits the battery or the radar for a **clean-raid bonus**. Spawn rate, HP, damage and raid size grow **logarithmically**: each doubling of play time adds about the same threat. A strong battery can keep going indefinitely.
+**Raids:** from 1:50, a named raid arrives every 80 seconds, all from one bearing. Each one runs the same way:
+1. **Warning and preparation (10 s):** a briefing card shows the sector, the raid's name, its composition, the objective and the bonus, with chevrons at the rim. Use the time to set radar, fire discipline and priority.
+2. **Attack:** a siren sounds and the HUD frames turn amber. Normal spawns thin out to 40% while the raid is in the air, and the card tracks what's left and whether the objective still holds.
+3. **Resolution:** the objective is **PROTECT BATTERY** (nothing in the raid lands) or, for SEAD STRIKE, **PROTECT RADAR** (no ARM hits the radar while the raid is on).
+   - **Held:** the bonus pays out, then a **15 s recovery** with spawns at 30%.
+   - **Lost:** no bonus, no recovery, and the **next raid comes 20 s sooner**.
+
+Raids include SHAHED WAVE, LANCET PACK, FPV SWARM, DECOY SCREEN, HELO ASSAULT, ISKANDER SALVO and the package raids SWARM ASSAULT, SEAD STRIKE (led by a Su-34) and SATURATION STRIKE. An escort jammer flies with its raid but doesn't count toward it; ARMs a raid's Su-34 launches do.
+
+Spawn rate, HP, damage and raid size grow **logarithmically**: each doubling of play time adds about the same threat. A strong battery can keep going indefinitely.
 
 | Threat                      | Notes                                     |
 |-----------------------------|-------------------------------------------|
