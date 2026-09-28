@@ -366,7 +366,9 @@ function jammed(s: State, e: Enemy) {
 // Pads engage the closest radar contact in their own range; no lock slot needed.
 function perimeter(s: State, dt: number) {
   const P = s.st.perim;
-  const jammers = s.perim.filter(p => p.k === 'jammer').length, need = jammers * P.jammer.power * dt;
+  const r2 = P.jammer.range ** 2;
+  const jammers = s.perim.filter(p => p.k === 'jammer' && s.enemies.some(e => (e.x - p.x) ** 2 + (e.z - p.z) ** 2 < r2)).length;
+  const need = jammers * P.jammer.power * dt;
   s.jamming = jammers > 0 && s.power >= need;
   if (s.jamming) s.power -= need;
   for (const p of s.perim) {
@@ -480,7 +482,8 @@ function track(s: State, dt: number) {
   const m = s.marked ? s.enemies.find(e => e.id === s.marked) : undefined;
   if (m && !m.locked && visible(s, m) && m.x * m.x + m.z * m.z <= tr2) {
     if (locks >= s.st.slots) {
-      const drop = s.enemies.find(e => e.locked);
+      let drop: Enemy | null = null;
+      for (const e of s.enemies) if (e.locked && (!drop || score(s, e) < score(s, drop))) drop = e;
       if (drop) { drop.locked = false; locks--; }
     }
     m.locked = true; locks++;
@@ -563,7 +566,11 @@ function moveShots(s: State, dt: number) {
     p.life -= dt;
     if (p.kind === 'missile') {
       let t = s.enemies.find(e => e.id === p.target);
-      if (!t) { t = s.enemies.find(e => e.locked); if (t) { p.target = t.id; t.incoming += p.dmg; } }
+      if (!t) {
+        let bd = Infinity;
+        for (const e of s.enemies) { const d = (e.x - p.x) ** 2 + (e.z - p.z) ** 2; if (e.locked && d < bd) { bd = d; t = e; } }
+        if (t) { p.target = t.id; t.incoming += p.dmg; }
+      }
       if (t) {
         const dx = t.x - p.x, dz = t.z - p.z, d = Math.hypot(dx, dz) || 1;
         const sp = WEAPONS.missile.speed;
