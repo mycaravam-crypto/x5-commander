@@ -139,8 +139,9 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const TAU = Math.PI * 2, a0 = lastSweep, swept = ((s.sweepA - a0) % TAU + TAU) % TAU;
     lastSweep = s.sweepA;
     const on = emitting(s);
-    if (on && swept < 1) { g.fillStyle = rgba(PAL.bright, 0.35); g.beginPath(); g.moveTo(C, C); g.arc(C, C, rr, a - swept, a); g.fill(); }
-    if (on) { g.strokeStyle = rgba(PAL.hot); g.beginPath(); g.moveTo(C, C); g.lineTo(C + Math.cos(a) * rr, C + Math.sin(a) * rr); g.stroke(); }
+    const aesa = s.st.aesa;
+    if (on && !aesa && swept < 1) { g.fillStyle = rgba(PAL.bright, 0.35); g.beginPath(); g.moveTo(C, C); g.arc(C, C, rr, a - swept, a); g.fill(); }
+    if (on && !aesa) { g.strokeStyle = rgba(PAL.hot); g.beginPath(); g.moveTo(C, C); g.lineTo(C + Math.cos(a) * rr, C + Math.sin(a) * rr); g.stroke(); }
     for (const e of s.enemies) if (e.kind === 'ew' && e.orbit) { // jam strobe: bearing only, no range
       const d = Math.hypot(e.x, e.z) || 1, R = ARENA_R + 4;
       g.strokeStyle = rgba(PAL.alert, 0.2 + Math.random() * 0.4); g.lineWidth = 2;
@@ -149,7 +150,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     for (const e of s.enemies) {
       if (!visible(s, e)) continue;
       const rel = ((Math.atan2(e.z, e.x) - a0) % TAU + TAU) % TAU;
-      if (!e.locked && !(swept < 1 && rel <= swept)) continue;
+      if (!e.locked && !aesa && !(swept < 1 && rel <= swept)) continue;
       const x = px(e.x, e.z), y = py(e.x, e.z), r = 1.5 + e.size;
       g.fillStyle = e.kind === 'arm' ? rgba(PAL.alert) : rgba(e.locked ? PAL.hot : PAL.bright, Math.min(1, ENEMIES[shownKind(e)].glow) * (e.ided ? 0.35 : 1));
       g.fillRect(x - r / 2, y - r / 2, r, r);
@@ -261,6 +262,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         else if (e.k === 'raid') { say(`⚠ ${e.name} · BRG ${pad3(bearing(e.x, e.z))}`, 'warn'); log(`${e.name} · BRG ${pad3(bearing(e.x, e.z))}`, 'alert'); }
         else if (e.k === 'raidClear') { say(`RAID DEFEATED · +${fmt(e.n)}`, 'info'); log(`RAID CLEAN · +${fmt(e.n)}`); }
         else if (e.k === 'raidLeak') log('RAID LEAKED · NO BONUS', 'alert');
+        else if (e.k === 'aesa') { say('LTAMDS ONLINE · 360° STARE', 'info'); log('AESA ONLINE · SWEEP RETIRED'); }
         else if (e.k === 'level') log(`BATTERY LV ${s.level} · LAUNCHER EMPLACED · ${perimSlots(s.level)} PERIMETER PADS`);
         else if (e.k === 'buy') { acc = 1; }
       }

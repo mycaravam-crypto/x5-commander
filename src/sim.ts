@@ -1,6 +1,6 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, PHASE_LEN, ELITE_EVERY,
-  ENEMIES, KINDS, WEAPONS, PHASES, DOCTRINES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty,
+  ENEMIES, KINDS, WEAPONS, PHASES, DOCTRINES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, SWEEP_CAP, grow, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty,
   ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   type EnemyKind, type PerimKind, type WeaponKind, type Mod,
 } from './config.ts';
@@ -25,7 +25,7 @@ export type Ev =
   | { k: 'beam' | 'rail' | 'gun'; x: number; z: number; x2: number; z2: number }
   | { k: 'raid'; x: number; z: number; name: string }
   | { k: 'raidClear' | 'raidLeak'; n: number }
-  | { k: 'level' | 'warning' | 'buy' | 'placing' | 'lock' | 'over' | 'emcon' | 'radarDown' };
+  | { k: 'level' | 'warning' | 'buy' | 'placing' | 'lock' | 'over' | 'emcon' | 'radarDown' | 'aesa' };
 
 export type Phase = 'start' | 'play' | 'pause' | 'perk' | 'over';
 
@@ -95,6 +95,7 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
 export type State = ReturnType<typeof newGame>;
 
 const TAU = Math.PI * 2;
+const AESA_SPIN = 1.2; // rad/s, cosmetic
 const pick = <T>(r: { seed: number }, a: T[]) => a[Math.floor(rand(r) * a.length)];
 export const visible = (s: State, e: Enemy) => e.locked || e.seenUntil > s.t;
 const NO_MOD: Mod = { name: '', desc: '' };
@@ -126,6 +127,7 @@ export function jamFactor(s: State, e: { x: number; z: number }) {
 export const lockReason = (s: State, id: string) => {
   const u = UPGRADES.find(u => u.id === id)!;
   if (u.req && s.level < u.req) return `BASE LV ${u.req}`;
+  if (id === 'sweep' && !s.lv.aesa && (s.lv.sweep ?? 0) >= SWEEP_CAP) return 'NEEDS AESA';
   if (PERIM_KINDS.includes(id as PerimKind)) {
     if (s.placing) return 'PLACING';
     if (s.perim.length >= perimSlots(s.level)) return 'PADS FULL';
@@ -144,6 +146,7 @@ export function buy(s: State, id: string) {
   s.credits -= c;
   s.lv[id] = (s.lv[id] ?? 0) + 1;
   s.bought++;
+  if (id === 'aesa') s.events.push({ k: 'aesa' });
   if (PERIM_KINDS.includes(id as PerimKind)) {
     s.placing = { k: id as PerimKind, since: s.t };
     s.events.push({ k: 'placing' });
@@ -273,7 +276,7 @@ function spawn(s: State, dt: number) {
   }
   if (s.t >= s.nextElite) {
     s.nextElite += ELITE_EVERY;
-    const a = rw() * TAU, n = 1 + Math.floor(s.t / 300);
+    const a = rw() * TAU, n = Math.floor(grow(s.t / 60, 1));
     for (let i = 0; i < n; i++) spawnEnemy(s, 'elite', a + (i - n / 2) * 0.08, ARENA_R + 4 + i * 3, rw);
     s.events.push({ k: 'warning' });
   }
@@ -284,7 +287,7 @@ function spawn(s: State, dt: number) {
     s.events.push({ k: 'raid', x: Math.cos(a) * ARENA_R, z: Math.sin(a) * ARENA_R, name: r.name });
   }
   if (s.raid && s.t >= s.raid.at) {
-    const { a, g } = s.raid, scale = 1 + s.t / 400;
+    const { a, g } = s.raid, scale = grow(s.t / 60, 0.7);
     s.raid = null;
     s.raidId++; s.raidLeft = 0; s.raidClean = true; s.raidReward = 0;
     let row = 0;
@@ -432,13 +435,14 @@ function powerAndAmmo(s: State, dt: number) {
 function radar(s: State, dt: number) {
   if (!emitting(s)) return;
   const a0 = s.sweepA, da = s.sweepSpeed * dt;
-  s.sweepA = (a0 + da) % TAU;
+  // An AESA stares all round: each contact gets the looks a rotating beam would give it, at random moments.
+  // sweepA then only turns the TRML-4D head (and the sweep ping) at a calm fixed rate.
+  s.sweepA = (a0 + (s.st.aesa ? AESA_SPIN * dt * s.sweepSpeed / s.st.sweep : da)) % TAU;
   const r2 = s.st.radarRange ** 2, { mod } = phase(s);
   let newly = 0;
   for (const e of s.enemies) {
     if (e.x * e.x + e.z * e.z > r2) continue;
-    const rel = ((Math.atan2(e.z, e.x) - a0) % TAU + TAU) % TAU;
-    if (rel > da) continue;
+    if (s.st.aesa ? Math.random() >= da / TAU : ((Math.atan2(e.z, e.x) - a0) % TAU + TAU) % TAU > da) continue;
     if (Math.random() < ENEMIES[e.kind].sig * s.st.res * jamFactor(s, e) * (mod.sig ?? 1)) {
       if (e.seenUntil < s.t) newly++;
       e.seenUntil = s.t + s.st.persist * (mod.persist ?? 1);

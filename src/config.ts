@@ -85,13 +85,16 @@ export const EW_ORBIT = 38; // Mi-8 jammers stand off at this range and circle
 export const EW_ARC = 0.4; // rad half-width of each jammed sector
 export const EW_JAM = 0.35; // detection chance multiplier inside a jammed sector
 
+// Logarithmic growth: every doubling of play time adds about the same threat, so upgrades (whose costs grow
+// exponentially) can keep up and a run has no built-in end. m = minutes played.
+export const grow = (m: number, k: number) => 1 + k * Math.log1p(m / 4);
 export function difficulty(t: number) {
   const m = t / 60;
   return {
-    spawnRate: 0.6 * (1 + 0.35 * m ** 1.1), // spawn events / s
-    hp: 1 + 0.12 * m ** 1.25,
+    spawnRate: 0.6 * grow(m, 1.6), // spawn events / s
+    hp: grow(m, 1),
     speed: 1 + 0.025 * Math.min(m, 20),
-    dmg: 1 + 0.08 * m,
+    dmg: grow(m, 0.6),
   };
 }
 
@@ -113,32 +116,34 @@ export interface Upgrade {
   base: number; mult: number; max: number;
   req?: number; // base level needed to buy
 }
+export const SWEEP_CAP = 8; // Scan Rate levels a rotating radar can take; LTAMDS AESA lifts it
 const U = (group: string, id: string, name: string, base: number, mult: number, max: number, desc: string, req?: number): Upgrade =>
   ({ group, id, name, base, mult, max, desc, req });
 
 export const UPGRADES: Upgrade[] = [
-  U('BATTERY', 'hp', 'Hardened Shelters', 60, 1.45, 20, '+40 max HP'),
-  U('BATTERY', 'armor', 'Earth Revetments', 90, 1.6, 7, '-8% damage taken'),
-  U('BATTERY', 'repair', 'Maintenance Crew', 120, 1.6, 8, '+0.6 HP/s'),
-  U('POWER', 'gen', 'EPP-III Generator', 50, 1.45, 20, '+3 power/s'),
-  U('POWER', 'cap', 'Battery Banks', 40, 1.4, 15, '+40 power storage'),
-  U('SENSORS', 'range', 'LTAMDS Array', 60, 1.5, 10, '+7 detection range'),
-  U('SENSORS', 'sweep', 'TRML-4D Scan Rate', 70, 1.5, 8, '+20% sweep speed'),
-  U('SENSORS', 'res', 'GaN T/R Modules', 50, 1.5, 6, '+15% detection chance · faster decoy ID'),
-  U('SENSORS', 'persist', 'Track Memory', 50, 1.45, 8, '+1.5s contact memory'),
-  U('FIRE CONTROL', 'slots', 'ECS Channels', 80, 1.55, 10, '+1 simultaneous lock'),
-  U('FIRE CONTROL', 'trange', 'Track Range', 60, 1.5, 8, '+6 tracking range'),
+  U('BATTERY', 'hp', 'Hardened Shelters', 60, 1.45, Infinity, '+40 max HP'),
+  U('BATTERY', 'armor', 'Earth Revetments', 90, 1.6, Infinity, '-12% of the damage still taken'),
+  U('BATTERY', 'repair', 'Maintenance Crew', 120, 1.6, Infinity, '+0.6 HP/s'),
+  U('POWER', 'gen', 'EPP-III Generator', 50, 1.45, Infinity, '+3 power/s'),
+  U('POWER', 'cap', 'Battery Banks', 40, 1.4, Infinity, '+40 power storage'),
+  U('SENSORS', 'range', 'LTAMDS Array', 60, 1.5, Infinity, '+7 detection range'),
+  U('SENSORS', 'sweep', 'TRML-4D Scan Rate', 70, 1.5, Infinity, '+20% scan rate (max 8 on a rotating radar)'),
+  U('SENSORS', 'aesa', 'LTAMDS AESA', 600, 1, 1, 'staring 360° array: no sweep · +25% scan rate · uncaps scan rate', 4),
+  U('SENSORS', 'res', 'GaN T/R Modules', 50, 1.5, Infinity, '+15% detection chance · faster decoy ID'),
+  U('SENSORS', 'persist', 'Track Memory', 50, 1.45, Infinity, '+1.5s contact memory'),
+  U('FIRE CONTROL', 'slots', 'ECS Channels', 80, 1.55, Infinity, '+1 simultaneous lock'),
+  U('FIRE CONTROL', 'trange', 'Track Range', 60, 1.5, Infinity, '+6 tracking range'),
   U('FIRE CONTROL', 'modes', 'Threat Evaluation', 100, 2, 3, 'unlock next auto mode [T]'),
-  U('WEAPONS', 'dmg', 'Lethality Enhancer', 70, 1.45, 25, '+25% all weapon damage'),
-  U('WEAPONS', 'rate', 'Salvo Doctrine', 80, 1.5, 15, '+15% all fire rate'),
-  U('WEAPONS', 'pulse', 'HEL 50kW Laser', 250, 1.7, 6, 'power beam · +40%/lv'),
-  U('WEAPONS', 'missile', 'IRIS-T SLX', 400, 1.7, 6, 'homing blast-frag · +40%/lv'),
-  U('WEAPONS', 'rail', 'HPM Leonidas', 700, 1.7, 6, 'microwave, hits the whole line · +40%/lv'),
-  U('MAGAZINE', 'acap', 'M903 Canisters', 40, 1.4, 15, '+25 interceptor capacity'),
-  U('MAGAZINE', 'aprod', 'GMT Reload', 50, 1.45, 15, '+1.5 interceptors/s'),
-  U('PERIMETER', 'mantis', 'MANTIS 35mm C-RAM', 150, 1.35, 8, 'fast gun, short range · +1 emplacement', 2),
-  U('PERIMETER', 'stinger', 'Stinger Team', 220, 1.35, 8, 'MANPADS, mid range homing · +1 emplacement', 3),
-  U('PERIMETER', 'jammer', 'EW Jammer', 300, 1.4, 8, 'slows contacts nearby, drains power · +1 emplacement', 4),
+  U('WEAPONS', 'dmg', 'Lethality Enhancer', 70, 1.45, Infinity, '+25% all weapon damage'),
+  U('WEAPONS', 'rate', 'Salvo Doctrine', 80, 1.5, Infinity, '+15% all fire rate'),
+  U('WEAPONS', 'pulse', 'HEL 50kW Laser', 250, 1.7, Infinity, 'power beam · +40%/lv'),
+  U('WEAPONS', 'missile', 'IRIS-T SLX', 400, 1.7, Infinity, 'homing blast-frag · +40%/lv'),
+  U('WEAPONS', 'rail', 'HPM Leonidas', 700, 1.7, Infinity, 'microwave, hits the whole line · +40%/lv'),
+  U('MAGAZINE', 'acap', 'M903 Canisters', 40, 1.4, Infinity, '+25 interceptor capacity'),
+  U('MAGAZINE', 'aprod', 'GMT Reload', 50, 1.45, Infinity, '+1.5 interceptors/s'),
+  U('PERIMETER', 'mantis', 'MANTIS 35mm C-RAM', 150, 1.35, Infinity, 'fast gun, short range · +1 emplacement', 2),
+  U('PERIMETER', 'stinger', 'Stinger Team', 220, 1.35, Infinity, 'MANPADS, mid range homing · +1 emplacement', 3),
+  U('PERIMETER', 'jammer', 'EW Jammer', 300, 1.4, Infinity, 'slows contacts nearby, drains power · +1 emplacement', 4),
 ];
 
 // Perimeter emplacements sit on a ring around the battery and engage any radar contact in their own
@@ -222,12 +227,13 @@ export function deriveStats(lv: Record<string, number>, perks: string[]) {
   const wlv = (k: string) => 1 + 0.4 * Math.max(0, L(k) - 1);
   return {
     maxHp: (100 + 40 * L('hp')) * p.hp,
-    armor: Math.min(0.75, 0.08 * L('armor') + p.addArmor),
+    armor: Math.min(0.85, 0.85 * (1 - 0.88 ** L('armor')) + p.addArmor),
     repair: 0.6 * L('repair'),
     gen: (6 + 3 * L('gen')) * p.gen,
     powerCap: 60 + 40 * L('cap'),
     radarRange: (42 + 7 * L('range')) * p.range,
-    sweep: 2.5 * (1 + 0.2 * L('sweep')) * p.sweep, // rad/s
+    sweep: 2.5 * (1 + 0.2 * L('sweep')) * (L('aesa') ? 1.25 : 1) * p.sweep, // rad/s; with AESA: revisits/rev-equivalent
+    aesa: L('aesa') > 0,
     res: 1 + 0.15 * L('res'),
     persist: (4.5 + 1.5 * L('persist')) * p.persist,
     drain: (1.5 + 0.25 * radarLv) * p.drain,
