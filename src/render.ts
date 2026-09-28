@@ -297,12 +297,13 @@ export function createRenderer() {
   lockLines.frustumCulled = false; scene.add(lockLines);
 
   const shells = instanced(new THREE.BoxGeometry(0.3, 0.3, 1.6), additive(), MAX_SHOTS);
+  const tracers = instanced(new THREE.BoxGeometry(0.1, 0.1, 2.6), additive(), MAX_SHOTS); // MANTIS 35mm: thin, long, low
   const missiles = instanced(edges(new THREE.ConeGeometry(0.35, 1.3, 4).rotateX(Math.PI / 2)), wire, MAX_SHOTS);
   const shardMesh = instanced(segs([-0.5, 0, 0, 0.5, 0, 0]), additive(0xffffff, true), MAX_SHARDS);
   const waveMesh = instanced(segs(ringPts(48)), additive(0xffffff, true), MAX_WAVES);
   const beamMesh = instanced(new THREE.BoxGeometry(1, 1, 1), additive(), MAX_BEAMS);
   const blipMesh = instanced(new THREE.CircleGeometry(1, 12).rotateX(-Math.PI / 2), additive(), MAX_BLIPS);
-  scene.add(shells, missiles, shardMesh, waveMesh, beamMesh, blipMesh);
+  scene.add(shells, tracers, missiles, shardMesh, waveMesh, beamMesh, blipMesh);
 
   // Particle pools: flat arrays, ring-buffer allocation, no per-frame garbage.
   const sh = { p: new Float32Array(MAX_SHARDS * 3), v: new Float32Array(MAX_SHARDS * 3), life: new Float32Array(MAX_SHARDS), max: new Float32Array(MAX_SHARDS), col: new Float32Array(MAX_SHARDS * 3), size: new Float32Array(MAX_SHARDS), next: 0 };
@@ -352,7 +353,7 @@ export function createRenderer() {
         }
         case 'hit': e.n ? (wave(e.x, e.z, e.n, HOT, 0.35), shards(e.x, e.z, 6, BRIGHT, 10)) : shards(e.x, e.z, 2, HOT, 6, 0.5); break;
         case 'baseHit': wave(0, 0, 9, ALERT, 0.5, 1.5); shards(e.x, e.z, 10, ALERT, 12, 1.2); gridFlash = 1; break;
-        case 'gun': beam(e.x, e.z, e.x2, e.z2, 0.06, HOT, 0.05); break;
+        case 'gun': shards(e.x, e.z, 2, 0xffffff, 3, 0.4, 1); break; // muzzle flash
         case 'beam': beam(e.x, e.z, e.x2, e.z2, 0.18, BRIGHT, 0.12); break;
         case 'rail': beam(e.x, e.z, e.x2, e.z2, 0.7, BRIGHT, 0.35); beam(e.x, e.z, e.x2, e.z2, 0.2, HOT, 0.25); wave(0, 0, 5, HOT, 0.3); break;
         case 'shot': { const [x, z] = launchPts[Math.floor(Math.random() * launchPts.length)] ?? [0, 0]; shards(x, z, 4, HOT, 4, 0.5, 2.4); break; } // launch flash at a random launcher
@@ -448,13 +449,13 @@ export function createRenderer() {
     lockLines.geometry.attributes.position.needsUpdate = true;
 
     // shots
-    shells.count = missiles.count = 0;
+    shells.count = tracers.count = missiles.count = 0;
     for (const p of s.shots) {
-      const m = p.kind === 'shell' ? shells : missiles;
+      const m = p.kind === 'shell' ? shells : p.kind === 'tracer' ? tracers : missiles;
       if (m.count >= MAX_SHOTS) continue;
-      dummy.position.set(p.x, 1.6, p.z); dummy.rotation.set(0, Math.atan2(p.vx, p.vz), 0); dummy.scale.setScalar(1);
+      dummy.position.set(p.x, p.kind === 'tracer' ? 1 : 1.6, p.z); dummy.rotation.set(0, Math.atan2(p.vx, p.vz), 0); dummy.scale.setScalar(1);
       dummy.updateMatrix(); m.setMatrixAt(m.count, dummy.matrix);
-      m.setColorAt(m.count++, tmpC.setHex(p.kind === 'shell' ? HOT : BRIGHT));
+      m.setColorAt(m.count++, p.kind === 'tracer' ? tmpC.setHex(0xffffff) : tmpC.setHex(p.kind === 'shell' ? HOT : BRIGHT));
       if (p.kind === 'missile' && Math.random() < 0.5) shards(p.x, p.z, 1, MID, 1, 0.5, 1.6);
     }
 
@@ -510,7 +511,7 @@ export function createRenderer() {
       blipMesh.setColorAt(blipMesh.count++, tmpC.setHex(BRIGHT).multiplyScalar(0.7 * r * r));
     }
 
-    for (const m of [...Object.values(enemyFills), ...Object.values(enemyEdges), brackets, hpBars, shells, missiles, shardMesh, waveMesh, beamMesh, blipMesh]) {
+    for (const m of [...Object.values(enemyFills), ...Object.values(enemyEdges), brackets, hpBars, shells, tracers, missiles, shardMesh, waveMesh, beamMesh, blipMesh]) {
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }

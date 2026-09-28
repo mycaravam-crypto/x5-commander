@@ -10,7 +10,7 @@ export interface Enemy {
   seenUntil: number; locked: boolean; incoming: number; wob: number;
 }
 export interface Shot {
-  kind: 'shell' | 'missile'; x: number; z: number; vx: number; vz: number;
+  kind: 'shell' | 'missile' | 'tracer'; x: number; z: number; vx: number; vz: number;
   dmg: number; splash: number; life: number; target: number;
 }
 export type Ev =
@@ -230,8 +230,12 @@ function perimeter(s: State, dt: number) {
     if (!best) continue;
     s.ammo -= w.ammo; p.cd = 1 / w.rate;
     if (p.k === 'mantis') {
+      // 35mm tracer round, led like the PAC-3 so it actually connects
+      const sp = 70, tt = Math.sqrt(bd) / sp;
+      const dx = best.x + best.vx * tt - p.x, dz = best.z + best.vz * tt - p.z, d = Math.hypot(dx, dz) || 1;
+      s.shots.push({ kind: 'tracer', x: p.x, z: p.z, vx: dx / d * sp, vz: dz / d * sp, dmg: w.dmg, splash: 0, life: w.range / sp + 0.15, target: best.id });
+      best.incoming += w.dmg;
       s.events.push({ k: 'gun', x: p.x, z: p.z, x2: best.x, z2: best.z });
-      damage(s, best, w.dmg);
     } else {
       const d = Math.sqrt(bd) || 1;
       s.shots.push({ kind: 'missile', x: p.x, z: p.z, vx: (best.x - p.x) / d * 15, vz: (best.z - p.z) / d * 15, dmg: w.dmg, splash: 0, life: 3, target: best.id });
