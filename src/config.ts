@@ -10,8 +10,9 @@ export const PHASE_LEN = 75; // s
 export const ELITE_EVERY = 150; // s
 
 // Green phosphor palette, shared by the 3D scene and the CSS (hud.ts copies it into CSS variables).
-// Amber is the single exception: warnings and base damage.
-export const PAL = { dim: 0x0b3d1f, mid: 0x1f9e4f, bright: 0x39ff88, hot: 0xc8ffe0, alert: 0xffb000 };
+// Hierarchy: dim/mid for the frame, bright for what's active, hot for what's locked or selected, amber (alert)
+// for warnings, red (crit) only for the worst: battery critical, radar knocked out.
+export const PAL = { dim: 0x0b3d1f, mid: 0x1f9e4f, bright: 0x39ff88, hot: 0xc8ffe0, alert: 0xffb000, crit: 0xff4a2a };
 // Radar bearing in degrees, 0-360, measured from +x toward +z (grid labels and the HUD use the same one).
 export const bearing = (x: number, z: number) => ((Math.atan2(z, x) * 180 / Math.PI) % 360 + 360) % 360;
 

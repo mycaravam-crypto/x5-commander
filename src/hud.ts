@@ -1,6 +1,6 @@
 import { ARENA_R, BASE_R, PLACE_TIME, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, RAID_PRESS, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
 import type { Records } from './config.ts';
-import { cost, emitting, slots, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
+import { cost, emitting, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const $ = (id: string) => document.getElementById(id)!;
 const fmt = (n: number) => Math.floor(n).toLocaleString('en-US');
@@ -209,7 +209,11 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       g.lineTo(px(c * (R + 4) - tx, sn * (R + 4) - tz), py(c * (R + 4) - tx, sn * (R + 4) - tz));
       g.stroke(); g.lineWidth = 1;
     }
-    g.fillStyle = rgba(on ? PAL.hot : PAL.alert); g.fillRect(C - 3, C - 3, 6, 6);
+    if (s.t < s.radarDownUntil && s.phase === 'play') { // knocked out: static, and say so
+      for (let i = 0; i < 60; i++) { g.fillStyle = rgba(PAL.crit, Math.random() * 0.5); g.fillRect(Math.random() * cv.width, Math.random() * cv.height, 2, 1 + Math.random() * 2); }
+      g.fillStyle = rgba(PAL.crit); g.font = 'bold 16px monospace'; g.textAlign = 'center'; g.fillText('NO RADAR', C, C - 12);
+    }
+    g.fillStyle = rgba(on ? PAL.hot : s.t < s.radarDownUntil ? PAL.crit : PAL.alert); g.fillRect(C - 3, C - 3, 6, 6);
   }
 
   // ---- system log + lock labels ----
@@ -260,7 +264,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     let contacts = 0, locks = 0;
     for (const e of s.enemies) { if (visible(s, e)) contacts++; if (e.locked) locks++; }
     const sweepPct = Math.round(s.sweepSpeed / st.sweep * 100);
-    const radar = s.t < s.radarDownUntil ? `<span class="alert">DOWN ${(s.radarDownUntil - s.t).toFixed(1)}s${st.backupRadar && !s.emcon ? ' · TRML' : ''}</span>`
+    const radar = s.t < s.radarDownUntil ? `<span class="red">DOWN ${(s.radarDownUntil - s.t).toFixed(1)}s${st.backupRadar && !s.emcon ? ' · TRML' : ''}</span>`
       : s.emcon ? '<span class="alert">EMCON · SILENT</span>'
       : sweepPct < 100 ? `<span class="alert">${sweepPct}% LOW PWR</span>` : 'RADIATING';
     const M = radarMode(s), scan = s.radarMode === 0 ? M.name : `<span class="hot">${M.name}${radarSector(s) ? ` ${pad3(bearing(Math.cos(focusBearing(s)), Math.sin(focusBearing(s))))}°` : ''}</span>`;
@@ -277,6 +281,12 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
     document.body.classList.toggle('crit', s.phase === 'play' && s.hp / st.maxHp < 0.3);
     raidCard(s);
+    const live = s.phase === 'play' || s.phase === 'pause', down = live && s.t < s.radarDownUntil, silent = live && !down && s.emcon;
+    document.body.classList.toggle('blind', down);
+    document.body.classList.toggle('silent', silent);
+    const bl = down ? `<b>RADAR DOWN ${(s.radarDownUntil - s.t).toFixed(1)}s</b><small>NO FIRE CONTROL · ${backupSearching(s) ? `TRML-4D SEARCHING ${Math.round(st.radarRange * 0.5)}m` : 'BLIND'}</small>`
+      : silent ? '<b>EMCON · SILENT</b><small>NO LOCKS · TRACKS COASTING · [F] RADIATE</small>' : '';
+    if (blindEl.innerHTML !== bl) blindEl.innerHTML = bl;
     const m = s.marked ? s.enemies.find(e => e.id === s.marked) : undefined;
     const d = m ? Math.hypot(m.x, m.z) : 0;
     $('target').innerHTML = m ? `<b>${tag(m)}</b><br>${ENEMIES[shownKind(m)].name}<br>BRG ${pad3(bearing(m.x, m.z))} · RNG ${pad3(d)}m · ETA ${Math.max(0, (d - BASE_R) / m.speed).toFixed(1)}s<br>HP ${fmt(Math.max(0, m.hp))} / ${fmt(m.maxHp)}<b class="seg" style="--r:${Math.max(0, m.hp / m.maxHp)}"></b>` : '';
@@ -289,6 +299,20 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       b.classList.toggle('max', c === Infinity && !why);
       b.classList.toggle('locked', !!why);
     }
+  }
+
+  const blindEl = $('blind');
+  // Raid bearing arrow on the screen edge, when the rim point is off screen.
+  const arrow = $('raidarrow');
+  function raidArrow(s: State, project: Project) {
+    const a = s.raid ? s.raid.a : s.raidLeft ? s.raidA : NaN;
+    if (Number.isNaN(a) || s.phase !== 'play') { arrow.className = ''; return; }
+    const [x, y] = project(Math.cos(a) * ARENA_R, Math.sin(a) * ARENA_R, 0), [cx, cy] = project(0, 0, 0);
+    const m = 40, W = innerWidth, H = innerHeight;
+    if (x > m && x < W - m && y > m && y < H - m) { arrow.className = ''; return; }
+    const dx = x - cx, dy = y - cy, k = Math.min(Math.abs((W / 2 - m) / (dx || 1e-6)), Math.abs((H / 2 - m) / (dy || 1e-6)));
+    arrow.className = 'on';
+    arrow.style.transform = `translate(${W / 2 + dx * k - 11}px, ${H / 2 + dy * k - 12}px) rotate(${Math.atan2(dy, dx)}rad)`;
   }
 
   // ---- raid card: full briefing during the preparation window, a status line during the attack ----
@@ -364,6 +388,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       if (s.phase === 'start') { lastPhase = ''; armSaid = tbmSaid = -99; }
       drawRadar(s, yaw, dt);
       placeLabels(s, project);
+      raidArrow(s, project);
       if (s.phase === 'play' && (logAcc += dt) >= 0.3) { logAcc = 0; scanLog(s); }
       showOverlay(s);
       if ((acc += dt) >= 0.1) { acc = 0; text(s); }

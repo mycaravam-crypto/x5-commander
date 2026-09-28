@@ -21,6 +21,7 @@ small { color: var(--mid); font-size: 10px; letter-spacing: 0.12em; }
 b { font-weight: 600; }
 .hot { color: var(--hot); }
 .alert { color: var(--alert); text-shadow: 0 0 8px var(--alert); }
+.red { color: var(--crit); text-shadow: 0 0 8px var(--crit); }
 
 /* Thin faint border with bright corner brackets. */
 .frame { --c: var(--mid); border: 1px solid var(--line); background:
@@ -48,6 +49,22 @@ b { font-weight: 600; }
 @keyframes raidpulse { 50% { border-color: var(--alert); } }
 body.raid #top, body.raid #left { --c: var(--alert); border-color: color-mix(in srgb, var(--alert) 35%, transparent); }
 
+/* Radar state: knocked out = red, can't be missed; EMCON = a quieter amber reminder. */
+#blind { top: 30%; left: 50%; transform: translateX(-50%); text-align: center; display: none; white-space: nowrap; }
+#blind b { display: block; font-size: 26px; letter-spacing: 0.35em; }
+#blind small { letter-spacing: 0.2em; }
+body.blind #blind, body.silent #blind { display: block; }
+body.blind #blind { color: var(--crit); text-shadow: 0 0 16px var(--crit); animation: blink 0.5s steps(2) infinite alternate; }
+body.blind #blind small { color: var(--crit); }
+body.silent #blind { color: var(--alert); text-shadow: 0 0 8px var(--alert); opacity: 0.8; }
+body.silent #blind b { font-size: 16px; }
+body.silent #blind small { color: var(--alert); }
+body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in srgb, var(--crit) 45%, transparent); }
+/* Raid bearing when the rim is off screen: an amber arrowhead on the screen edge. */
+#raidarrow { left: 0; top: 0; width: 0; height: 0; display: none; border: 12px solid transparent; border-left: 22px solid var(--alert);
+  filter: drop-shadow(0 0 6px var(--alert)); }
+#raidarrow.on { display: block; }
+
 #left { top: 12px; left: 12px; width: 240px; padding: 10px; }
 .bar { margin-bottom: 6px; }
 .bar small { display: flex; justify-content: space-between; }
@@ -56,6 +73,7 @@ body.raid #top, body.raid #left { --c: var(--alert); border-color: color-mix(in 
   background: linear-gradient(90deg, var(--f) calc(var(--r, 1) * 100%), var(--dim) 0);
   mask: repeating-linear-gradient(90deg, #000 0 calc(5% - 2px), transparent 0 5%); }
 .seg.crit { --f: var(--alert); animation: blink 0.4s infinite alternate; }
+#hpBar.crit { --f: var(--crit); } /* battery critical is the one red bar; low power / ammo stay amber */
 @keyframes blink { to { opacity: 0.4; } }
 #info { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 10px 0; }
 #info dt { color: var(--mid); font-size: 11px; }
