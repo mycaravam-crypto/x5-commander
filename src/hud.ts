@@ -258,6 +258,42 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   const bar = (id: string, r: number, crit = false) => { const el = $(id); el.style.setProperty('--r', String(Math.round(Math.max(0, Math.min(1, r)) * 20) / 20)); el.classList.toggle('crit', crit); };
 
   const flow = { t: 0, p: 0, a: 0, dp: 0, da: 0 };
+  const infoEl = $('info');
+  let infoHtml = '';
+
+  // ---- threat board: what's attacking, and the few that matter most right now ----
+  const threatEl = $('threats');
+  let threatHtml = '';
+  // Urgency: damage it would do over the time it needs to get here. Jammers and ARMs rank by what they do instead.
+  const urgency = (e: Enemy) => {
+    const k = shownKind(e), d = Math.hypot(e.x, e.z), eta = Math.max(0.5, (d - BASE_R) / e.speed);
+    return k === 'ew' ? (e.orbit ? 4 : 1) : k === 'arm' ? 30 / eta : ENEMIES[k].dmg / eta;
+  };
+  function threatBoard(s: State) {
+    const seen = s.enemies.filter(e => visible(s, e) && !e.ided);
+    const count: Partial<Record<string, number>> = {};
+    for (const e of seen) { const c = ENEMIES[shownKind(e)].code; count[c] = (count[c] ?? 0) + 1; }
+    const top = seen.map(e => [urgency(e), e] as const).sort((a, b) => b[0] - a[0]).slice(0, 4);
+    const worst = top[0]?.[0] ?? 0;
+    const h = !seen.length ? '' : `<small>THREATS · ${seen.length}</small> ${Object.entries(count).sort((a, b) => b[1]! - a[1]!).map(([c, n]) => `${n} ${c}`).join(' · ')}` +
+      top.map(([u, e]) => { const d = Math.hypot(e.x, e.z), k = shownKind(e);
+        return `<div class="${u >= worst * 0.6 && u > 2 || k === 'arm' || k === 'tbm' ? 'alert' : ''}${e.id === s.marked ? ' mk' : ''}">${e.locked ? '◆' : '◇'} ${ENEMIES[k].code} ${pad3(bearing(e.x, e.z))}° ${pad3(d)}m${k === 'ew' ? (e.orbit ? ' JAMMING' : '') : ` ETA ${Math.max(0, (d - BASE_R) / e.speed).toFixed(0)}s`}</div>`; }).join('');
+    if (h !== threatHtml) { threatHtml = h; threatEl.innerHTML = h; }
+  }
+
+  // ---- what to buy: the one shop row that fixes today's bottleneck ----
+  const cheaper = (s: State, a: string, b: string) => cost(s, a) <= cost(s, b) ? a : b;
+  function suggest(s: State) {
+    const st = s.st;
+    if (s.phase !== 'play') return '';
+    if (s.ammo < st.ammoCap * 0.25) return cheaper(s, 'aprod', 'acap');
+    if (s.power < st.powerCap * 0.25 || s.sweepSpeed < st.sweep * 0.99 && emitting(s)) return 'gen';
+    if (s.hp < st.maxHp * 0.5) return cheaper(s, 'hp', 'repair');
+    let locks = 0, waiting = 0;
+    for (const e of s.enemies) { if (e.locked) locks++; else if (visible(s, e) && !e.ided && e.x * e.x + e.z * e.z <= st.trackRange ** 2) waiting++; }
+    if (locks >= slots(s) && waiting >= 2) return 'slots';
+    return cheaper(s, 'dmg', 'range');
+  }
   function text(s: State) {
     const st = s.st;
     set('credits', fmt(s.credits)); set('phase', phaseName(s)); set('time', clock(s.t));
@@ -283,17 +319,26 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       : s.emcon ? '<span class="alert">EMCON · SILENT</span>'
       : sweepPct < 100 ? `<span class="alert">${sweepPct}% LOW PWR</span>` : 'RADIATING';
     const M = radarMode(s), scan = s.radarMode === 0 ? M.name : `<span class="hot">${M.name}${radarSector(s) ? ` ${pad3(bearing(Math.cos(focusBearing(s)), Math.sin(focusBearing(s))))}°` : ''}</span>`;
-    $('info').innerHTML = [
-      ['TRACKS', contacts], ['ENGAGED', `${locks} / ${slots(s)}${s.t < s.chainUntil ? ' <span class="hot">+CHAIN</span>' : ''}`], ['MODE [T]', MODES[s.mode]],
+    // Grouped by what you're deciding: what the radar sees, what fire control does, the battery's state.
+    const lockBar = `<b class="seg lk" style="--r:${slots(s) ? Math.min(1, locks / slots(s)) : 0}"></b>`;
+    const html = [
+      ['// SENSORS', ''],
+      ['SCAN [V]', scan], ['RADAR [F]', radar], ['RANGE', `${Math.round(radarRange(s))}m`], ['TRACKS', contacts],
+      ['// FIRE CONTROL', ''],
+      ['ENGAGED', `${locks} / ${slots(s)}${s.t < s.chainUntil ? ' <span class="hot">+CHAIN</span>' : ''}${lockBar}`],
       ['FIRE [G]', s.discipline === 1 ? DISCIPLINES[1].name : `<span class="hot">${DISCIPLINES[s.discipline].name}</span>`],
+      ['MODE [T]', MODES[s.mode]],
       ['INTERCEPT [SPC]', interceptActive(s) ? '<span class="hot">ENGAGING</span>' : (w => w ? `<span class="${w.endsWith('s') ? 'dim' : 'alert'}">${w}</span>` : '<span class="hot">READY</span>')(interceptBlock(s))],
+      ['// BATTERY', ''],
+      ['PERIMETER', `${s.perim.length} / ${perimSlots(s.level)} pads`],
       ...ffSpeed > 1 ? [['SPEED [X]', `<span class="hot">${ffSpeed}×</span>`]] : [],
-      ['SCAN [V]', scan], ['RANGE', `${Math.round(radarRange(s))}m`], ['PERIMETER', `${s.perim.length} / ${perimSlots(s.level)} pads`], ['RADAR [F]', radar],
       ...s.placing ? [['PAD', `<span class="hot">CLICK MAP · ${Math.max(0, PLACE_TIME - (s.t - s.placing.since)).toFixed(0)}s</span>`]] : [],
       ...s.raid ? [['RAID', `<span class="alert">${pad3(bearing(Math.cos(s.raid.a), Math.sin(s.raid.a)))}° T-${Math.max(0, s.raid.at - s.t).toFixed(0)}s</span>`]]
         : s.raidLeft ? [['RAID', `<span class="alert">${s.raidLeft}</span> · ${s.raidClean ? 'HELD' : '<span class="alert">LOST</span>'}`]]
         : s.t < s.calmUntil ? [['RECOVERY', `${Math.ceil(s.calmUntil - s.t)}s`]] : [],
-    ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+    ].map(([k, v]) => v === '' ? `<dt class="grp">${k}</dt>` : `<dt>${k}</dt><dd>${v}</dd>`).join('');
+    if (html !== infoHtml) { infoHtml = html; infoEl.innerHTML = html; } // no DOM churn when nothing changed
+    threatBoard(s);
     document.body.classList.toggle('crit', s.phase === 'play' && s.hp / st.maxHp < 0.3);
     raidCard(s);
     const live = s.phase === 'play' || s.phase === 'pause', down = live && s.t < s.radarDownUntil, silent = live && !down && s.emcon;
@@ -305,8 +350,10 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const m = s.marked ? s.enemies.find(e => e.id === s.marked) : undefined;
     const d = m ? Math.hypot(m.x, m.z) : 0;
     $('target').innerHTML = m ? `<b>${tag(m)}</b><br>${ENEMIES[shownKind(m)].name}<br>BRG ${pad3(bearing(m.x, m.z))} · RNG ${pad3(d)}m · ETA ${Math.max(0, (d - BASE_R) / m.speed).toFixed(1)}s<br>HP ${fmt(Math.max(0, m.hp))} / ${fmt(m.maxHp)}<b class="seg" style="--r:${Math.max(0, m.hp / m.maxHp)}"></b>` : '';
+    const hint = suggest(s);
     for (const [id, b] of rows) {
       const c = cost(s, id), lv = s.lv[id] ?? 0;
+      b.classList.toggle('hint', id === hint);
       b.children[1].textContent = lv ? `LV ${lv}` : '';
       const why = lockReason(s, id);
       b.children[2].textContent = why || (c === Infinity ? 'MAX' : fmt(c));
