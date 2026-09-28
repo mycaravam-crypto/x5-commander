@@ -1,7 +1,7 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, PHASE_LEN, ELITE_EVERY,
   ENEMIES, KINDS, WEAPONS, PHASES, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, RAID_SPAWN, RAID_RECOVER, RAID_CALM, RAID_PRESS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, SWEEP_CAP, grow, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty,
-  RADAR_MODES, LPI_R, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
+  RADAR_MODES, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   type EnemyKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
 } from './config.ts';
 
@@ -30,7 +30,7 @@ export type Ev =
   | { k: 'raidStart'; x: number; z: number; name: string }
   | { k: 'raidClear' | 'raidLeak' | 'raidEnd'; n: number }
   | { k: 'intercept'; x: number; z: number }
-  | { k: 'level' | 'warning' | 'buy' | 'placing' | 'lock' | 'over' | 'emcon' | 'radarDown' | 'aesa' | 'discipline' | 'radarMode' };
+  | { k: 'level' | 'warning' | 'buy' | 'placing' | 'lock' | 'over' | 'emcon' | 'radarDown' | 'aesa' | 'discipline' | 'radarMode' | 'killChain' | 'counterSead' | 'lastStand' };
 
 export type Phase = 'start' | 'play' | 'pause' | 'perk' | 'over';
 
@@ -78,6 +78,9 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     jamming: false,
     emcon: false,
     radarMode: 0, // index into RADAR_MODES
+    dark: false, // radar silent last frame (BLACKOUT PROTOCOL stretches tracks on the way down)
+    chainKills: 0, chainUntil: 0, // KILL CHAIN: kills toward the next bonus slot, when the current one ends
+    lastStand: false,
     focusA: 0, // bearing FOCUSED dwells on when there's no priority target (last click)
     radarDownUntil: 0,
     cooldown: { cannon: 0, pulse: 0, missile: 0, rail: 0 } as Record<WeaponKind, number>,
@@ -124,6 +127,9 @@ export function phase(s: State) {
 export const phaseName = (s: State) => phase(s).name;
 export const emitting = (s: State) => !s.emcon && s.t >= s.radarDownUntil;
 export const radarMode = (s: State) => RADAR_MODES[s.radarMode];
+// Lock slots right now: KILL CHAIN adds one for a while after a run of kills.
+export const slots = (s: State) => s.st.slots + (s.t < s.chainUntil ? 1 : 0);
+export const lastStand = (s: State) => s.st.lastStand && s.hp < s.st.maxHp * LAST_STAND.hp;
 // Effective detection range and arc for the current mode. LPI WAVEFORM (perk) takes the LPI penalty away.
 export const radarRange = (s: State) => s.st.radarRange * (radarMode(s).lpi && s.st.lpi ? 1 : radarMode(s).range);
 export const radarSector = (s: State) => radarMode(s).sector * (s.st.aesa ? 1.5 : 1); // 0 = all round
@@ -315,6 +321,8 @@ export function update(s: State, dt: number) {
   }
   moveShots(s, dt);
   s.hp = Math.min(s.st.maxHp, s.hp + s.st.repair * dt);
+  const ls = lastStand(s);
+  if (ls !== s.lastStand) { s.lastStand = ls; if (ls) s.events.push({ k: 'lastStand' }); }
   if (s.hp <= 0) { s.hp = 0; s.phase = 'over'; s.events.push({ k: 'over' }); }
 }
 
@@ -532,7 +540,7 @@ function removeAt(s: State, i: number) {
 
 function powerAndAmmo(s: State, dt: number) {
   const st = s.st;
-  s.power = Math.min(st.powerCap, s.power + st.gen * dt);
+  s.power = Math.min(st.powerCap, s.power + st.gen * (lastStand(s) ? LAST_STAND.gen : 1) * dt);
   // Radar gets what's left; starving it slows the sweep (floor 25%). Silent radar draws nothing.
   if (s.marked) s.power = Math.max(0, s.power - PRIORITY_POWER * dt); // painting the priority target
   const on = emitting(s), want = on ? st.drain * radarMode(s).drain * dt : 0, got = Math.min(want, s.power);
@@ -562,7 +570,7 @@ function radar(s: State, dt: number) {
     else if (s.st.aesa ? Math.random() >= da / TAU : ((a - a0) % TAU + TAU) % TAU > da) continue;
     if (Math.random() < ENEMIES[e.kind].sig * sig * s.st.res * jamFactor(s, e) * (mod.sig ?? 1)) {
       if (e.seenUntil < s.t) newly++;
-      e.seenUntil = s.t + s.st.persist * (mod.persist ?? 1);
+      e.seenUntil = s.t + s.st.persist * (mod.persist ?? 1) * (s.st.blackout ? BLACKOUT.lit : 1);
     }
   }
   if (newly) s.events.push({ k: 'detect', x: 0, z: 0, n: newly });
@@ -578,11 +586,15 @@ function score(s: State, e: Enemy) {
 }
 
 function track(s: State, dt: number) {
-  if (!emitting(s)) {
+  const dark = !emitting(s);
+  if (dark && !s.dark && s.st.blackout) // BLACKOUT PROTOCOL: what's on the scope coasts twice as long
+    for (const e of s.enemies) if (e.seenUntil > s.t) e.seenUntil = s.t + (e.seenUntil - s.t) * BLACKOUT.dark;
+  s.dark = dark;
+  if (dark) {
     // Radar dark: fire control drops every track and contacts coast on track memory. TRACK FUSION keeps them.
     for (const e of s.enemies) if (e.locked) {
       if (s.st.fusion && e.x * e.x + e.z * e.z <= s.st.trackRange ** 2) e.seenUntil = Math.max(e.seenUntil, s.t + 0.5);
-      else { e.locked = false; e.seenUntil = s.t + s.st.persist; }
+      else { e.locked = false; e.seenUntil = s.t + s.st.persist * (s.st.blackout ? BLACKOUT.dark : 1); }
     }
     return;
   }
@@ -598,18 +610,19 @@ function track(s: State, dt: number) {
     if (e.locked) { locks++; e.seenUntil = Math.max(e.seenUntil, s.t + 0.5); }
   }
   // Too many locks (slots lowered by a perk) → drop extras
-  if (locks > s.st.slots) for (const e of s.enemies) if (e.locked && locks > s.st.slots && e.id !== s.marked) { e.locked = false; locks--; }
+  const n = slots(s);
+  if (locks > n) for (const e of s.enemies) if (e.locked && locks > n && e.id !== s.marked) { e.locked = false; locks--; }
   // Manual mark always gets a slot.
   const m = s.marked ? s.enemies.find(e => e.id === s.marked) : undefined;
   if (m && !m.locked && visible(s, m) && m.x * m.x + m.z * m.z <= tr2) {
-    if (locks >= s.st.slots) {
+    if (locks >= n) {
       let drop: Enemy | null = null;
       for (const e of s.enemies) if (e.locked && (!drop || score(s, e) < score(s, drop))) drop = e;
       if (drop) { drop.locked = false; locks--; }
     }
     m.locked = true; locks++;
   }
-  while (locks < s.st.slots) {
+  while (locks < n) {
     let best: Enemy | null = null, bs = -Infinity;
     for (const e of s.enemies) {
       if (e.locked || e.ided || e.seenUntil <= s.t || e.incoming >= e.hp || e.x * e.x + e.z * e.z > tr2) continue;
@@ -635,7 +648,7 @@ function fire(s: State, dt: number) {
   const open = (e: Enemy) => e === ic || e.incoming < e.hp * D.commit;
   const targets = ic ? [ic] : s.enemies.filter(e => e.locked && open(e));
   targets.sort((a, b) => (b.id === s.marked ? 1e12 : score(s, b)) - (a.id === s.marked ? 1e12 : score(s, a)));
-  const rate = D.rate * (ic ? INTERCEPT.rate : 1);
+  const rate = D.rate * (ic ? INTERCEPT.rate : 1) * (lastStand(s) ? LAST_STAND.rate : 1);
   let wi = 0;
   for (const k of ['cannon', 'pulse', 'missile', 'rail'] as WeaponKind[]) {
     const w = s.st.weapons[k];
@@ -745,6 +758,7 @@ function damage(s: State, e: Enemy, dmg: number, src: string) {
   s.stats.dmg[src] = (s.stats.dmg[src] ?? 0) + Math.min(dmg, e.hp);
   e.hp -= dmg;
   if (e.hp > 0) { s.events.push({ k: 'hit', x: e.x, z: e.z }); return; }
+  const excess = -e.hp;
   const i = s.enemies.indexOf(e);
   if (i >= 0) removeAt(s, i);
   s.combo = s.t - s.lastKill < COMBO_WINDOW ? s.combo + 1 : 1;
@@ -755,4 +769,15 @@ function damage(s: State, e: Enemy, dmg: number, src: string) {
   s.stats.kills[e.kind] = (s.stats.kills[e.kind] ?? 0) + 1;
   s.events.push({ k: 'kill', x: e.x, z: e.z, kind: e.kind, n: gain });
   if (s.st.chain) explode(s, e.x, e.z, 4, s.st.chain, 'CHAIN');
+  if (s.st.counterSead && e.kind === 'arm') { s.power = Math.min(s.st.powerCap, s.power + s.st.powerCap * COUNTER_SEAD); s.events.push({ k: 'counterSead' }); }
+  if (s.st.killChain && ++s.chainKills >= KILL_CHAIN.every) { s.chainKills = 0; s.chainUntil = s.t + KILL_CHAIN.time; s.events.push({ k: 'killChain' }); }
+  if (s.st.overkill && excess > 0.5) { // OVERKILL: what's left over jumps to the nearest contact
+    let next: Enemy | null = null, bd = OVERKILL_R ** 2;
+    for (const o of s.enemies) {
+      if (!visible(s, o) || o.ided) continue;
+      const d = (o.x - e.x) ** 2 + (o.z - e.z) ** 2;
+      if (d < bd) { bd = d; next = o; }
+    }
+    if (next) { s.events.push({ k: 'beam', x: e.x, z: e.z, x2: next.x, z2: next.z }); damage(s, next, excess, src); }
+  }
 }
