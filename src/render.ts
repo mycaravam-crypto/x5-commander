@@ -4,8 +4,8 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { ARENA_R, ENEMIES, KINDS, PAL, type EnemyKind } from './config.ts';
-import { visible, type State } from './sim.ts';
+import { ARENA_R, ENEMIES, EW_ARC, KINDS, PAL, PAD_SLOTS, PERIM_R, type EnemyKind } from './config.ts';
+import { emitting, freeSlots, padAngle, phase, shownKind, visible, type State } from './sim.ts';
 
 const MAX_ENEMIES = 2000, MAX_LOCKS = 64, MAX_SHOTS = 600, MAX_SHARDS = 2500, MAX_WAVES = 64, MAX_BEAMS = 96, MAX_BLIPS = 1024;
 const VIS = 1.6; // enemies drawn bigger than their hitbox so they read at a glance
@@ -273,6 +273,9 @@ export function createRenderer() {
     swarm: new THREE.TetrahedronGeometry(0.7),
     tank: new THREE.BoxGeometry(1.2, 0.8, 1.2),
     elite: new THREE.DodecahedronGeometry(0.65),
+    decoy: new THREE.OctahedronGeometry(0.65), // same as the Shahed; only drawn once classified
+    arm: new THREE.ConeGeometry(0.22, 1.8, 4).rotateZ(-Math.PI / 2),
+    ew: new THREE.CylinderGeometry(0.75, 0.75, 0.45, 6),
   };
   const wire = new THREE.MeshBasicMaterial({ wireframe: true });
   const enemyFills = {} as Record<EnemyKind, THREE.InstancedMesh>, enemyEdges = {} as Record<EnemyKind, THREE.InstancedMesh>;
@@ -297,12 +300,23 @@ export function createRenderer() {
   lockLines.frustumCulled = false; scene.add(lockLines);
 
   const shells = instanced(new THREE.BoxGeometry(0.3, 0.3, 1.6), additive(), MAX_SHOTS);
+  const tracers = instanced(new THREE.BoxGeometry(0.1, 0.1, 2.6), additive(), MAX_SHOTS); // MANTIS 35mm: thin, long, low
   const missiles = instanced(edges(new THREE.ConeGeometry(0.35, 1.3, 4).rotateX(Math.PI / 2)), wire, MAX_SHOTS);
   const shardMesh = instanced(segs([-0.5, 0, 0, 0.5, 0, 0]), additive(0xffffff, true), MAX_SHARDS);
   const waveMesh = instanced(segs(ringPts(48)), additive(0xffffff, true), MAX_WAVES);
   const beamMesh = instanced(new THREE.BoxGeometry(1, 1, 1), additive(), MAX_BEAMS);
   const blipMesh = instanced(new THREE.CircleGeometry(1, 12).rotateX(-Math.PI / 2), additive(), MAX_BLIPS);
-  scene.add(shells, missiles, shardMesh, waveMesh, beamMesh, blipMesh);
+  // Jammed sector: a faint amber wedge from the battery out along each Mi-8's bearing.
+  const jamMesh = instanced(new THREE.RingGeometry(0.08, 1, 12, 1, -EW_ARC, EW_ARC * 2).rotateX(-Math.PI / 2), additive(), 16);
+  scene.add(shells, tracers, missiles, shardMesh, waveMesh, beamMesh, blipMesh, jamMesh);
+  // Incoming raid: three amber chevrons at the rim, pointing in along its bearing.
+  const chevPts: number[] = [];
+  for (let i = 0; i < 3; i++) chevPts.push(0.6 - i, 0, -0.8, -i, 0, 0, -i, 0, 0, 0.6 - i, 0, 0.8);
+  const raidMark = new THREE.Mesh(segs(chevPts), additive(ALERT, true));
+  raidMark.visible = false; scene.add(raidMark);
+  // Free pad spots, shown while a bought pad waits to be placed.
+  const padMarks = instanced(segs(ringPts(16, 2)), additive(0xffffff, true), PAD_SLOTS);
+  scene.add(padMarks);
 
   // Particle pools: flat arrays, ring-buffer allocation, no per-frame garbage.
   const sh = { p: new Float32Array(MAX_SHARDS * 3), v: new Float32Array(MAX_SHARDS * 3), life: new Float32Array(MAX_SHARDS), max: new Float32Array(MAX_SHARDS), col: new Float32Array(MAX_SHARDS * 3), size: new Float32Array(MAX_SHARDS), next: 0 };
@@ -338,7 +352,7 @@ export function createRenderer() {
     bl.x[i] = x; bl.z[i] = z; bl.r[i] = r; bl.life[i] = bl.max[i] = life;
   }
 
-  const KILL_SHARDS: Record<EnemyKind, number> = { swarm: 3, scout: 4, drone: 6, tank: 12, elite: 20 };
+  const KILL_SHARDS: Record<EnemyKind, number> = { swarm: 3, scout: 4, drone: 6, tank: 12, elite: 20, decoy: 4, arm: 5, ew: 12 };
   function consume(s: State) {
     for (const e of s.events) {
       switch (e.k) {
@@ -352,12 +366,19 @@ export function createRenderer() {
         }
         case 'hit': e.n ? (wave(e.x, e.z, e.n, HOT, 0.35), shards(e.x, e.z, 6, BRIGHT, 10)) : shards(e.x, e.z, 2, HOT, 6, 0.5); break;
         case 'baseHit': wave(0, 0, 9, ALERT, 0.5, 1.5); shards(e.x, e.z, 10, ALERT, 12, 1.2); gridFlash = 1; break;
-        case 'gun': beam(e.x, e.z, e.x2, e.z2, 0.06, HOT, 0.05); break;
+        case 'gun': shards(e.x, e.z, 2, 0xffffff, 3, 0.4, 1); break; // muzzle flash
         case 'beam': beam(e.x, e.z, e.x2, e.z2, 0.18, BRIGHT, 0.12); break;
         case 'rail': beam(e.x, e.z, e.x2, e.z2, 0.7, BRIGHT, 0.35); beam(e.x, e.z, e.x2, e.z2, 0.2, HOT, 0.25); wave(0, 0, 5, HOT, 0.3); break;
         case 'shot': { const [x, z] = launchPts[Math.floor(Math.random() * launchPts.length)] ?? [0, 0]; shards(x, z, 4, HOT, 4, 0.5, 2.4); break; } // launch flash at a random launcher
         case 'level': wave(0, 0, 40, BRIGHT, 1.2, 1.5); wave(0, 0, 25, HOT, 0.9); shards(0, 0, 40, BRIGHT, 20, 1.2, 3); gridFlash = 0.6; break;
         case 'warning': wave(0, 0, ARENA_R, ALERT, 1.5, 1.5); break;
+        case 'arm': wave(e.x, e.z, 6, ALERT, 0.8, 1.5); break;
+        case 'jam': wave(e.x, e.z, 8, ALERT, 1.2); break;
+        case 'ident': wave(e.x, e.z, 3, MID, 0.4); break;
+        case 'radarDown': wave(0, 0, 14, ALERT, 0.8, 1.5); shards(0, 1.9, 30, ALERT, 14, 1, 2.5); gridFlash = 1; break;
+        case 'emcon': wave(0, 0, s.st.radarRange, MID, 0.6); break;
+        case 'raid': wave(e.x, e.z, 14, ALERT, 1.2, 1.5); break;
+        case 'raidClear': wave(0, 0, 30, HOT, 1, 1.5); shards(0, 0, 30, HOT, 18, 1, 3); break;
       }
     }
   }
@@ -382,11 +403,27 @@ export function createRenderer() {
     camRight.setFromMatrixColumn(camera.matrixWorld, 0);
 
     // radar + base
-    sweep.rotation.y = -s.sweepA; sweep.scale.setScalar(s.st.radarRange);
+    const on = emitting(s);
+    sweep.rotation.y = -s.sweepA; sweep.scale.setScalar(s.st.radarRange); sweep.visible = on;
     radarRing.scale.setScalar(s.st.radarRange);
+    (radarRing.material as THREE.LineBasicMaterial).opacity = on ? 0.5 : 0.12 + 0.08 * Math.sin(clock * 6);
     trackRing.scale.setScalar(s.st.trackRange);
     gridFlash = Math.max(0, gridFlash - dt * 2.5);
-    gridMat.color.setScalar(1 + gridFlash * 4);
+    gridMat.color.setScalar((phase(s).mod.dark ? 0.45 : 1) + gridFlash * 4);
+    raidMark.visible = !!s.raid;
+    padMarks.count = 0;
+    if (s.placing) for (const i of freeSlots(s)) {
+      dummy.position.set(Math.cos(padAngle(i)) * PERIM_R, 0.15, Math.sin(padAngle(i)) * PERIM_R);
+      dummy.rotation.set(0, clock, 0); dummy.scale.setScalar(1.6 + 0.3 * Math.sin(clock * 6));
+      dummy.updateMatrix(); padMarks.setMatrixAt(padMarks.count, dummy.matrix);
+      padMarks.setColorAt(padMarks.count++, tmpC.setHex(HOT));
+    }
+    if (s.raid) {
+      const pulse = (clock * 1.5) % 1;
+      raidMark.position.set(Math.cos(s.raid.a) * (ARENA_R - 1 - pulse * 3), 0.2, Math.sin(s.raid.a) * (ARENA_R - 1 - pulse * 3));
+      raidMark.rotation.y = -s.raid.a; raidMark.scale.setScalar(2.2);
+      (raidMark.material as THREE.MeshBasicMaterial).color.setHex(ALERT).multiplyScalar(0.6 + 0.8 * (1 - pulse));
+    }
     let da = ((s.aim - turretA + Math.PI) % TAU + TAU) % TAU - Math.PI;
     turretA += da * Math.min(1, dt * 15);
     for (const [o, ry] of aimers) o.rotation.y = -turretA - ry;
@@ -400,25 +437,41 @@ export function createRenderer() {
     }
     lastSweep = s.sweepA;
 
+    // Jammers: amber wedge, and a noise strobe of false returns along their bearing while the radar radiates.
+    jamMesh.count = 0;
+    for (const e of s.enemies) {
+      if (e.kind !== 'ew' || !e.orbit || jamMesh.count >= 16) continue;
+      const a = Math.atan2(e.z, e.x);
+      dummy.position.set(0, 0.08, 0); dummy.rotation.set(0, -a, 0); dummy.scale.setScalar(s.st.radarRange);
+      dummy.updateMatrix(); jamMesh.setMatrixAt(jamMesh.count, dummy.matrix);
+      jamMesh.setColorAt(jamMesh.count++, tmpC.setHex(ALERT).multiplyScalar(0.012 + 0.008 * Math.random()));
+      if (on && s.phase === 'play' && Math.random() < 0.6) {
+        const r = 5 + Math.random() * (s.st.radarRange - 5), b = a + (Math.random() - 0.5) * EW_ARC;
+        blip(Math.cos(b) * r, Math.sin(b) * r, 0.4 + Math.random() * 0.8, 0.5);
+      }
+    }
+
     // enemies, locks, hp bars
     for (const k of KINDS) enemyFills[k].count = enemyEdges[k].count = 0;
     let nl = 0, marked = false;
     for (const e of s.enemies) {
       if (!visible(s, e)) continue;
-      const f = enemyFills[e.kind], m = enemyEdges[e.kind], T = ENEMIES[e.kind];
+      const k = shownKind(e), f = enemyFills[k], m = enemyEdges[k], T = ENEMIES[k];
       if (m.count >= MAX_ENEMIES) continue;
       const fade = e.locked ? 1 : Math.max(0.2, Math.min(1, (e.seenUntil - s.t) / 1.5));
       let b = e.locked ? 1.3 : T.glow * fade;
       if (e.kind === 'tank') b *= 0.55 + 0.45 * Math.sin(clock * 5 + e.id); // slow pulse
       if (e.kind === 'elite') b *= Math.sin(clock * 20 + e.id) > 0 ? 1 : 0.2; // hard strobe
+      if (k === 'decoy') b *= 0.35; // classified: a ghost
+      const col = k === 'arm' ? ALERT : e.locked ? HOT : BRIGHT; // ARMs are the one enemy drawn in amber
       const sz = e.size * VIS;
       dummy.position.set(e.x, sz * 0.6, e.z);
-      dummy.rotation.set(e.kind === 'drone' || e.kind === 'elite' ? clock * 2 : 0, -Math.atan2(e.vz, e.vx) + (e.kind === 'swarm' ? clock * 6 : 0), 0);
+      dummy.rotation.set(k === 'drone' || k === 'elite' ? clock * 2 : 0, -Math.atan2(e.vz, e.vx) + (k === 'swarm' ? clock * 6 : k === 'ew' ? clock : 0), 0);
       dummy.scale.setScalar(sz);
       dummy.updateMatrix();
       f.setMatrixAt(f.count++, dummy.matrix);
       m.setMatrixAt(m.count, dummy.matrix);
-      m.setColorAt(m.count++, tmpC.setHex(e.locked ? HOT : BRIGHT).multiplyScalar(b));
+      m.setColorAt(m.count++, tmpC.setHex(col).multiplyScalar(b));
       if (e.id === s.marked) {
         marked = true;
         markRing.position.set(e.x, 0.1, e.z);
@@ -448,13 +501,13 @@ export function createRenderer() {
     lockLines.geometry.attributes.position.needsUpdate = true;
 
     // shots
-    shells.count = missiles.count = 0;
+    shells.count = tracers.count = missiles.count = 0;
     for (const p of s.shots) {
-      const m = p.kind === 'shell' ? shells : missiles;
+      const m = p.kind === 'shell' ? shells : p.kind === 'tracer' ? tracers : missiles;
       if (m.count >= MAX_SHOTS) continue;
-      dummy.position.set(p.x, 1.6, p.z); dummy.rotation.set(0, Math.atan2(p.vx, p.vz), 0); dummy.scale.setScalar(1);
+      dummy.position.set(p.x, p.kind === 'tracer' ? 1 : 1.6, p.z); dummy.rotation.set(0, Math.atan2(p.vx, p.vz), 0); dummy.scale.setScalar(1);
       dummy.updateMatrix(); m.setMatrixAt(m.count, dummy.matrix);
-      m.setColorAt(m.count++, tmpC.setHex(p.kind === 'shell' ? HOT : BRIGHT));
+      m.setColorAt(m.count++, p.kind === 'tracer' ? tmpC.setHex(0xffffff) : tmpC.setHex(p.kind === 'shell' ? HOT : BRIGHT));
       if (p.kind === 'missile' && Math.random() < 0.5) shards(p.x, p.z, 1, MID, 1, 0.5, 1.6);
     }
 
@@ -510,7 +563,7 @@ export function createRenderer() {
       blipMesh.setColorAt(blipMesh.count++, tmpC.setHex(BRIGHT).multiplyScalar(0.7 * r * r));
     }
 
-    for (const m of [...Object.values(enemyFills), ...Object.values(enemyEdges), brackets, hpBars, shells, missiles, shardMesh, waveMesh, beamMesh, blipMesh]) {
+    for (const m of [...Object.values(enemyFills), ...Object.values(enemyEdges), brackets, hpBars, shells, tracers, missiles, shardMesh, waveMesh, beamMesh, blipMesh, jamMesh, padMarks]) {
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
