@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
 import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, draft, placePad, rand, dailySeed, type State } from './sim.ts';
-import { baseLevel, difficulty, UPGRADES, PERKS, deriveStats, EW_ORBIT, MODS, PHASES, PHASE_LEN, RAID_WARN } from './config.ts';
+import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, PHASES, PHASE_LEN, RAID_WARN } from './config.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
 const rng = { seed: 12345 };
@@ -194,6 +194,25 @@ const raidRun = (slots: number) => {
 };
 ok(raidRun(2).includes('raidClear'), 'clean raid pays');
 ok(raidRun(0).includes('raidLeak'), 'leaked raid does not');
+
+// Attack packages: turn up in normal waves once their time comes, all from one bearing, escort jamming it.
+{
+  const g = newGame(3); g.phase = 'play'; g.nextRaid = g.nextElite = 1e9; g.st.maxHp = g.hp = 1e9;
+  const seen = new Set<string>();
+  run(g, 600, () => { for (const e of g.events) if (e.k === 'package') seen.add(e.name); });
+  ok(seen.size >= 2, `packages spawn in normal waves (${[...seen]})`);
+}
+{
+  const q = quiet(); q.st.slots = 0;
+  const a = 1.2, before = q.nextId;
+  // spawnGroup isn't exported; a raid uses it, so fly one with the escort package's composition.
+  q.nextRaid = q.t + RAID_WARN; run(q, 1 / 60); q.raid!.g = PACKAGES.find(p => p.name === 'JAMMED SWARM')!.g; q.raid!.a = a;
+  run(q, RAID_WARN + 5);
+  const grp = q.enemies.filter(e => e.id >= before), jam = grp.find(e => e.kind === 'ew');
+  ok(jam && jam.orbit && Math.abs(Math.atan2(jam.z, jam.x) - a) < EW_ARC && grp.every(e => e.pkg === jam.pkg), 'escort jammer holds its package bearing');
+  const swarm = grp.filter(e => e.kind !== 'ew');
+  ok(swarm.length && swarm.every(e => jamFactor(q, e) < 1 || Math.hypot(e.x, e.z) < 5), 'package flies inside its escort\'s jammed sector');
+}
 
 // Conditions: after the scripted phases, MODS loop.
 s = newGame(); s.t = PHASE_LEN * PHASES.length + 1;
