@@ -29,9 +29,24 @@ export type Ev =
 
 export type Phase = 'start' | 'play' | 'pause' | 'perk' | 'over';
 
-export function newGame() {
+// mulberry32: tiny seeded PRNG, so a seed replays the same schedule (daily op, tests).
+export function rand(r: { seed: number }) {
+  let t = (r.seed = (r.seed + 0x6D2B79F5) | 0);
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+// Same seed for everyone on the same (UTC) day.
+export const dailySeed = (date: string) => [...date].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619), 2166136261);
+
+// The seed drives two separate streams: the spawn schedule and the perk drafts. Everything that depends on
+// how you play (detection rolls, launches) uses Math.random, so it can't shift the schedule.
+export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '') {
   const s = {
     phase: 'start' as Phase,
+    daily, // date of the daily op, '' for a normal run
+    world: { seed },
+    perkRng: { seed: seed ^ 0x9E3779B9 },
     t: 0,
     credits: START_CREDITS,
     earned: 0,
@@ -76,7 +91,7 @@ export function newGame() {
 export type State = ReturnType<typeof newGame>;
 
 const TAU = Math.PI * 2;
-const pick = <T>(a: T[]) => a[Math.floor(Math.random() * a.length)];
+const pick = <T>(r: { seed: number }, a: T[]) => a[Math.floor(rand(r) * a.length)];
 export const visible = (s: State, e: Enemy) => e.locked || e.seenUntil > s.t;
 const NO_MOD: Mod = { name: '', desc: '' };
 // Scripted phases first, then COMBINED RAID's mix under a looping condition.
@@ -145,9 +160,9 @@ export function buy(s: State, id: string) {
 export function draft(s: State) {
   const pool = PERKS.filter(p => (p.min ?? 0) <= s.level && (!p.need || s.lv[p.need]) && !(p.rule && s.perks.includes(p.id)));
   const rules = pool.filter(p => p.rule).map(p => p.id);
-  const out = rules.length ? [pick(rules)] : [];
+  const out = rules.length ? [pick(s.perkRng, rules)] : [];
   const rest = pool.filter(p => !p.rule).map(p => p.id);
-  while (out.length < 3) { const p = pick(rest); if (!out.includes(p)) out.push(p); }
+  while (out.length < 3) { const p = pick(s.perkRng, rest); if (!out.includes(p)) out.push(p); }
   return out;
 }
 
@@ -226,14 +241,14 @@ export function update(s: State, dt: number) {
   if (s.hp <= 0) { s.hp = 0; s.phase = 'over'; s.events.push({ k: 'over' }); }
 }
 
-export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2) {
+export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2, rnd = Math.random) {
   const T = ENEMIES[kind], d = difficulty(s.t);
-  const hp = T.hp * d.hp * (phase(s).mod.hp ?? 1), speed = T.speed * d.speed * (0.9 + Math.random() * 0.2);
+  const hp = T.hp * d.hp * (phase(s).mod.hp ?? 1), speed = T.speed * d.speed * (0.9 + rnd() * 0.2);
   const x = Math.cos(a) * r, z = Math.sin(a) * r;
   s.enemies.push({
     id: s.nextId++, kind, x, z, vx: -Math.cos(a) * speed, vz: -Math.sin(a) * speed,
     hp, maxHp: hp, speed, dmg: T.dmg * d.dmg,
-    reward: T.reward, size: T.size, seenUntil: -1, locked: false, incoming: 0, wob: Math.random() * TAU,
+    reward: T.reward, size: T.size, seenUntil: -1, locked: false, incoming: 0, wob: rnd() * TAU,
     born: s.t, cd: 3, aim: NaN, lockT: 0, ided: false, orbit: false, raid: 0,
   });
   if (kind === 'arm') s.events.push({ k: 'arm', x, z }); // ESM hears the launch, radar or not
@@ -241,24 +256,25 @@ export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2
 }
 
 function spawn(s: State, dt: number) {
+  const rw = () => rand(s.world);
   const { w, mod } = phase(s);
   s.spawnAcc += difficulty(s.t).spawnRate * (mod.spawn ?? 1) * dt;
   const total = KINDS.reduce((a, k) => a + (w[k] ?? 0), 0);
   while (s.spawnAcc >= 1) {
     s.spawnAcc--;
-    let r = Math.random() * total, kind: EnemyKind = 'drone';
+    let r = rw() * total, kind: EnemyKind = 'drone';
     for (const k of KINDS) { r -= w[k] ?? 0; if (r <= 0) { kind = k; break; } }
-    const a = Math.random() * TAU;
-    for (let i = 0; i < ENEMIES[kind].pack; i++) spawnEnemy(s, kind, a + (Math.random() - 0.5) * 0.15, ARENA_R + 2 + Math.random() * 6);
+    const a = rw() * TAU;
+    for (let i = 0; i < ENEMIES[kind].pack; i++) spawnEnemy(s, kind, a + (rw() - 0.5) * 0.15, ARENA_R + 2 + rw() * 6, rw);
   }
   if (s.t >= s.nextElite) {
     s.nextElite += ELITE_EVERY;
-    const a = Math.random() * TAU, n = 1 + Math.floor(s.t / 300);
-    for (let i = 0; i < n; i++) spawnEnemy(s, 'elite', a + (i - n / 2) * 0.08, ARENA_R + 4 + i * 3);
+    const a = rw() * TAU, n = 1 + Math.floor(s.t / 300);
+    for (let i = 0; i < n; i++) spawnEnemy(s, 'elite', a + (i - n / 2) * 0.08, ARENA_R + 4 + i * 3, rw);
     s.events.push({ k: 'warning' });
   }
   if (!s.raid && s.t >= s.nextRaid - RAID_WARN) {
-    const r = pick(RAIDS.filter(r => s.t >= r.from)), a = Math.random() * TAU;
+    const r = pick(s.world, RAIDS.filter(r => s.t >= r.from)), a = rw() * TAU;
     s.raid = { name: r.name, a, at: s.nextRaid, g: r.g };
     s.nextRaid += RAID_EVERY;
     s.events.push({ k: 'raid', x: Math.cos(a) * ARENA_R, z: Math.sin(a) * ARENA_R, name: r.name });
@@ -270,7 +286,7 @@ function spawn(s: State, dt: number) {
     let row = 0;
     for (const [kind, n] of Object.entries(g) as [EnemyKind, number][]) {
       for (let i = 0; i < Math.round(n * scale); i++, row++) for (let j = 0; j < ENEMIES[kind].pack; j++) {
-        const e = spawnEnemy(s, kind, a + (Math.random() - 0.5) * 0.35, ARENA_R + 2 + row * 1.5 + Math.random() * 2);
+        const e = spawnEnemy(s, kind, a + (rw() - 0.5) * 0.35, ARENA_R + 2 + row * 1.5 + rw() * 2, rw);
         e.raid = s.raidId; s.raidLeft++; s.raidReward += e.reward;
       }
     }

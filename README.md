@@ -29,6 +29,7 @@ The game runs entirely in the browser, with no backend and no asset files. `dist
 | Input                  | Action                                    |
 |------------------------|-------------------------------------------|
 | Space / Enter          | Start game                                |
+| D                      | Start today's daily op                    |
 | Left click             | Mark a contact as the priority target, or place a bought pad |
 | Mouse wheel            | Zoom                                      |
 | Right-drag / Q / E     | Rotate camera                             |
@@ -92,6 +93,8 @@ A new phase starts every 75 seconds and changes the enemy mix: **PROBING → SAT
 
 ### The battery
 The base is laid out like a Patriot site and grows with its level: AN/MPQ-65 radar and Engagement Control Station (ECS) at the start, then the EPP-III power plant, the OE-349 antenna mast, a Hensoldt TRML-4D 360° radar that turns with the sweep, earth berms, and at level 6 the LTAMDS radar upgrade with rear arrays. Every level adds an M903 launcher (up to 8). Buying laser, IRIS-T SLX or HPM adds their vehicles.
+
+**Daily op:** the same seed for everyone on the same (UTC) day, so the whole enemy schedule is identical: which enemies, bearings, raids and perk drafts. Your best time for the day is saved. `R` after a daily op flies it again.
 
 An enemy that reaches the base damages it and dies. When base HP hits 0, the game is over. Your best time, kills, level and credits earned are saved in `localStorage`.
 

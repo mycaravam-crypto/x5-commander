@@ -1,6 +1,10 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, buy, cost, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, emitting, jamFactor, phase, draft, placePad, type State } from './sim.ts';
+import { newGame, update, buy, cost, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, emitting, jamFactor, phase, draft, placePad, rand, dailySeed, type State } from './sim.ts';
 import { baseLevel, UPGRADES, PERKS, deriveStats, EW_ORBIT, MODS, PHASES, PHASE_LEN, RAID_WARN } from './config.ts';
+
+// Deterministic: Math.random is seeded too, so a failure replays exactly.
+const rng = { seed: 12345 };
+Math.random = () => rand(rng);
 
 const ok = (c: unknown, msg: string) => { if (!c) throw new Error('FAIL: ' + msg); };
 const run = (s: State, secs: number, each?: () => void) => {
@@ -149,5 +153,23 @@ run(s, 4);
 ok(s.enemies[0].locked, 'locked before EMCON');
 toggleEmcon(s); run(s, 2);
 ok(s.enemies[0].locked, 'fusion keeps the lock through EMCON');
+
+// Same seed, same schedule: the spawn stream and perk drafts don't depend on anything else.
+{
+  const spawns = (seed: number, noise: boolean) => {
+    const g = newGame(seed); g.phase = 'play';
+    const seen: string[] = [];
+    for (let i = 0; i < 90 * 60; i++) {
+      const n = g.nextId;
+      update(g, 1 / 60);
+      if (noise) Math.random();
+      for (const e of g.enemies) if (e.id >= n && e.kind !== 'arm') seen.push(`${e.kind}@${e.x.toFixed(2)}`);
+    }
+    return seen.join();
+  };
+  ok(spawns(7, false) === spawns(7, true), 'seeded schedule ignores other randomness');
+  ok(spawns(7, false) !== spawns(8, false), 'different seeds differ');
+  ok(dailySeed('2026-09-28') === dailySeed('2026-09-28') && dailySeed('2026-09-28') !== dailySeed('2026-09-29'), 'daily seed');
+}
 
 console.log(`ok · idle ${idle.t.toFixed(0)}s/${idle.kills} kills · bot ${b.t.toFixed(0)}s/${b.kills} kills lv${b.level} [${b.perks.join(',')}]`);

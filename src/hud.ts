@@ -16,7 +16,13 @@ function loadBest(): Best {
   catch { return { time: 0, kills: 0, level: 0, earned: 0 }; }
 }
 
-export function createHud(actions: { buy(id: string): void; perk(i: number): void; start(): void; restart(): void }) {
+type Daily = { date: string; time: number; kills: number };
+function loadDaily(date: string): Daily {
+  try { const d = JSON.parse(localStorage.getItem('x5-daily')!); if (d?.date === date) return d; } catch { /* storage blocked */ }
+  return { date, time: 0, kills: 0 };
+}
+
+export function createHud(actions: { buy(id: string): void; perk(i: number): void; start(daily?: boolean): void; restart(): void }) {
   for (const [k, v] of Object.entries(PAL)) document.documentElement.style.setProperty(`--${k}`, rgba(v));
 
   // ---- shop (built once) ----
@@ -35,6 +41,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   overlay.onclick = e => {
     const a = (e.target as HTMLElement).closest<HTMLElement>('[data-a]')?.dataset.a;
     if (a === 'start') actions.start();
+    else if (a === 'daily') actions.start(true);
     else if (a === 'restart') actions.restart();
     else if (a?.startsWith('perk')) actions.perk(+a.slice(4));
   };
@@ -55,7 +62,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       <p>Power feeds radar, reloads, laser and HPM — run dry and the sweep slows.</p>
       <p>Anti-radiation missiles <span class="alert">home on your radar</span>. <b>[F] EMCON</b> goes silent so they miss, but you lose every lock.</p>
       ${best.time ? `<p class="dim">BEST · ${clock(best.time)} · ${fmt(best.kills)} kills · base lv ${best.level}</p>` : ''}
-      <button class="btn" data-a="start">DEPLOY [SPACE]</button></div></div>`;
+      <button class="btn" data-a="start">DEPLOY [SPACE]</button> <button class="btn" data-a="daily">DAILY OP [D]</button>
+      <p class="dim">Daily op: same raid for everyone today. ${(d => d.time ? `Your best today · ${clock(d.time)} · ${fmt(d.kills)} kills` : 'Not flown yet today.')(loadDaily(new Date().toISOString().slice(0, 10)))}</p></div></div>`;
     else if (s.phase === 'pause') html = `<div class="card"><h2>PAUSED</h2><p class="dim">[P] resume</p></div>`;
     else if (s.phase === 'perk') html = `<div class="card"><h2>BATTERY LEVEL ${s.level} · CHOOSE A PERK</h2><div class="perks">${
       s.perkChoices.map((id, i) => { const p = PERKS.find(p => p.id === id)!; return `<button class="perk frame${p.rule ? ' rule' : ''}" data-a="perk${i}">${p.rule ? '<i>★ NEW RULE</i>' : ''}<b>${p.name}</b><span>${p.desc}</span><kbd>[${i + 1}]</kbd></button>`; }).join('')
@@ -67,7 +75,13 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       try { localStorage.setItem('x5-best', JSON.stringify(merged)); } catch { /* storage blocked: skip */ }
       const row = (label: string, k: keyof Best, f: (n: number) => string) =>
         `<small>${label}</small><b class="${rec(k) ? 'new' : ''}">${f(now[k])}${rec(k) ? ' ★' : ''}</b><span class="dim">best ${f(Math.max(now[k], best[k]))}</span>`;
-      html = `<div class="card"><h1 class="alert">BATTERY LOST</h1>
+      let daily = '';
+      if (s.daily) {
+        const d = loadDaily(s.daily), rec = s.t > d.time;
+        if (rec) try { localStorage.setItem('x5-daily', JSON.stringify({ date: s.daily, time: s.t, kills: s.kills })); } catch { /* storage blocked: skip */ }
+        daily = `<p class="${rec ? 'hot' : 'dim'}">DAILY OP ${s.daily} · ${rec ? 'NEW BEST TODAY ★' : `today's best ${clock(d.time)}`}</p>`;
+      }
+      html = `<div class="card"><h1 class="alert">BATTERY LOST</h1>${daily}
         <div class="score">${row('SURVIVED', 'time', clock)}${row('KILLS', 'kills', fmt)}${row('BASE LEVEL', 'level', String)}${row('CREDITS EARNED', 'earned', fmt)}</div>
         <p class="dim">perks: ${s.perks.map(id => PERKS.find(p => p.id === id)!.name).join(' · ') || 'none'}</p>
         <button class="btn" data-a="restart">REDEPLOY [R]</button></div>`;
