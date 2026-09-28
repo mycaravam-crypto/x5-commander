@@ -38,6 +38,7 @@ The game runs entirely in the browser, with no backend and no asset files. `dist
 | Right-drag / Q / E     | Rotate camera                             |
 | Tab                    | Show / hide the upgrade shop              |
 | T                      | Cycle the auto-targeting mode             |
+| V                      | Cycle radar mode: ACTIVE / FOCUSED / LPI  |
 | F                      | EMCON: silence the radar (toggle)         |
 | 1 / 2 / 3              | Pick a perk when the base levels up       |
 | 1 – 4 (start screen)   | Pick a doctrine                           |
@@ -65,6 +66,13 @@ A rotating radar can take at most 8 levels of *Scan Rate*. From base level 4 you
 The enemy fights your radar, not just your base.
 - **Anti-radiation missiles (Kh-31P)** home on a radiating radar. Su-34s launch them once they're in range, and in the SEAD phase they arrive in salvos. A hit takes the radar **offline for 6 s** (repeated hits stack up to 12 s). You get warning: every launch sounds the radar-warning tone and shows its bearing.
 - **EMCON (`F`)** stops the radar transmitting. Inbound ARMs lose the emitter and veer off, the radar stops draining power, but fire control drops every lock and contacts coast on track memory. Go silent early: an ARM that's already close still hits.
+- **Radar modes (`V`)**, each a trade-off. EMCON works on top of any of them.
+
+  | Mode    | Detection                                          | Power drain | ARM exposure |
+  |---------|----------------------------------------------------|-------------|--------------|
+  | ACTIVE  | all round                                          | ×1          | normal       |
+  | FOCUSED | a 120° arc on the bearing you last clicked (or your priority target): +30% range, +30% chance, about 3× the revisit rate. Blind everywhere else. LTAMDS AESA widens the arc to 180°. | ×1.4 | high: Su-34s launch from 25% further out, 30% more often |
+  | LPI     | −15% range, −40% chance                            | ×0.6        | low: ARMs only find the radar inside 15 m, so most miss; Su-34s launch half as often |
 - **Decoys (Gerbera)** look exactly like Shaheds. Fire control tells them apart once a decoy has been locked for about 1.5 s, then releases it. Until then they waste lock slots and interceptors. *GaN T/R Modules* shorten that time.
 - **Jammer helicopters (Mi-8MTPR-1)** stop outside the battery and circle it. Inside the sector they cover, detection chance drops to about a third. You see the jammer's bearing as an amber strobe, not its range. The jammer itself shows up clearly on radar, so mark it and kill it.
 
@@ -90,7 +98,7 @@ From base level 2 you can buy perimeter pads: **MANTIS 35mm C-RAM** (fast gun, s
 Your generator fills a power pool. The radar drains power continuously, and so do interceptor production, laser shots and HPM shots. **When power runs short, the radar sweep slows** (down to 25% speed), so you see less. Balancing seeing, shooting and building is the core tension of the game.
 
 ### Credits, upgrades and base levels
-Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits. There are 23 upgrades in 7 groups: BATTERY, POWER, SENSORS, FIRE CONTROL, WEAPONS, MAGAZINE and PERIMETER. Each upgrade costs more with every level. There is **no max level**, except for *Threat Evaluation* and *LTAMDS AESA*, which are on/off, and Scan Rate before the AESA. Earth Revetments have diminishing returns, up to 85% less damage taken. Buying upgrades raises your **base level**, which adds visible structures to the base and offers a **perk draft: pick 1 of 3**. Every perk has a tradeoff, for example *GLASS CANNON*: +100% damage, −40% max HP. From base level 5, every draft also offers one **rule perk** (marked ★ NEW RULE) that changes how the battery plays, until you've taken them all: *TRACK FUSION* (locks hold while the radar is dark), *LPI WAVEFORM* (ARMs only find you inside 25 m), *OVERWATCH* (your marked target takes double damage), *ARC LASER* (laser jumps to 2 more targets; needs the laser), *SCAVENGER* (kills refund interceptors) and *FRAG WARHEADS* (PAC-3 hits splash).
+Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits. There are 23 upgrades in 7 groups: BATTERY, POWER, SENSORS, FIRE CONTROL, WEAPONS, MAGAZINE and PERIMETER. Each upgrade costs more with every level. There is **no max level**, except for *Threat Evaluation* and *LTAMDS AESA*, which are on/off, and Scan Rate before the AESA. Earth Revetments have diminishing returns, up to 85% less damage taken. Buying upgrades raises your **base level**, which adds visible structures to the base and offers a **perk draft: pick 1 of 3**. Every perk has a tradeoff, for example *GLASS CANNON*: +100% damage, −40% max HP. From base level 5, every draft also offers one **rule perk** (marked ★ NEW RULE) that changes how the battery plays, until you've taken them all: *TRACK FUSION* (locks hold while the radar is dark), *LPI WAVEFORM* (LPI mode keeps full detection), *OVERWATCH* (your marked target takes double damage), *ARC LASER* (laser jumps to 2 more targets; needs the laser), *SCAVENGER* (kills refund interceptors) and *FRAG WARHEADS* (PAC-3 hits splash).
 
 ### Enemies and phases
 A new phase starts every 75 seconds and changes the enemy mix: **PROBING → SATURATION → ROTARY STRIKE → AIR STRIKE → SEAD → COMBINED RAID**. After COMBINED RAID, every phase adds a **condition** on top of that mix, looping in this order: **NIGHT RAID** (contacts fade twice as fast), **GROUND CLUTTER** (−30% detection), **LULL** (a breather to rebuild), **JAMMING STORM** (more jammer helicopters), **SWARM TIDE** (many more, weaker enemies) and **SEAD WAVE** (strike aircraft and ARMs). Every 150 seconds, a *STRIKE AIRCRAFT* warning appears.

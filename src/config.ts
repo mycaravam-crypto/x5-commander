@@ -106,6 +106,16 @@ export const ARM_TURN = 1.5; // rad/s; limited, so a late EMCON still gets hit
 export const ARM_LIFE = 16; // s of motor, then it falls short
 export const ARM_EVERY = 10; // s between ARM launches per Su-34 inside ARM_LAUNCH_R
 export const ARM_LAUNCH_R = 52;
+// Radar modes [V] (EMCON [F] silences whichever is set). range/sig: detection range and chance · drain: power ·
+// sector: rad of arc searched (FOCUSED dwells on the bearing you last clicked or your priority target, revisiting
+// it much faster; LTAMDS AESA widens it) · armR/armEvery: Su-34 ARM launch range and interval · lpi: ARMs only
+// find the radar inside LPI_R.
+export const RADAR_MODES = [
+  { name: 'ACTIVE', range: 1, sig: 1, drain: 1, sector: 0, armR: 1, armEvery: 1, lpi: false },
+  { name: 'FOCUSED', range: 1.3, sig: 1.3, drain: 1.4, sector: Math.PI * 2 / 3, armR: 1.25, armEvery: 0.7, lpi: false },
+  { name: 'LPI', range: 0.85, sig: 0.6, drain: 0.6, sector: 0, armR: 1, armEvery: 2, lpi: true },
+];
+export const LPI_R = 15; // m: a blind ARM passes 40m out on a 0.6 rad veer at ~23m, so LPI makes it miss
 export const DECOY_ID = 1.5; // s of lock before the ECS classifies a decoy (÷ radar resolution)
 export const EW_ORBIT = 38; // Mi-8 jammers stand off at this range and circle
 export const EW_ARC = 0.4; // rad half-width of each jammed sector
@@ -226,7 +236,7 @@ export const PERKS: { id: string; name: string; desc: string; fx: PerkFx; rule?:
   { id: 'reactor', name: 'REACTOR', desc: '+60% power gen · -15% max HP', fx: { gen: 1.6, hp: 0.85 } },
   { id: 'chain', name: 'CHAIN REACTION', desc: 'kills explode for 6 dmg · -10% credits', fx: { addChain: 6, credits: 0.9 } },
   { id: 'fusion', name: 'TRACK FUSION', desc: 'locks hold while the radar is dark · -1 lock slot', fx: { addFusion: 1, addSlots: -1 }, rule: true, min: 5 },
-  { id: 'lpi', name: 'LPI WAVEFORM', desc: 'ARMs only find your radar inside 25m · -20% radar range', fx: { addLpi: 1, range: 0.8 }, rule: true, min: 5 },
+  { id: 'lpi', name: 'LPI WAVEFORM', desc: 'LPI mode keeps full detection chance and range · -15% radar range', fx: { addLpi: 1, range: 0.85 }, rule: true, min: 5 },
   { id: 'overwatch', name: 'OVERWATCH', desc: 'your marked target takes x2 damage · -1 lock slot', fx: { markDmg: 2, addSlots: -1 }, rule: true, min: 5 },
   { id: 'arc', name: 'ARC LASER', desc: 'laser jumps to 2 more targets at 60% · -10% damage', fx: { addArc: 2, dmg: 0.9 }, rule: true, min: 5, need: 'pulse' },
   { id: 'scav', name: 'SCAVENGER', desc: 'every kill refunds 2 interceptors · -10% max HP', fx: { addScav: 2, hp: 0.9 }, rule: true, min: 5 },

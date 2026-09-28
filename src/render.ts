@@ -5,7 +5,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ARENA_R, ENEMIES, EW_ARC, KINDS, PAL, PAD_SLOTS, PERIM_R, type EnemyKind } from './config.ts';
-import { emitting, freeSlots, padAngle, phase, shownKind, visible, type State } from './sim.ts';
+import { emitting, focusBearing, radarRange, radarSector, freeSlots, padAngle, phase, shownKind, visible, type State } from './sim.ts';
 
 const MAX_ENEMIES = 2000, MAX_LOCKS = 64, MAX_SHOTS = 600, MAX_SHARDS = 2500, MAX_WAVES = 64, MAX_BEAMS = 96, MAX_BLIPS = 1024;
 const VIS = 1.6; // enemies drawn bigger than their hitbox so they read at a glance
@@ -140,6 +140,10 @@ export function createRenderer() {
   const dw = { a: new Float32Array(DWELLS), life: new Float32Array(DWELLS), next: 0 };
   scene.add(dwellMesh);
   let dwellAcc = 0;
+  // FOCUSED: a faint wedge over the searched arc, flickering like the AESA dwells.
+  let focusW = 0;
+  const focusMesh = new THREE.Mesh(new THREE.BufferGeometry(), additive(BRIGHT));
+  focusMesh.position.y = 0.07; scene.add(focusMesh);
   const lastSeen = new WeakMap<object, number>();
 
   // ---- base: a Patriot battery, rebuilt when its shape key changes ----
@@ -386,7 +390,8 @@ export function createRenderer() {
         case 'ident': wave(e.x, e.z, 3, MID, 0.4); break;
         case 'radarDown': wave(0, 0, 14, ALERT, 0.8, 1.5); shards(0, 1.9, 30, ALERT, 14, 1, 2.5); gridFlash = 1; break;
         case 'intercept': wave(e.x, e.z, 8, HOT, 0.6, 1.5); wave(0, 0, 12, HOT, 0.5); break;
-        case 'emcon': wave(0, 0, s.st.radarRange, MID, 0.6); break;
+        case 'emcon': wave(0, 0, radarRange(s), MID, 0.6); break;
+        case 'radarMode': wave(0, 0, radarRange(s), BRIGHT, 0.5); break;
         case 'raid': wave(e.x, e.z, 14, ALERT, 1.2, 1.5); break;
         case 'package': wave(e.x, e.z, 9, ALERT, 1); break;
         case 'raidStart': wave(e.x, e.z, 20, ALERT, 1.5, 1.5); wave(0, 0, ARENA_R, ALERT, 1.2); break;
@@ -417,8 +422,15 @@ export function createRenderer() {
 
     // radar + base
     const on = emitting(s);
-    sweep.rotation.y = -s.sweepA; sweep.scale.setScalar(s.st.radarRange); sweep.visible = on && !s.st.aesa;
-    radarRing.scale.setScalar(s.st.radarRange);
+    const rr = radarRange(s), sector = radarSector(s);
+    sweep.rotation.y = -s.sweepA; sweep.scale.setScalar(rr); sweep.visible = on && !s.st.aesa && !sector;
+    radarRing.scale.setScalar(rr);
+    focusMesh.visible = on && sector > 0;
+    if (focusMesh.visible) {
+      if (focusW !== sector) { focusW = sector; focusMesh.geometry.dispose(); focusMesh.geometry = new THREE.RingGeometry(0.03, 1, 32, 1, -sector / 2, sector).rotateX(-Math.PI / 2); }
+      focusMesh.rotation.y = -focusBearing(s); focusMesh.scale.setScalar(rr);
+      (focusMesh.material as THREE.MeshBasicMaterial).color.setHex(BRIGHT).multiplyScalar(0.006 + 0.004 * Math.random());
+    }
     (radarRing.material as THREE.LineBasicMaterial).opacity = on ? 0.5 : 0.12 + 0.08 * Math.sin(clock * 6);
     trackRing.scale.setScalar(s.st.trackRange);
     gridFlash = Math.max(0, gridFlash - dt * 2.5);
@@ -443,14 +455,14 @@ export function createRenderer() {
     for (const [o, ry] of sweepers) o.rotation.y = -s.sweepA - ry;
 
     // Blip ghosts: every detected contact the sweep passes this frame leaves a mark that fades over one revolution.
-    const swept = ((s.sweepA - lastSweep) % TAU + TAU) % TAU, r2 = s.st.radarRange ** 2;
+    const swept = ((s.sweepA - lastSweep) % TAU + TAU) % TAU, r2 = rr ** 2;
     dwellMesh.count = 0;
-    if (s.st.aesa) {
-      if (on && s.phase === 'play' && (dwellAcc += dt * 5) >= 1) { dwellAcc = 0; dw.a[dw.next] = Math.random() * TAU; dw.life[dw.next] = 0.6; dw.next = (dw.next + 1) % DWELLS; }
+    if (s.st.aesa || sector) {
+      if (on && !sector && s.phase === 'play' && (dwellAcc += dt * 5) >= 1) { dwellAcc = 0; dw.a[dw.next] = Math.random() * TAU; dw.life[dw.next] = 0.6; dw.next = (dw.next + 1) % DWELLS; }
       for (let i = 0; i < DWELLS; i++) {
         if (dw.life[i] <= 0) continue;
         if (s.phase === 'play') dw.life[i] -= dt;
-        dummy.position.set(0, 0.07, 0); dummy.rotation.set(0, -dw.a[i], 0); dummy.scale.setScalar(s.st.radarRange);
+        dummy.position.set(0, 0.07, 0); dummy.rotation.set(0, -dw.a[i], 0); dummy.scale.setScalar(rr);
         dummy.updateMatrix(); dwellMesh.setMatrixAt(dwellMesh.count, dummy.matrix);
         dwellMesh.setColorAt(dwellMesh.count++, tmpC.setHex(BRIGHT).multiplyScalar(0.025 * Math.max(0, dw.life[i] / 0.6)));
       }
@@ -470,11 +482,11 @@ export function createRenderer() {
     for (const e of s.enemies) {
       if (e.kind !== 'ew' || !e.orbit || jamMesh.count >= 16) continue;
       const a = Math.atan2(e.z, e.x);
-      dummy.position.set(0, 0.08, 0); dummy.rotation.set(0, -a, 0); dummy.scale.setScalar(s.st.radarRange);
+      dummy.position.set(0, 0.08, 0); dummy.rotation.set(0, -a, 0); dummy.scale.setScalar(rr);
       dummy.updateMatrix(); jamMesh.setMatrixAt(jamMesh.count, dummy.matrix);
       jamMesh.setColorAt(jamMesh.count++, tmpC.setHex(ALERT).multiplyScalar(0.012 + 0.008 * Math.random()));
       if (on && s.phase === 'play' && Math.random() < 0.6) {
-        const r = 5 + Math.random() * (s.st.radarRange - 5), b = a + (Math.random() - 0.5) * EW_ARC;
+        const r = 5 + Math.random() * (rr - 5), b = a + (Math.random() - 0.5) * EW_ARC;
         blip(Math.cos(b) * r, Math.sin(b) * r, 0.4 + Math.random() * 0.8, 0.5);
       }
     }

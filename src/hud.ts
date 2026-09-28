@@ -1,6 +1,6 @@
 import { ARENA_R, BASE_R, PLACE_TIME, DOCTRINES, PACKAGES, OBJECTIVES, RAID_PRESS, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
 import type { Records } from './config.ts';
-import { cost, emitting, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
+import { cost, emitting, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const $ = (id: string) => document.getElementById(id)!;
 const fmt = (n: number) => Math.floor(n).toLocaleString('en-US');
@@ -30,7 +30,8 @@ const TIPS: Record<string, string> = {
   intercept: 'Emergency intercept: every weapon on one threat for a few seconds. Long cooldown, costs power.',
   raid: 'Raid inbound: you have a few seconds to prepare. Set radar, fire discipline and priority before it arrives. Hold the objective for the bonus and a recovery lull; lose it and the next raid comes sooner.',
   warning: 'Su-34s are tough and fire anti-radiation missiles at a radiating radar. Click one to focus fire on it.',
-  arm: 'ARM launch: it homes on your radar. Press [F] for EMCON before it gets close. While silent you lose every lock.',
+  arm: 'ARM launch: it homes on your radar. [F] EMCON before it gets close (you lose every lock), or [V] to LPI: ARMs only find you inside 15m.',
+  radarMode: 'Radar mode [V]: ACTIVE all round · FOCUSED searches the bearing you click, further and faster, but draws ARMs · LPI is hard for ARMs to find but sees less.',
   tbm: 'Ballistic missile: only PAC-3 can hit it. Keep interceptors in stock and a lock slot free.',
   jam: 'Jammer on station: detection drops in the amber sector. The Mi-8 itself shows clearly, so click it and kill it.',
   ident: 'Decoy classified and released. Decoys look like Shaheds until locked for a moment. GaN T/R Modules classify faster.',
@@ -172,13 +173,18 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     g.fillStyle = `rgba(0,4,1,${s.phase === 'play' ? 1 - Math.exp(-dt * 1.8) : 0})`; g.fillRect(0, 0, cv.width, cv.height);
     g.strokeStyle = rgba(PAL.dim); g.lineWidth = 1;
     for (const r of [0.33, 0.66, 1]) { g.beginPath(); g.arc(C, C, (C - 6) * r, 0, 7); g.stroke(); }
-    const rr = s.st.radarRange * K, a = s.sweepA + Math.PI / 2 - yaw;
+    const rr = radarRange(s) * K, a = s.sweepA + Math.PI / 2 - yaw, sector = radarSector(s);
     g.strokeStyle = rgba(PAL.mid, 0.8); g.beginPath(); g.arc(C, C, rr, 0, 7); g.stroke();
     // Unlocked contacts are painted only as the sweep passes them, so they jump like real radar returns.
     const TAU = Math.PI * 2, a0 = lastSweep, swept = ((s.sweepA - a0) % TAU + TAU) % TAU;
     lastSweep = s.sweepA;
     const on = emitting(s);
-    const aesa = s.st.aesa;
+    const aesa = s.st.aesa || sector > 0; // no sweep line to wait for: paint contacts as they are
+    if (on && sector) { // FOCUSED: the searched arc
+      const f = focusBearing(s), sa = Math.atan2(py(Math.cos(f), Math.sin(f)) - C, px(Math.cos(f), Math.sin(f)) - C);
+      g.fillStyle = rgba(PAL.bright, 0.02 + 0.02 * Math.random()); g.strokeStyle = rgba(PAL.mid, 0.8);
+      g.beginPath(); g.moveTo(C, C); g.arc(C, C, rr, sa - sector / 2, sa + sector / 2); g.closePath(); g.fill(); g.stroke();
+    }
     if (on && !aesa && swept < 1) { g.fillStyle = rgba(PAL.bright, 0.35); g.beginPath(); g.moveTo(C, C); g.arc(C, C, rr, a - swept, a); g.fill(); }
     if (on && !aesa) { g.strokeStyle = rgba(PAL.hot); g.beginPath(); g.moveTo(C, C); g.lineTo(C + Math.cos(a) * rr, C + Math.sin(a) * rr); g.stroke(); }
     for (const e of s.enemies) if (e.kind === 'ew' && e.orbit) { // jam strobe: bearing only, no range
@@ -257,12 +263,13 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const radar = s.t < s.radarDownUntil ? `<span class="alert">DOWN ${(s.radarDownUntil - s.t).toFixed(1)}s</span>`
       : s.emcon ? '<span class="alert">EMCON · SILENT</span>'
       : sweepPct < 100 ? `<span class="alert">${sweepPct}% LOW PWR</span>` : 'RADIATING';
+    const M = radarMode(s), scan = s.radarMode === 0 ? M.name : `<span class="hot">${M.name}${radarSector(s) ? ` ${pad3(bearing(Math.cos(focusBearing(s)), Math.sin(focusBearing(s))))}°` : ''}</span>`;
     $('info').innerHTML = [
       ['TRACKS', contacts], ['ENGAGED', `${locks} / ${st.slots}`], ['MODE [T]', MODES[s.mode]],
       ['FIRE [G]', s.discipline === 1 ? DISCIPLINES[1].name : `<span class="hot">${DISCIPLINES[s.discipline].name}</span>`],
       ['INTERCEPT [SPC]', interceptActive(s) ? '<span class="hot">ENGAGING</span>' : (w => w ? `<span class="${w.endsWith('s') ? 'dim' : 'alert'}">${w}</span>` : '<span class="hot">READY</span>')(interceptBlock(s))],
       ...ffSpeed > 1 ? [['SPEED [X]', `<span class="hot">${ffSpeed}×</span>`]] : [],
-      ['RANGE', `${Math.round(st.radarRange)}m`], ['PERIMETER', `${s.perim.length} / ${perimSlots(s.level)} pads`], ['RADAR [F]', radar],
+      ['SCAN [V]', scan], ['RANGE', `${Math.round(radarRange(s))}m`], ['PERIMETER', `${s.perim.length} / ${perimSlots(s.level)} pads`], ['RADAR [F]', radar],
       ...s.placing ? [['PAD', `<span class="hot">CLICK MAP · ${Math.max(0, PLACE_TIME - (s.t - s.placing.since)).toFixed(0)}s</span>`]] : [],
       ...s.raid ? [['RAID', `<span class="alert">${pad3(bearing(Math.cos(s.raid.a), Math.sin(s.raid.a)))}° T-${Math.max(0, s.raid.at - s.t).toFixed(0)}s</span>`]]
         : s.raidLeft ? [['RAID', `<span class="alert">${s.raidLeft} LEFT</span>${s.raidClean ? ' · HELD' : ' · <span class="alert">LOST</span>'}`]]
@@ -324,6 +331,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         }
         else if (e.k === 'tbm') { log(`BALLISTIC LAUNCH BRG ${pad3(bearing(e.x, e.z))}`, 'alert'); if (s.t - tbmSaid > 4) { tbmSaid = s.t; say('⚠ BALLISTIC MISSILE · PAC-3 ONLY', 'warn'); } }
         else if (e.k === 'radarDown') { say('⚠ RADAR HIT', 'warn'); log(`MPQ-65 HIT · OFFLINE ${(s.radarDownUntil - s.t).toFixed(0)}s`, 'alert'); }
+        else if (e.k === 'radarMode') { acc = 1; const M = radarMode(s); log(`RADAR ${M.name} · RNG ${Math.round(radarRange(s))}m${M.lpi ? ' · ARMS BLIND >15m' : M.sector ? ' · ARM EXPOSURE HIGH' : ''}`, M.sector ? 'alert' : ''); }
         else if (e.k === 'emcon') log(s.emcon ? 'EMCON · RADAR SILENT' : 'RADIATING', s.emcon ? 'alert' : '');
         else if (e.k === 'jam') log(`JAMMING BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
         else if (e.k === 'ident') log('DECOY CLASSIFIED · TRACK RELEASED');

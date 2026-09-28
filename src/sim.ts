@@ -1,7 +1,7 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, PHASE_LEN, ELITE_EVERY,
   ENEMIES, KINDS, WEAPONS, PHASES, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, RAID_SPAWN, RAID_RECOVER, RAID_CALM, RAID_PRESS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, SWEEP_CAP, grow, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty,
-  ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
+  RADAR_MODES, LPI_R, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   type EnemyKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
 } from './config.ts';
 
@@ -30,7 +30,7 @@ export type Ev =
   | { k: 'raidStart'; x: number; z: number; name: string }
   | { k: 'raidClear' | 'raidLeak' | 'raidEnd'; n: number }
   | { k: 'intercept'; x: number; z: number }
-  | { k: 'level' | 'warning' | 'buy' | 'placing' | 'lock' | 'over' | 'emcon' | 'radarDown' | 'aesa' | 'discipline' };
+  | { k: 'level' | 'warning' | 'buy' | 'placing' | 'lock' | 'over' | 'emcon' | 'radarDown' | 'aesa' | 'discipline' | 'radarMode' };
 
 export type Phase = 'start' | 'play' | 'pause' | 'perk' | 'over';
 
@@ -77,6 +77,8 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     placing: null as null | { k: PerimKind; since: number }, // bought, waiting for a click on the map
     jamming: false,
     emcon: false,
+    radarMode: 0, // index into RADAR_MODES
+    focusA: 0, // bearing FOCUSED dwells on when there's no priority target (last click)
     radarDownUntil: 0,
     cooldown: { cannon: 0, pulse: 0, missile: 0, rail: 0 } as Record<WeaponKind, number>,
     aim: 0, // turret heading, for rendering
@@ -121,6 +123,14 @@ export function phase(s: State) {
 }
 export const phaseName = (s: State) => phase(s).name;
 export const emitting = (s: State) => !s.emcon && s.t >= s.radarDownUntil;
+export const radarMode = (s: State) => RADAR_MODES[s.radarMode];
+// Effective detection range and arc for the current mode. LPI WAVEFORM (perk) takes the LPI penalty away.
+export const radarRange = (s: State) => s.st.radarRange * (radarMode(s).lpi && s.st.lpi ? 1 : radarMode(s).range);
+export const radarSector = (s: State) => radarMode(s).sector * (s.st.aesa ? 1.5 : 1); // 0 = all round
+export function focusBearing(s: State) {
+  const m = s.marked ? s.enemies.find(e => e.id === s.marked) : undefined;
+  return m ? Math.atan2(m.z, m.x) : s.focusA;
+}
 // What the operator sees: an unclassified decoy passes for a Shahed.
 export const shownKind = (e: Enemy): EnemyKind => e.kind === 'decoy' && !e.ided ? 'drone' : e.kind;
 const angDiff = (a: number, b: number) => ((a - b + Math.PI) % TAU + TAU) % TAU - Math.PI;
@@ -270,6 +280,14 @@ export function emergencyIntercept(s: State) {
   return true;
 }
 
+export function cycleRadarMode(s: State) {
+  if (s.phase !== 'play') return;
+  s.radarMode = (s.radarMode + 1) % RADAR_MODES.length;
+  s.events.push({ k: 'radarMode' });
+}
+// A click anywhere aims FOCUSED at that bearing.
+export const aimFocus = (s: State, x: number, z: number) => { s.focusA = Math.atan2(z, x); };
+
 export function toggleEmcon(s: State) {
   if (s.phase !== 'play') return;
   s.emcon = !s.emcon;
@@ -410,8 +428,8 @@ function moveEnemies(s: State, dt: number) {
       }
     }
     // Su-34s loose Kh-31Ps at a radiating radar once in range.
-    if (e.kind === 'elite' && (e.cd -= dt) <= 0 && d < ARM_LAUNCH_R && emitting(s)) {
-      e.cd = ARM_EVERY;
+    if (e.kind === 'elite' && (e.cd -= dt) <= 0 && d < ARM_LAUNCH_R * radarMode(s).armR && emitting(s)) {
+      e.cd = ARM_EVERY * radarMode(s).armEvery;
       const arm = spawnEnemy(s, 'arm', Math.atan2(e.z, e.x), d - 1);
       if (e.raid && e.raid === s.raidId) { arm.raid = e.raid; s.raidLeft++; } // part of the raid
     }
@@ -437,7 +455,7 @@ function moveEnemies(s: State, dt: number) {
 // Homes on the radar while it radiates. When it goes dark the seeker loses the emitter and the missile
 // swings ARM_VEER off its last heading; the turn rate is limited, so a late EMCON still eats the hit.
 function steerArm(s: State, e: Enemy, dt: number) {
-  if (emitting(s) && (!s.st.lpi || e.x * e.x + e.z * e.z < 25 * 25)) e.aim = NaN;
+  if (emitting(s) && (!radarMode(s).lpi || e.x * e.x + e.z * e.z < LPI_R * LPI_R)) e.aim = NaN;
   else if (Number.isNaN(e.aim)) e.aim = Math.atan2(e.vz, e.vx) + (e.wob < Math.PI ? ARM_VEER : -ARM_VEER);
   const h = Math.atan2(e.vz, e.vx), want = Number.isNaN(e.aim) ? Math.atan2(-e.z, -e.x) : e.aim;
   const nh = h + Math.max(-ARM_TURN * dt, Math.min(ARM_TURN * dt, angDiff(want, h)));
@@ -517,7 +535,7 @@ function powerAndAmmo(s: State, dt: number) {
   s.power = Math.min(st.powerCap, s.power + st.gen * dt);
   // Radar gets what's left; starving it slows the sweep (floor 25%). Silent radar draws nothing.
   if (s.marked) s.power = Math.max(0, s.power - PRIORITY_POWER * dt); // painting the priority target
-  const on = emitting(s), want = on ? st.drain * dt : 0, got = Math.min(want, s.power);
+  const on = emitting(s), want = on ? st.drain * radarMode(s).drain * dt : 0, got = Math.min(want, s.power);
   s.power -= got;
   s.sweepSpeed = on ? st.sweep * Math.max(0.25, got / want) : 0;
   // Ammo fab only runs on surplus above 20% so weapons keep a reserve.
@@ -533,12 +551,16 @@ function radar(s: State, dt: number) {
   // An AESA stares all round: each contact gets the looks a rotating beam would give it, at random moments.
   // sweepA then only turns the TRML-4D head (and the sweep ping) at a calm fixed rate.
   s.sweepA = (a0 + (s.st.aesa ? AESA_SPIN * dt * s.sweepSpeed / s.st.sweep : da)) % TAU;
-  const r2 = s.st.radarRange ** 2, { mod } = phase(s);
+  const r2 = radarRange(s) ** 2, { mod } = phase(s), M = radarMode(s);
+  const sector = radarSector(s), fa = focusBearing(s), sig = M.lpi && s.st.lpi ? 1 : M.sig;
   let newly = 0;
   for (const e of s.enemies) {
     if (e.x * e.x + e.z * e.z > r2) continue;
-    if (s.st.aesa ? Math.random() >= da / TAU : ((Math.atan2(e.z, e.x) - a0) % TAU + TAU) % TAU > da) continue;
-    if (Math.random() < ENEMIES[e.kind].sig * s.st.res * jamFactor(s, e) * (mod.sig ?? 1)) {
+    const a = Math.atan2(e.z, e.x);
+    // FOCUSED: the same looks, spent on a narrower arc. An AESA stares, a rotating radar sweeps.
+    if (sector) { if (Math.abs(angDiff(a, fa)) > sector / 2 || Math.random() >= da / sector) continue; }
+    else if (s.st.aesa ? Math.random() >= da / TAU : ((a - a0) % TAU + TAU) % TAU > da) continue;
+    if (Math.random() < ENEMIES[e.kind].sig * sig * s.st.res * jamFactor(s, e) * (mod.sig ?? 1)) {
       if (e.seenUntil < s.t) newly++;
       e.seenUntil = s.t + s.st.persist * (mod.persist ?? 1);
     }
