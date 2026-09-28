@@ -52,7 +52,7 @@ The game runs entirely in the browser, with no backend and no asset files. `dist
 
 The game pauses by itself when the window loses focus.
 
-**Touch screens:** tap marks a contact or places a pad, one-finger drag rotates, pinch zooms. On-screen buttons cover the shop, EMCON, mode, 2× and pause.
+**Touch screens:** tap marks a contact or places a pad, one-finger drag rotates, pinch zooms. Phones get a compact HUD: a thin HP / power / missile strip top-left with toggles for the mini radar and the details list (remembered between runs) plus 2× and pause, and an icon bar at the bottom for shop, intercept, fire discipline, scan mode, EMCON and targeting mode, each showing its current setting.
 
 The first time you meet each threat or mechanic, a short tip explains it. Tips don't come back once you've seen them.
 

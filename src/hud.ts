@@ -257,6 +257,15 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   const set = (id: string, v: string) => { const el = $(id); if (el.textContent !== v) el.textContent = v; };
   const bar = (id: string, r: number, crit = false) => { const el = $(id); el.style.setProperty('--r', String(Math.round(Math.max(0, Math.min(1, r)) * 20) / 20)); el.classList.toggle('crit', crit); };
 
+  const touchBtns = Array.from(document.querySelectorAll<HTMLElement>('#touch [data-k], #views [data-k]'));
+  const touch = (k: string, label: string, on = false) => {
+    for (const el of touchBtns) if (el.dataset.k === k) {
+      el.classList.toggle('on', on);
+      const sp = el.querySelector('span');
+      if (sp && sp.textContent !== label) sp.textContent = label;
+    }
+  };
+
   const flow = { t: 0, p: 0, a: 0, dp: 0, da: 0 };
   const infoEl = $('info');
   let infoHtml = '';
@@ -323,15 +332,15 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const lockBar = `<b class="seg lk" style="--r:${slots(s) ? Math.min(1, locks / slots(s)) : 0}"></b>`;
     const html = [
       ['// SENSORS', ''],
-      ['SCAN [V]', scan], ['RADAR [F]', radar], ['RANGE', `${Math.round(radarRange(s))}m`], ['TRACKS', contacts],
+      ['SCAN <kbd>[V]</kbd>', scan], ['RADAR <kbd>[F]</kbd>', radar], ['RANGE', `${Math.round(radarRange(s))}m`], ['TRACKS', contacts],
       ['// FIRE CONTROL', ''],
       ['ENGAGED', `${locks} / ${slots(s)}${s.t < s.chainUntil ? ' <span class="hot">+CHAIN</span>' : ''}${lockBar}`],
-      ['FIRE [G]', s.discipline === 1 ? DISCIPLINES[1].name : `<span class="hot">${DISCIPLINES[s.discipline].name}</span>`],
-      ['MODE [T]', MODES[s.mode]],
-      ['INTERCEPT [SPC]', interceptActive(s) ? '<span class="hot">ENGAGING</span>' : (w => w ? `<span class="${w.endsWith('s') ? 'dim' : 'alert'}">${w}</span>` : '<span class="hot">READY</span>')(interceptBlock(s))],
+      ['FIRE <kbd>[G]</kbd>', s.discipline === 1 ? DISCIPLINES[1].name : `<span class="hot">${DISCIPLINES[s.discipline].name}</span>`],
+      ['MODE <kbd>[T]</kbd>', MODES[s.mode]],
+      ['INTERCEPT <kbd>[SPC]</kbd>', interceptActive(s) ? '<span class="hot">ENGAGING</span>' : (w => w ? `<span class="${w.endsWith('s') ? 'dim' : 'alert'}">${w}</span>` : '<span class="hot">READY</span>')(interceptBlock(s))],
       ['// BATTERY', ''],
       ['PERIMETER', `${s.perim.length} / ${perimSlots(s.level)} pads`],
-      ...ffSpeed > 1 ? [['SPEED [X]', `<span class="hot">${ffSpeed}×</span>`]] : [],
+      ...ffSpeed > 1 ? [['SPEED <kbd>[X]</kbd>', `<span class="hot">${ffSpeed}×</span>`]] : [],
       ...s.placing ? [['PAD', `<span class="hot">CLICK MAP · ${Math.max(0, PLACE_TIME - (s.t - s.placing.since)).toFixed(0)}s</span>`]] : [],
       ...s.raid ? [['RAID', `<span class="alert">${pad3(bearing(Math.cos(s.raid.a), Math.sin(s.raid.a)))}° T-${Math.max(0, s.raid.at - s.t).toFixed(0)}s</span>`]]
         : s.raidLeft ? [['RAID', `<span class="alert">${s.raidLeft}</span> · ${s.raidClean ? 'HELD' : '<span class="alert">LOST</span>'}`]]
@@ -340,6 +349,15 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     if (html !== infoHtml) { infoHtml = html; infoEl.innerHTML = html; } // no DOM churn when nothing changed
     threatBoard(s);
     document.body.classList.toggle('crit', s.phase === 'play' && s.hp / st.maxHp < 0.3);
+    // Touch buttons: live value under the icon, lit while the thing is on.
+    const ib = interceptBlock(s);
+    touch('Space', interceptActive(s) ? 'FIRING' : ib || 'READY', interceptActive(s) || !ib);
+    touch('KeyG', DISCIPLINES[s.discipline].name, s.discipline !== 1);
+    touch('KeyV', M.name, s.radarMode !== 0);
+    touch('KeyF', s.emcon ? 'SILENT' : 'EMCON', s.emcon);
+    touch('KeyT', MODES[s.mode]);
+    touch('Tab', 'SHOP', !shop.classList.contains('hidden'));
+    touch('KeyX', '', ffSpeed > 1); touch('KeyP', '', s.phase === 'pause');
     raidCard(s);
     const live = s.phase === 'play' || s.phase === 'pause', down = live && s.t < s.radarDownUntil, silent = live && !down && s.emcon;
     document.body.classList.toggle('blind', down);

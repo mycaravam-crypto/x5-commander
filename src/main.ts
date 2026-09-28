@@ -71,6 +71,14 @@ addEventListener('mouseup', () => { dragX = null; });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 canvas.addEventListener('wheel', e => { e.preventDefault(); view.zoomBy(e.deltaY < 0 ? 1.1 : 1 / 1.1); }, { passive: false });
 
+// Compact (phone) HUD: the mini radar and the details list are toggled from #views, remembered across runs.
+const panel = (k: string, on = !document.body.classList.contains(`ui-${k}`)) => {
+  document.body.classList.toggle(`ui-${k}`, on);
+  try { localStorage.setItem(`x5-ui-${k}`, on ? '1' : ''); } catch { /* storage blocked: skip */ }
+};
+const saved = (k: string, dflt: boolean) => { try { const v = localStorage.getItem(`x5-ui-${k}`); return v === null ? dflt : !!v; } catch { return dflt; } };
+panel('map', saved('map', true)); panel('info', saved('info', false));
+
 let speed = 1; // 2 = fast-forward: two sim steps per frame
 function key(code: string) {
   switch (code) {
@@ -87,6 +95,8 @@ function key(code: string) {
     case 'KeyC': if (s.phase === 'over') hud.share(); break;
     case 'KeyX': speed = 3 - speed; break;
     case 'Tab': hud.toggleShop(); break;
+    case 'UiMap': panel('map'); break;
+    case 'UiInfo': panel('info'); break;
     case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4': {
       const i = +code.slice(5) - 1;
       if (s.phase === 'start') doctrine(i); else pickPerk(s, i);
@@ -102,7 +112,9 @@ addEventListener('keydown', e => {
   if (!e.repeat) key(e.code);
 });
 // On-screen buttons (touch screens) send the same codes as the keys.
-document.getElementById('touch')!.onclick = e => { const k = (e.target as HTMLElement).closest<HTMLElement>('[data-k]')?.dataset.k; if (k) key(k); };
+const press = (e: MouseEvent) => { const k = (e.target as Element).closest<HTMLElement>('[data-k]')?.dataset.k; if (k) key(k); };
+document.getElementById('touch')!.onclick = press;
+document.getElementById('views')!.onclick = press;
 addEventListener('blur', () => { if (s.phase === 'play') s.phase = 'pause'; });
 
 // Dev builds only: poke the running game from the console, e.g. x5().nextRaid = x5().t + 12.
