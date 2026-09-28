@@ -1,6 +1,8 @@
 # X5 Commander
 
-A minimal browser tower defense game made from simple 3D shapes. You defend one base in the middle of the arena against an endless swarm that keeps getting harder. You can only shoot what your radar has found.
+A minimal browser tower defense game made from simple 3D shapes. You command a Patriot air-defense battery against an endless, escalating raid of drones, helicopters and strike jets. You can only engage what your radar has found.
+
+System and threat names are real or announced systems, used for flavor only; the numbers are game balance, not real performance.
 
 **SCAN → DETECT → LOCK → ENGAGE → DESTROY → EARN → UPGRADE → harder swarm → repeat**
 
@@ -48,29 +50,32 @@ A rotating radar sweep reveals enemies within its range. Each time the sweep pas
 Detected enemies are locked, up to your number of **lock slots**. A lock holds as long as the enemy stays within tracking range. All weapons fire automatically at locked targets. Left-click a contact to mark it as the priority target; it always gets a lock slot. Otherwise, the auto mode picks targets (`T` to cycle): **CLOSEST**, then **WEAKEST**, **RICHEST** and **FASTEST**, each unlocked by the *Target Logic* upgrade.
 
 ### Weapons
-| Weapon  | Uses  | Notes                                     |
-|---------|-------|-------------------------------------------|
-| Cannon  | Ammo  | Aims ahead of moving targets; you start with it |
-| Pulse   | Power | Instant, rapid beam                        |
-| Missile | Ammo  | Homing, splash damage                      |
-| Railgun | Power | Huge hit, pierces the whole line           |
+| Weapon                   | Uses         | Notes                                                   |
+|--------------------------|--------------|---------------------------------------------------------|
+| PAC-3 MSE (Patriot)      | Interceptors | Hit-to-kill, leads moving targets; you start with it    |
+| HEL 50 kW laser          | Power        | Instant, rapid beam                                     |
+| IRIS-T SLX               | Interceptors | Homing, blast-frag splash; one extra launcher per level |
+| Leonidas HPM (microwave) | Power        | Huge hit, affects everything along the line             |
 
 ### Power and ammo
 Your generator fills a power pool. The radar drains power continuously, and so do ammo production, pulse shots and railgun shots. **When power runs short, the radar sweep slows** (down to 25% speed), so you see less. Balancing seeing, shooting and building is the core tension of the game.
 
 ### Credits, upgrades and base levels
-Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits. There are 19 upgrades in 6 groups: BASE, POWER, RADAR, TRACKING, WEAPONS and AMMO. Each upgrade costs more with every level. Buying upgrades raises your **base level**, which adds visible structures to the base and offers a **perk draft: pick 1 of 3**. Every perk has a tradeoff, for example *GLASS CANNON*: +100% damage, −40% max HP.
+Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits. There are 19 upgrades in 6 groups: BATTERY, POWER, SENSORS, FIRE CONTROL, WEAPONS and MAGAZINE. Each upgrade costs more with every level. Buying upgrades raises your **base level**, which adds visible structures to the base and offers a **perk draft: pick 1 of 3**. Every perk has a tradeoff, for example *GLASS CANNON*: +100% damage, −40% max HP.
 
 ### Enemies and phases
-A new phase starts every 75 seconds and changes the enemy mix: **SCOUTS → SWARM → ARMOR → ELITES → EVERYTHING**. Every 150 seconds, a *HEAVY CONTACT* elite warning appears. Spawn rate, HP, speed and damage all increase steadily over time.
+A new phase starts every 75 seconds and changes the enemy mix: **PROBING → SATURATION → ROTARY STRIKE → AIR STRIKE → COMBINED RAID**. Every 150 seconds, a *STRIKE AIRCRAFT* warning appears. Spawn rate, HP, speed and damage all increase steadily over time.
 
-| Enemy | Notes                                      |
-|-------|--------------------------------------------|
-| Scout | Fast, low signature, erratic               |
-| Drone | Standard                                   |
-| Swarm | Weak, arrives in packs of 6, hard to see  |
-| Tank  | Slow, tough, hits hard                     |
-| Elite | Very tough, big reward                     |
+| Threat                      | Notes                                     |
+|-----------------------------|-------------------------------------------|
+| Lancet-3 loitering munition | Fast, low signature, erratic              |
+| Shahed-136 attack drone     | Standard                                  |
+| FPV strike swarm            | Weak, arrives in packs of 6, hard to see  |
+| Mi-28NM attack helicopter   | Slow, tough, hits hard                    |
+| Su-34 strike fighter        | Very tough, big reward                    |
+
+### The battery
+The base is laid out like a Patriot site and grows with its level: AN/MPQ-65 radar and Engagement Control Station (ECS) at the start, then the EPP-III power plant, the OE-349 antenna mast, a Hensoldt TRML-4D 360° radar that turns with the sweep, earth berms, and at level 6 the LTAMDS radar upgrade with rear arrays. Every level adds an M903 launcher (up to 8). Buying laser, IRIS-T SLX or HPM adds their vehicles.
 
 An enemy that reaches the base damages it and dies. When base HP hits 0, the game is over. Your best time, kills, level and credits earned are saved in `localStorage`.
 

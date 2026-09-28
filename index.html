@@ -9,22 +9,24 @@
 </head>
 <body>
   <div id="hud">
-    <div id="top">
-      <div class="stat"><small>CREDITS</small><b id="credits" class="y">0</b></div>
+    <div id="labels"></div>
+    <div id="top" class="frame">
+      <div class="stat"><small>CREDITS</small><b id="credits" class="hot">0</b></div>
       <div class="stat"><small>PHASE</small><b id="phase">1</b></div>
       <div class="stat"><small>TIME</small><b id="time">0:00</b></div>
       <div class="stat"><small>KILLS</small><b id="kills">0</b></div>
-      <div class="stat"><small>BASE LV</small><b id="level">1</b></div>
+      <div class="stat"><small>BATTERY LV</small><b id="level">1</b></div>
       <div id="combo"></div>
     </div>
-    <div id="left">
-      <div class="bar"><small>BASE <span id="hpTxt"></span></small><i><u id="hpBar"></u></i></div>
-      <div class="bar"><small>POWER <span id="pwTxt"></span></small><i><u id="pwBar" class="pw"></u></i></div>
-      <div class="bar"><small>AMMO <span id="amTxt"></span></small><i><u id="amBar" class="am"></u></i></div>
+    <div id="left" class="frame">
+      <div class="bar"><small>BATTERY <span id="hpTxt"></span></small><b id="hpBar" class="seg"></b></div>
+      <div class="bar"><small>POWER <span id="pwTxt"></span></small><b id="pwBar" class="seg"></b></div>
+      <div class="bar"><small>INTERCEPTORS <span id="amTxt"></span></small><b id="amBar" class="seg"></b></div>
       <dl id="info"></dl>
       <canvas id="radar" width="220" height="220"></canvas>
     </div>
-    <div id="shop"></div>
+    <div id="shop" class="frame"></div>
+    <div id="bottom"><div id="target" class="frame"></div><div id="log" class="frame"></div></div>
     <div id="help">LMB mark target · T mode · wheel zoom · RMB/Q/E rotate · P pause · M mute · Tab shop</div>
     <div id="popups"></div>
     <div id="banner"></div>

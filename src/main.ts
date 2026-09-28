@@ -51,7 +51,9 @@ function frame(now: number) {
   last = now;
   if (held.has('KeyQ')) view.rotate(-dt * 1.5);
   if (held.has('KeyE')) view.rotate(dt * 1.5);
+  const sweep0 = s.sweepA;
   update(s, dt);
+  if (s.sweepA < sweep0) sfx.play('ping'); // sweep completed a revolution
   for (const e of s.events) sfx.play(e.k);
   view.render(s, dt);
   hud.update(s, dt, view.cameraYaw(), view.project);

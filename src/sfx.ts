@@ -37,7 +37,7 @@ function noise(dur: number, vol = 0.08, freq = 1200) {
 }
 
 const last: Record<string, number> = {};
-const GAP: Record<string, number> = { shot: 0.05, beam: 0.06, hit: 0.04, kill: 0.04, detect: 0.25, missile: 0.08, baseHit: 0.1 };
+const GAP: Record<string, number> = { gun: 0.07, shot: 0.05, beam: 0.06, hit: 0.04, kill: 0.04, detect: 0.25, missile: 0.08, baseHit: 0.1 };
 
 export function play(k: string) {
   if (!ctx || muted) return;
@@ -47,11 +47,13 @@ export function play(k: string) {
   switch (k) {
     case 'shot': tone(220, 0.08, 'square', 0.025, 70); break;
     case 'missile': tone(200, 0.25, 'sawtooth', 0.02, 700); break;
+    case 'gun': noise(0.04, 0.02, 3000); break;
     case 'beam': tone(1400, 0.06, 'sine', 0.025, 900); break;
     case 'rail': tone(90, 0.4, 'sawtooth', 0.08, 40); noise(0.3, 0.1, 4000); break;
     case 'hit': tone(500, 0.03, 'triangle', 0.02, 300); break;
     case 'kill': noise(0.15, 0.06, 2500); tone(160, 0.1, 'square', 0.02, 50); break;
     case 'baseHit': tone(110, 0.3, 'sawtooth', 0.09, 35); noise(0.3, 0.12, 800); break;
+    case 'ping': tone(1250, 0.6, 'sine', 0.018, 1180); break;
     case 'detect': tone(1760, 0.05, 'sine', 0.015); break;
     case 'lock': tone(880, 0.05, 'square', 0.03); tone(1320, 0.07, 'square', 0.03, 1320, 0.06); break;
     case 'buy': tone(660, 0.08, 'square', 0.03, 990); break;
