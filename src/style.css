@@ -79,6 +79,16 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #info dt { color: var(--mid); font-size: 11px; }
 #info dd { margin: 0; text-align: right; }
 #info .dim { color: var(--mid); }
+#info dt.grp { grid-column: 1 / -1; color: var(--mid); font-size: 9px; letter-spacing: 0.2em; margin-top: 4px; opacity: 0.7; }
+#info .seg.lk { height: 4px; margin-top: 2px; --f: var(--hot); }
+/* Threat board: top right, beside the shop. */
+#threats { top: 80px; right: 274px; width: 240px; padding: 6px 10px; font-size: 11px; }
+#threats:empty { display: none; }
+#threats small { color: var(--mid); }
+#threats div { white-space: nowrap; }
+#threats div.mk { color: var(--hot); }
+#shop button.hint.hint { border-left-color: var(--alert); }
+#shop button.hint .c::before { content: '◆ '; color: var(--alert); }
 #radar { width: 220px; height: 220px; }
 
 #shop { top: 12px; right: 12px; bottom: 12px; width: 250px; overflow-y: auto; pointer-events: auto; scrollbar-width: thin;
@@ -188,7 +198,7 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
   .stat b { font-size: 14px; }
   #left { transform: scale(0.72); transform-origin: top left; top: 60px; left: 6px; }
   #shop { top: 60px; right: 6px; bottom: 64px; width: 210px; }
-  #bottom { display: none; }
+  #bottom, #threats { display: none; }
   #tip { max-width: calc(100% - 24px); }
   .perks { flex-wrap: wrap; }
   .card h1 { font-size: 32px; }
