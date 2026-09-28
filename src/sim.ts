@@ -1,6 +1,7 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, PHASE_LEN, ELITE_EVERY,
   ENEMIES, KINDS, WEAPONS, PHASES, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty,
+  ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   type EnemyKind, type PerimKind, type WeaponKind,
 } from './config.ts';
 
@@ -8,15 +9,20 @@ export interface Enemy {
   id: number; kind: EnemyKind; x: number; z: number; vx: number; vz: number;
   hp: number; maxHp: number; speed: number; dmg: number; reward: number; size: number;
   seenUntil: number; locked: boolean; incoming: number; wob: number;
+  born: number;
+  cd: number; // Su-34: time to next ARM launch
+  aim: number; // ARM: heading it flies blind on, NaN while guided
+  lockT: number; ided: boolean; // decoy: time held in lock, classified yet
+  orbit: boolean; // Mi-8 jammer: on station and jamming
 }
 export interface Shot {
   kind: 'shell' | 'missile' | 'tracer'; x: number; z: number; vx: number; vz: number;
   dmg: number; splash: number; life: number; target: number;
 }
 export type Ev =
-  | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect'; x: number; z: number; kind?: EnemyKind; n?: number }
+  | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect' | 'arm' | 'jam' | 'ident'; x: number; z: number; kind?: EnemyKind; n?: number }
   | { k: 'beam' | 'rail' | 'gun'; x: number; z: number; x2: number; z2: number }
-  | { k: 'level' | 'warning' | 'buy' | 'lock' | 'over' };
+  | { k: 'level' | 'warning' | 'buy' | 'lock' | 'over' | 'emcon' | 'radarDown' };
 
 export type Phase = 'start' | 'play' | 'pause' | 'perk' | 'over';
 
@@ -44,6 +50,8 @@ export function newGame() {
     shots: [] as Shot[],
     perim: [] as { k: PerimKind; x: number; z: number; cd: number }[],
     jamming: false,
+    emcon: false,
+    radarDownUntil: 0,
     cooldown: { cannon: 0, pulse: 0, missile: 0, rail: 0 } as Record<WeaponKind, number>,
     aim: 0, // turret heading, for rendering
     spawnAcc: 0,
@@ -64,6 +72,18 @@ const TAU = Math.PI * 2;
 const pick = <T>(a: T[]) => a[Math.floor(Math.random() * a.length)];
 export const visible = (s: State, e: Enemy) => e.locked || e.seenUntil > s.t;
 export const phaseName = (s: State) => PHASES[Math.min(PHASES.length - 1, Math.floor(s.t / PHASE_LEN))].name;
+export const emitting = (s: State) => !s.emcon && s.t >= s.radarDownUntil;
+// What the operator sees: an unclassified decoy passes for a Shahed.
+export const shownKind = (e: Enemy): EnemyKind => e.kind === 'decoy' && !e.ided ? 'drone' : e.kind;
+const angDiff = (a: number, b: number) => ((a - b + Math.PI) % TAU + TAU) % TAU - Math.PI;
+
+// Detection multiplier at `e`: every Mi-8 on station blanks a sector around its own bearing (but not itself).
+export function jamFactor(s: State, e: { x: number; z: number }) {
+  let f = 1;
+  const a = Math.atan2(e.z, e.x);
+  for (const j of s.enemies) if (j.kind === 'ew' && j.orbit && j !== e && Math.abs(angDiff(a, Math.atan2(j.z, j.x))) < EW_ARC) f *= EW_JAM;
+  return f;
+}
 
 // ---------- player actions ----------
 
@@ -137,6 +157,12 @@ export function markAt(s: State, x: number, z: number) {
 
 export const cycleMode = (s: State) => { s.mode = (s.mode + 1) % s.st.modes; };
 
+export function toggleEmcon(s: State) {
+  if (s.phase !== 'play') return;
+  s.emcon = !s.emcon;
+  s.events.push({ k: 'emcon' });
+}
+
 // ---------- simulation ----------
 
 export function update(s: State, dt: number) {
@@ -147,7 +173,7 @@ export function update(s: State, dt: number) {
   moveEnemies(s, dt);
   powerAndAmmo(s, dt);
   radar(s, dt);
-  track(s);
+  track(s, dt);
   fire(s, dt);
   perimeter(s, dt);
   moveShots(s, dt);
@@ -155,14 +181,17 @@ export function update(s: State, dt: number) {
   if (s.hp <= 0) { s.hp = 0; s.phase = 'over'; s.events.push({ k: 'over' }); }
 }
 
-function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2) {
+export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2) {
   const T = ENEMIES[kind], d = difficulty(s.t);
-  const hp = T.hp * d.hp;
+  const hp = T.hp * d.hp, speed = T.speed * d.speed * (0.9 + Math.random() * 0.2);
+  const x = Math.cos(a) * r, z = Math.sin(a) * r;
   s.enemies.push({
-    id: s.nextId++, kind, x: Math.cos(a) * r, z: Math.sin(a) * r, vx: 0, vz: 0,
-    hp, maxHp: hp, speed: T.speed * d.speed * (0.9 + Math.random() * 0.2), dmg: T.dmg * d.dmg,
+    id: s.nextId++, kind, x, z, vx: -Math.cos(a) * speed, vz: -Math.sin(a) * speed,
+    hp, maxHp: hp, speed, dmg: T.dmg * d.dmg,
     reward: T.reward, size: T.size, seenUntil: -1, locked: false, incoming: 0, wob: Math.random() * TAU,
+    born: s.t, cd: 3, aim: NaN, lockT: 0, ided: false, orbit: false,
   });
+  if (kind === 'arm') s.events.push({ k: 'arm', x, z }); // ESM hears the launch, radar or not
 }
 
 function spawn(s: State, dt: number) {
@@ -190,18 +219,55 @@ function moveEnemies(s: State, dt: number) {
     const e = s.enemies[i];
     const d = Math.hypot(e.x, e.z) || 1;
     const nx = -e.x / d, nz = -e.z / d;
-    const wob = Math.sin(s.t * 2 + e.wob) * ENEMIES[e.kind].wobble * Math.min(1, d / 20);
-    const sp = e.speed * (e.kind !== 'elite' && jammed(s, e) ? JAM_SLOW : 1);
-    e.vx = nx * sp - nz * wob;
-    e.vz = nz * sp + nx * wob;
+    if (e.kind === 'arm') {
+      steerArm(s, e, dt);
+      // Out of motor, or veered off past the arena: it's gone.
+      if (s.t - e.born > ARM_LIFE || d > ARENA_R + 12) {
+        if (d < ARENA_R) s.events.push({ k: 'hit', x: e.x, z: e.z, n: 2 });
+        removeAt(s, i); continue;
+      }
+    } else {
+      const wob = Math.sin(s.t * 2 + e.wob) * ENEMIES[e.kind].wobble * Math.min(1, d / 20);
+      const sp = e.speed * (e.kind !== 'elite' && jammed(s, e) ? JAM_SLOW : 1);
+      e.vx = nx * sp - nz * wob;
+      e.vz = nz * sp + nx * wob;
+      if (e.kind === 'ew' && (e.orbit || d <= EW_ORBIT)) {
+        // On station: circle the battery (direction from wob), easing back onto the orbit radius.
+        if (!e.orbit) { e.orbit = true; s.events.push({ k: 'jam', x: e.x, z: e.z }); }
+        const dir = e.wob < Math.PI ? 1 : -1, pull = (d - EW_ORBIT) * 0.5;
+        e.vx = -nz * dir * sp + nx * pull;
+        e.vz = nx * dir * sp + nz * pull;
+      }
+    }
+    // Su-34s loose Kh-31Ps at a radiating radar once in range.
+    if (e.kind === 'elite' && (e.cd -= dt) <= 0 && d < ARM_LAUNCH_R && emitting(s)) {
+      e.cd = ARM_EVERY;
+      spawnEnemy(s, 'arm', Math.atan2(e.z, e.x), d - 1);
+    }
     e.x += e.vx * dt; e.z += e.vz * dt;
     if (d < BASE_R + e.size * 0.5) {
-      s.hp -= e.dmg * armor;
-      s.shake = Math.min(1.5, s.shake + 0.3 + e.dmg / 40);
-      s.events.push({ k: 'baseHit', x: e.x, z: e.z, kind: e.kind });
+      if (e.kind === 'arm') {
+        s.radarDownUntil = Math.min(Math.max(s.radarDownUntil, s.t) + ARM_STUN, s.t + 2 * ARM_STUN);
+        s.events.push({ k: 'radarDown' });
+      }
+      if (e.dmg > 0) {
+        s.hp -= e.dmg * armor;
+        s.shake = Math.min(1.5, s.shake + 0.3 + e.dmg / 40);
+        s.events.push({ k: 'baseHit', x: e.x, z: e.z, kind: e.kind });
+      }
       removeAt(s, i);
     }
   }
+}
+
+// Homes on the radar while it radiates. When it goes dark the seeker loses the emitter and the missile
+// swings ARM_VEER off its last heading; the turn rate is limited, so a late EMCON still eats the hit.
+function steerArm(s: State, e: Enemy, dt: number) {
+  if (emitting(s)) e.aim = NaN;
+  else if (Number.isNaN(e.aim)) e.aim = Math.atan2(e.vz, e.vx) + (e.wob < Math.PI ? ARM_VEER : -ARM_VEER);
+  const h = Math.atan2(e.vz, e.vx), want = Number.isNaN(e.aim) ? Math.atan2(-e.z, -e.x) : e.aim;
+  const nh = h + Math.max(-ARM_TURN * dt, Math.min(ARM_TURN * dt, angDiff(want, h)));
+  e.vx = Math.cos(nh) * e.speed; e.vz = Math.sin(nh) * e.speed;
 }
 
 function jammed(s: State, e: Enemy) {
@@ -223,7 +289,7 @@ function perimeter(s: State, dt: number) {
     if (p.cd > 0 || s.ammo < w.ammo) continue;
     let best: Enemy | null = null, bd = w.range ** 2;
     for (const e of s.enemies) {
-      if (!visible(s, e) || e.incoming >= e.hp) continue;
+      if (!visible(s, e) || e.ided || e.incoming >= e.hp) continue;
       const d = (e.x - p.x) ** 2 + (e.z - p.z) ** 2;
       if (d < bd) { bd = d; best = e; }
     }
@@ -255,10 +321,10 @@ function removeAt(s: State, i: number) {
 function powerAndAmmo(s: State, dt: number) {
   const st = s.st;
   s.power = Math.min(st.powerCap, s.power + st.gen * dt);
-  // Radar gets what's left; starving it slows the sweep (floor 25%).
-  const want = st.drain * dt, got = Math.min(want, s.power);
+  // Radar gets what's left; starving it slows the sweep (floor 25%). Silent radar draws nothing.
+  const on = emitting(s), want = on ? st.drain * dt : 0, got = Math.min(want, s.power);
   s.power -= got;
-  s.sweepSpeed = st.sweep * Math.max(0.25, got / want);
+  s.sweepSpeed = on ? st.sweep * Math.max(0.25, got / want) : 0;
   // Ammo fab only runs on surplus above 20% so weapons keep a reserve.
   const room = Math.min(st.ammoCap - s.ammo, st.ammoProd * dt);
   const spare = Math.max(0, s.power - st.powerCap * 0.2) / st.ammoPower;
@@ -267,6 +333,7 @@ function powerAndAmmo(s: State, dt: number) {
 }
 
 function radar(s: State, dt: number) {
+  if (!emitting(s)) return;
   const a0 = s.sweepA, da = s.sweepSpeed * dt;
   s.sweepA = (a0 + da) % TAU;
   const r2 = s.st.radarRange ** 2;
@@ -275,7 +342,7 @@ function radar(s: State, dt: number) {
     if (e.x * e.x + e.z * e.z > r2) continue;
     const rel = ((Math.atan2(e.z, e.x) - a0) % TAU + TAU) % TAU;
     if (rel > da) continue;
-    if (Math.random() < ENEMIES[e.kind].sig * s.st.res) {
+    if (Math.random() < ENEMIES[e.kind].sig * s.st.res * jamFactor(s, e)) {
       if (e.seenUntil < s.t) newly++;
       e.seenUntil = s.t + s.st.persist;
     }
@@ -287,16 +354,26 @@ function score(s: State, e: Enemy) {
   switch (MODES[s.mode]) {
     case 'CLOSEST': return -(e.x * e.x + e.z * e.z);
     case 'WEAKEST': return -e.hp;
-    case 'RICHEST': return e.reward * 1000 - (e.x * e.x + e.z * e.z) / 100;
+    case 'RICHEST': return ENEMIES[shownKind(e)].reward * 1000 - (e.x * e.x + e.z * e.z) / 100;
     case 'FASTEST': return e.speed;
   }
 }
 
-function track(s: State) {
+function track(s: State, dt: number) {
+  if (!emitting(s)) {
+    // Radar dark: fire control drops every track; contacts coast on track memory.
+    for (const e of s.enemies) if (e.locked) { e.locked = false; e.seenUntil = s.t + s.st.persist; }
+    return;
+  }
   const tr2 = s.st.trackRange ** 2;
   let locks = 0;
   for (const e of s.enemies) {
-    if (e.locked && e.x * e.x + e.z * e.z > tr2) e.locked = false;
+    if (e.locked && e.kind === 'decoy' && !e.ided && (e.lockT += dt) >= DECOY_ID / s.st.res) {
+      e.ided = true;
+      s.events.push({ k: 'ident', x: e.x, z: e.z });
+    }
+    // A classified decoy is released, unless the operator insists.
+    if (e.locked && (e.x * e.x + e.z * e.z > tr2 || e.ided && e.id !== s.marked)) e.locked = false;
     if (e.locked) { locks++; e.seenUntil = Math.max(e.seenUntil, s.t + 0.5); }
   }
   // Too many locks (slots lowered by a perk) → drop extras
@@ -313,7 +390,7 @@ function track(s: State) {
   while (locks < s.st.slots) {
     let best: Enemy | null = null, bs = -Infinity;
     for (const e of s.enemies) {
-      if (e.locked || e.seenUntil <= s.t || e.incoming >= e.hp || e.x * e.x + e.z * e.z > tr2) continue;
+      if (e.locked || e.ided || e.seenUntil <= s.t || e.incoming >= e.hp || e.x * e.x + e.z * e.z > tr2) continue;
       const sc = score(s, e);
       if (sc > bs) { bs = sc; best = e; }
     }

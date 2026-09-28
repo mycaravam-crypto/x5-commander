@@ -34,6 +34,7 @@ The game runs entirely in the browser, with no backend and no asset files. `dist
 | Right-drag / Q / E     | Rotate camera                             |
 | Tab                    | Show / hide the upgrade shop              |
 | T                      | Cycle the auto-targeting mode             |
+| F                      | EMCON: silence the radar (toggle)         |
 | 1 / 2 / 3              | Pick a perk when the base levels up       |
 | P / Esc                | Pause                                     |
 | M                      | Mute                                      |
@@ -45,6 +46,13 @@ The game pauses by itself when the window loses focus.
 
 ### Radar decides everything
 A rotating radar sweep reveals enemies within its range. Each time the sweep passes over an enemy, there's a chance it gets detected. The chance depends on the enemy's signature and your radar resolution. **Undetected enemies are invisible and can't be shot.** A detected contact fades again after the radar's *persistence* time runs out.
+
+### Radar threats and EMCON
+The enemy fights your radar, not just your base.
+- **Anti-radiation missiles (Kh-31P)** home on a radiating radar. Su-34s launch them once they're in range, and in the SEAD phase they arrive in salvos. A hit takes the radar **offline for 6 s** (repeated hits stack up to 12 s). You get warning: every launch sounds the radar-warning tone and shows its bearing.
+- **EMCON (`F`)** stops the radar transmitting. Inbound ARMs lose the emitter and veer off, the radar stops draining power, but fire control drops every lock and contacts coast on track memory. Go silent early: an ARM that's already close still hits.
+- **Decoys (Gerbera)** look exactly like Shaheds. Fire control tells them apart once a decoy has been locked for about 1.5 s, then releases it. Until then they waste lock slots and interceptors. *GaN T/R Modules* shorten that time.
+- **Jammer helicopters (Mi-8MTPR-1)** stop outside the battery and circle it. Inside the sector they cover, detection chance drops to about a third. You see the jammer's bearing as an amber strobe, not its range. The jammer itself shows up clearly on radar, so mark it and kill it.
 
 ### Locking and targeting
 Detected enemies are locked, up to your number of **lock slots**. A lock holds as long as the enemy stays within tracking range. All weapons fire automatically at locked targets. Left-click a contact to mark it as the priority target; it always gets a lock slot. Otherwise, the auto mode picks targets (`T` to cycle): **CLOSEST**, then **WEAKEST**, **RICHEST** and **FASTEST**, each unlocked by the *Target Logic* upgrade.
@@ -64,7 +72,7 @@ Your generator fills a power pool. The radar drains power continuously, and so d
 Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits. There are 19 upgrades in 6 groups: BATTERY, POWER, SENSORS, FIRE CONTROL, WEAPONS and MAGAZINE. Each upgrade costs more with every level. Buying upgrades raises your **base level**, which adds visible structures to the base and offers a **perk draft: pick 1 of 3**. Every perk has a tradeoff, for example *GLASS CANNON*: +100% damage, −40% max HP.
 
 ### Enemies and phases
-A new phase starts every 75 seconds and changes the enemy mix: **PROBING → SATURATION → ROTARY STRIKE → AIR STRIKE → COMBINED RAID**. Every 150 seconds, a *STRIKE AIRCRAFT* warning appears. Spawn rate, HP, speed and damage all increase steadily over time.
+A new phase starts every 75 seconds and changes the enemy mix: **PROBING → SATURATION → ROTARY STRIKE → AIR STRIKE → SEAD → COMBINED RAID**. Every 150 seconds, a *STRIKE AIRCRAFT* warning appears. Spawn rate, HP, speed and damage all increase steadily over time.
 
 | Threat                      | Notes                                     |
 |-----------------------------|-------------------------------------------|
@@ -72,7 +80,10 @@ A new phase starts every 75 seconds and changes the enemy mix: **PROBING → SAT
 | Shahed-136 attack drone     | Standard                                  |
 | FPV strike swarm            | Weak, arrives in packs of 6, hard to see  |
 | Mi-28NM attack helicopter   | Slow, tough, hits hard                    |
-| Su-34 strike fighter        | Very tough, big reward                    |
+| Su-34 strike fighter        | Very tough, big reward, launches ARMs     |
+| Gerbera decoy               | Looks like a Shahed, harmless, no reward  |
+| Kh-31P anti-radiation missile | Very fast, knocks the radar offline     |
+| Mi-8MTPR-1 EW helicopter    | Stands off and jams a sector              |
 
 ### The battery
 The base is laid out like a Patriot site and grows with its level: AN/MPQ-65 radar and Engagement Control Station (ECS) at the start, then the EPP-III power plant, the OE-349 antenna mast, a Hensoldt TRML-4D 360° radar that turns with the sweep, earth berms, and at level 6 the LTAMDS radar upgrade with rear arrays. Every level adds an M903 launcher (up to 8). Buying laser, IRIS-T SLX or HPM adds their vehicles.

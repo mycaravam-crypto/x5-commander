@@ -1,4 +1,4 @@
-import { newGame, update, buy, pickPerk, markAt, cycleMode, type State } from './sim.ts';
+import { newGame, update, buy, pickPerk, markAt, cycleMode, toggleEmcon, type State } from './sim.ts';
 import { createRenderer } from './render.ts';
 import { createHud } from './hud.ts';
 import * as sfx from './sfx.ts';
@@ -36,6 +36,7 @@ addEventListener('keydown', e => {
     case 'Space': case 'Enter': start(); break;
     case 'KeyP': case 'Escape': if (s.phase === 'play') s.phase = 'pause'; else if (s.phase === 'pause') s.phase = 'play'; break;
     case 'KeyT': cycleMode(s); break;
+    case 'KeyF': toggleEmcon(s); break;
     case 'KeyM': sfx.toggleMute(); break;
     case 'KeyR': if (s.phase === 'over') restart(); break;
     case 'Tab': e.preventDefault(); hud.toggleShop(); break;

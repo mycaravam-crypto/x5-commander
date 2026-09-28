@@ -15,7 +15,7 @@ export const PAL = { dim: 0x0b3d1f, mid: 0x1f9e4f, bright: 0x39ff88, hot: 0xc8ff
 // Radar bearing in degrees, 0-360, measured from +x toward +z (grid labels and the HUD use the same one).
 export const bearing = (x: number, z: number) => ((Math.atan2(z, x) * 180 / Math.PI) % 360 + 360) % 360;
 
-export type EnemyKind = 'scout' | 'drone' | 'swarm' | 'tank' | 'elite';
+export type EnemyKind = 'scout' | 'drone' | 'swarm' | 'tank' | 'elite' | 'decoy' | 'arm' | 'ew';
 
 export interface EnemyType {
   hp: number; speed: number; dmg: number; reward: number;
@@ -30,17 +30,35 @@ export const ENEMIES: Record<EnemyKind, EnemyType> = {
   swarm: { name: 'FPV strike swarm', code: 'FPV', hp: 2, speed: 5.5, dmg: 2, reward: 3, size: 0.5, sig: 0.45, glow: 0.6, pack: 6, wobble: 1.5 },
   tank: { name: 'Mi-28NM attack helicopter', code: 'MI-28', hp: 45, speed: 1.8, dmg: 20, reward: 50, size: 2, sig: 1.4, glow: 1, pack: 1, wobble: 0 },
   elite: { name: 'Su-34 strike fighter', code: 'SU-34', hp: 160, speed: 3.5, dmg: 40, reward: 200, size: 2.4, sig: 1.2, glow: 1.5, pack: 1, wobble: 1 },
+  // Looks exactly like a Shahed (bigger radar return, even) until the ECS classifies it. Harmless, worthless.
+  decoy: { name: 'Gerbera decoy drone', code: 'DECOY', hp: 5, speed: 3.8, dmg: 0, reward: 0, size: 1.1, sig: 1.1, glow: 0.8, pack: 3, wobble: 0.6 },
+  arm: { name: 'Kh-31P anti-radiation missile', code: 'KH-31P', hp: 4, speed: 10, dmg: 5, reward: 15, size: 0.8, sig: 0.55, glow: 1.2, pack: 2, wobble: 0 },
+  ew: { name: 'Mi-8MTPR-1 EW helicopter', code: 'MI-8PR', hp: 60, speed: 2.5, dmg: 0, reward: 80, size: 1.8, sig: 1.6, glow: 1, pack: 1, wobble: 0 },
 };
 export const KINDS = Object.keys(ENEMIES) as EnemyKind[];
 
 // Spawn weights per phase; last entry repeats forever.
 export const PHASES: { name: string; w: Partial<Record<EnemyKind, number>> }[] = [
   { name: 'PROBING', w: { scout: 3, drone: 2 } },
-  { name: 'SATURATION', w: { scout: 2, drone: 3, swarm: 1 } },
-  { name: 'ROTARY STRIKE', w: { scout: 2, drone: 3, swarm: 1, tank: 1 } },
-  { name: 'AIR STRIKE', w: { scout: 2, drone: 3, swarm: 1, tank: 1, elite: 0.15 } },
-  { name: 'COMBINED RAID', w: { scout: 2, drone: 3, swarm: 2, tank: 1.5, elite: 0.3 } },
+  { name: 'SATURATION', w: { scout: 2, drone: 3, swarm: 1, decoy: 1 } },
+  { name: 'ROTARY STRIKE', w: { scout: 2, drone: 3, swarm: 1, tank: 1, decoy: 1 } },
+  { name: 'AIR STRIKE', w: { scout: 2, drone: 3, swarm: 1, tank: 1, elite: 0.15, decoy: 1, ew: 0.1 } },
+  { name: 'SEAD', w: { scout: 1, drone: 3, swarm: 1, tank: 1, decoy: 2, arm: 0.3, ew: 0.15 } },
+  { name: 'COMBINED RAID', w: { scout: 2, drone: 3, swarm: 2, tank: 1.5, elite: 0.3, decoy: 1.5, arm: 0.2, ew: 0.1 } },
 ];
+
+// Radar threats. ARMs home on the radar while it radiates, and a hit takes it offline. EMCON [F] silences it:
+// no sweep, no locks, no radar power drain, and ARMs lose the emitter and veer off course.
+export const ARM_STUN = 6; // s offline per ARM hit (stacks up to 2x)
+export const ARM_VEER = 0.6; // rad an ARM swings off its heading once the radar goes dark
+export const ARM_TURN = 1.5; // rad/s; limited, so a late EMCON still gets hit
+export const ARM_LIFE = 16; // s of motor, then it falls short
+export const ARM_EVERY = 10; // s between ARM launches per Su-34 inside ARM_LAUNCH_R
+export const ARM_LAUNCH_R = 52;
+export const DECOY_ID = 1.5; // s of lock before the ECS classifies a decoy (÷ radar resolution)
+export const EW_ORBIT = 38; // Mi-8 jammers stand off at this range and circle
+export const EW_ARC = 0.4; // rad half-width of each jammed sector
+export const EW_JAM = 0.35; // detection chance multiplier inside a jammed sector
 
 export function difficulty(t: number) {
   const m = t / 60;
@@ -81,7 +99,7 @@ export const UPGRADES: Upgrade[] = [
   U('POWER', 'cap', 'Battery Banks', 40, 1.4, 15, '+40 power storage'),
   U('SENSORS', 'range', 'LTAMDS Array', 60, 1.5, 10, '+7 detection range'),
   U('SENSORS', 'sweep', 'TRML-4D Scan Rate', 70, 1.5, 8, '+20% sweep speed'),
-  U('SENSORS', 'res', 'GaN T/R Modules', 50, 1.5, 6, '+15% detection chance'),
+  U('SENSORS', 'res', 'GaN T/R Modules', 50, 1.5, 6, '+15% detection chance · faster decoy ID'),
   U('SENSORS', 'persist', 'Track Memory', 50, 1.45, 8, '+1.5s contact memory'),
   U('FIRE CONTROL', 'slots', 'ECS Channels', 80, 1.55, 10, '+1 simultaneous lock'),
   U('FIRE CONTROL', 'trange', 'Track Range', 60, 1.5, 8, '+6 tracking range'),

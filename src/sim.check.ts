@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, buy, cost, pickPerk, markAt, visible, type State } from './sim.ts';
-import { baseLevel, UPGRADES } from './config.ts';
+import { newGame, update, buy, cost, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, emitting, jamFactor, type State } from './sim.ts';
+import { baseLevel, UPGRADES, EW_ORBIT } from './config.ts';
 
 const ok = (c: unknown, msg: string) => { if (!c) throw new Error('FAIL: ' + msg); };
 const run = (s: State, secs: number, each?: () => void) => {
@@ -70,5 +70,43 @@ ok(s.kills > 0, `pads engage without locks (kills=${s.kills})`);
 s = newGame(); s.phase = 'play'; run(s, 20);
 const v = s.enemies.find(e => visible(s, e));
 if (v) { markAt(s, v.x, v.z); ok(s.marked === v.id, 'markAt'); }
+
+// Radar threats, one at a time: no random spawns, no strike packages.
+const quiet = () => { const g = newGame(); g.phase = 'play'; g.spawnAcc = -1e9; g.nextElite = 1e9; return g; };
+
+// ARM vs a radiating radar: it connects and the radar goes dark.
+s = quiet(); s.st.slots = 0; spawnEnemy(s, 'arm', 0, 40);
+run(s, 6);
+ok(s.radarDownUntil > 0 && !emitting(s), 'ARM knocks the radar out');
+ok(s.enemies.every(e => !e.locked) && s.sweepSpeed === 0, 'dark radar: no locks, no sweep');
+run(s, 10);
+ok(emitting(s), 'radar comes back');
+
+// EMCON before it arrives: the ARM loses the emitter and misses.
+s = quiet(); s.st.slots = 0; spawnEnemy(s, 'arm', 1, 40); toggleEmcon(s);
+const pw = s.power;
+run(s, 8);
+ok(s.radarDownUntil === 0 && s.hp === s.st.maxHp, 'EMCON makes the ARM miss');
+ok(s.power >= pw, 'silent radar draws no power');
+
+// Su-34 launches ARMs at a radiating radar.
+s = quiet(); spawnEnemy(s, 'elite', 2, 50); s.enemies[0].hp = 1e9;
+let armSeen = false;
+run(s, 5, () => { armSeen ||= s.enemies.some(e => e.kind === 'arm'); });
+ok(armSeen, 'Su-34 fires ARMs');
+
+// Decoy: locked, classified, released, never locked again, harmless on arrival.
+s = quiet(); spawnEnemy(s, 'decoy', 0, 30); s.enemies[0].hp = 1e9;
+let ided = false, relocked = false;
+run(s, 15, () => { for (const e of s.enemies) { ided ||= e.ided; relocked ||= e.ided && e.locked; } });
+ok(ided && !relocked, 'decoy classified and released');
+ok(s.enemies.length === 0 && s.hp === s.st.maxHp, 'decoy does no damage');
+
+// Mi-8 jammer stands off, circles, and blanks only its own sector.
+s = quiet(); spawnEnemy(s, 'ew', 0, 45); s.enemies[0].hp = 1e9;
+run(s, 15);
+const j = s.enemies[0], ja = Math.atan2(j.z, j.x);
+ok(j.orbit && Math.abs(Math.hypot(j.x, j.z) - EW_ORBIT) < 3, `jammer on station (r=${Math.hypot(j.x, j.z).toFixed(1)})`);
+ok(jamFactor(s, { x: Math.cos(ja) * 20, z: Math.sin(ja) * 20 }) < 1 && jamFactor(s, { x: -Math.cos(ja) * 20, z: -Math.sin(ja) * 20 }) === 1 && jamFactor(s, j) === 1, 'jam sector');
 
 console.log(`ok · idle ${idle.t.toFixed(0)}s/${idle.kills} kills · bot ${b.t.toFixed(0)}s/${b.kills} kills lv${b.level} [${b.perks.join(',')}]`);
