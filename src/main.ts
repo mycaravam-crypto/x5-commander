@@ -1,4 +1,4 @@
-import { newGame, dailySeed, update, buy, pickPerk, markAt, placePad, cycleMode, cycleDiscipline, emergencyIntercept, toggleEmcon, type State } from './sim.ts';
+import { newGame, dailySeed, update, buy, pickPerk, markAt, placePad, cycleMode, cycleDiscipline, cycleRadarMode, aimFocus, emergencyIntercept, toggleEmcon, type State } from './sim.ts';
 import { createRenderer } from './render.ts';
 import { createHud, loadBest } from './hud.ts';
 import { DOCTRINES } from './config.ts';
@@ -35,7 +35,7 @@ const canvas = document.querySelector('canvas')!;
 let dragX: number | null = null;
 const tap = (cx: number, cy: number) => {
   const p = view.pick(cx, cy);
-  if (p && s.phase === 'play' && !placePad(s, p.x, p.z)) markAt(s, p.x, p.z);
+  if (p && s.phase === 'play' && !placePad(s, p.x, p.z)) { markAt(s, p.x, p.z); aimFocus(s, p.x, p.z); }
 };
 canvas.addEventListener('mousedown', e => { if (e.button === 2) dragX = e.clientX; else tap(e.clientX, e.clientY); });
 
@@ -81,6 +81,7 @@ function key(code: string) {
     case 'KeyP': case 'Escape': if (s.phase === 'play') s.phase = 'pause'; else if (s.phase === 'pause') s.phase = 'play'; break;
     case 'KeyT': cycleMode(s); break;
     case 'KeyF': toggleEmcon(s); break;
+    case 'KeyV': cycleRadarMode(s); break;
     case 'KeyM': sfx.toggleMute(); break;
     case 'KeyR': if (s.phase === 'over') restart(); break;
     case 'KeyC': if (s.phase === 'over') hud.share(); break;

@@ -1,5 +1,5 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, draft, placePad, rand, dailySeed, type State } from './sim.ts';
+import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, draft, placePad, rand, dailySeed, type State } from './sim.ts';
 import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, PHASES, PHASE_LEN, RAID_WARN, RAID_PRESS } from './config.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
@@ -162,6 +162,30 @@ const pw = s.power;
 run(s, 8);
 ok(s.radarDownUntil === 0 && s.hp === s.st.maxHp, 'EMCON makes the ARM miss');
 ok(s.power >= pw, 'silent radar draws no power');
+
+// Radar modes: FOCUSED finds contacts on its bearing sooner and further out, and nothing off it.
+{
+  const firstSeen = (mode: number, a: number, r: number) => {
+    const g = quiet(); g.st.slots = 0; g.radarMode = mode; aimFocus(g, 1, 0); g.sweepA = Math.random() * 6.28;
+    const e = spawnEnemy(g, 'drone', a, r); e.hp = 1e9; e.speed = e.vx = e.vz = 0;
+    for (let i = 0; i < 20 * 60; i++) { update(g, 1 / 60); if (visible(g, e)) return g.t; }
+    return Infinity;
+  };
+  const avg = (mode: number) => { let t = 0; for (let i = 0; i < 40; i++) t += firstSeen(mode, 0.2, 30); return t / 40; };
+  ok(avg(1) < avg(0) * 0.7, `FOCUSED detects faster on its bearing (${avg(1).toFixed(2)}s vs ${avg(0).toFixed(2)}s)`);
+  ok(firstSeen(1, Math.PI, 30) === Infinity, 'FOCUSED is blind off its bearing');
+  ok(firstSeen(1, 0, 50) < Infinity && firstSeen(0, 0, 50) === Infinity, 'FOCUSED reaches further');
+  const g = quiet(); cycleRadarMode(g); cycleRadarMode(g);
+  ok(g.radarMode === 2 && radarRange(g) < g.st.radarRange, 'V cycles to LPI, which sees less');
+}
+// LPI: an ARM launched at a radiating LPI radar loses it and misses; LPI draws less power than ACTIVE.
+{
+  const g = quiet(); g.st.slots = 0; g.radarMode = 2; spawnEnemy(g, 'arm', 1, 40);
+  run(g, 8);
+  ok(g.radarDownUntil === 0 && emitting(g), 'LPI: ARMs lose the radar');
+  const drain = (m: number) => { const q = quiet(); q.radarMode = m; q.st.gen = 0; q.st.ammoProd = 0; run(q, 5); return q.st.powerCap - q.power; };
+  ok(drain(2) < drain(0) && drain(0) < drain(1), 'LPI < ACTIVE < FOCUSED power drain');
+}
 
 // Su-34 launches ARMs at a radiating radar.
 s = quiet(); spawnEnemy(s, 'elite', 2, 50); s.enemies[0].hp = 1e9;
