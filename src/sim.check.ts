@@ -148,6 +148,18 @@ if (v) { markAt(s, v.x, v.z); ok(s.marked === v.id, 'markAt'); }
   ok(dm > du * 1.15 && pm > pu, `priority target: more damage (${dm.toFixed(0)} vs ${du.toFixed(0)}), costs power`);
 }
 
+// Resource tension: repairs and locks draw power.
+{
+  const g = quiet(); g.lv.repair = 3; g.st = deriveStats(g.lv, []); g.st.gen = 0; g.st.ammoProd = 0; g.hp = 50; g.emcon = true;
+  run(g, 5);
+  ok(g.hp > 55 && g.power < g.st.powerCap - 5, `repairs cost power (hp ${g.hp.toFixed(1)}, power ${g.power.toFixed(1)})`);
+  g.power = g.st.powerCap * 0.1; const hp = g.hp; run(g, 5);
+  ok(g.hp === hp, 'no repairs without surplus power');
+  const drain = (n: number) => { const q = quiet(); q.st.gen = 0; q.st.ammoProd = 0; q.emcon = true;
+    for (let i = 0; i < n; i++) spawnEnemy(q, 'tank', i, 30).locked = true; q.st.fusion = true; q.st.slots = 4; run(q, 1); return q.st.powerCap - q.power; };
+  ok(drain(3) > drain(0) + 0.5, 'held locks draw power');
+}
+
 // Emergency intercept: costs power, starts a cooldown, puts every weapon on one target.
 {
   const g = quiet(); g.lv.pulse = 1; g.st = deriveStats(g.lv, []); g.st.slots = 3;

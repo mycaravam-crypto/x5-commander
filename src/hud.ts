@@ -257,6 +257,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   const set = (id: string, v: string) => { const el = $(id); if (el.textContent !== v) el.textContent = v; };
   const bar = (id: string, r: number, crit = false) => { const el = $(id); el.style.setProperty('--r', String(Math.round(Math.max(0, Math.min(1, r)) * 20) / 20)); el.classList.toggle('crit', crit); };
 
+  const flow = { t: 0, p: 0, a: 0, dp: 0, da: 0 };
   function text(s: State) {
     const st = s.st;
     set('credits', fmt(s.credits)); set('phase', phaseName(s)); set('time', clock(s.t));
@@ -264,8 +265,17 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const comboOn = s.combo >= 3 && s.t - s.lastKill < COMBO_WINDOW;
     set('combo', comboOn ? `COMBO x${s.combo}  +${Math.round(Math.min(s.combo, COMBO_CAP) * COMBO_BONUS * 100)}%` : '');
     bar('hpBar', s.hp / st.maxHp, s.hp / st.maxHp < 0.3); set('hpTxt', `${fmt(s.hp)} / ${fmt(st.maxHp)}`);
-    bar('pwBar', s.power / st.powerCap, s.power < st.powerCap * 0.1); set('pwTxt', `${fmt(s.power)} / ${fmt(st.powerCap)}`);
-    bar('amBar', s.ammo / st.ammoCap, s.ammo < 3); set('amTxt', `${fmt(s.ammo)} / ${fmt(st.ammoCap)}`);
+    // Net flow over the last second or so: what's actually happening to the budget.
+    if (s.t - flow.t >= 0.5 || s.t < flow.t) {
+      const k = s.t > flow.t ? 1 / (s.t - flow.t) : 0;
+      flow.dp = flow.dp * 0.5 + (s.power - flow.p) * k * 0.5; flow.da = flow.da * 0.5 + (s.ammo - flow.a) * k * 0.5;
+      flow.t = s.t; flow.p = s.power; flow.a = s.ammo;
+    }
+    const rate = (v: number, full: boolean) => full ? '' : Math.abs(v) < 0.05 ? ' ±0/s' : ` ${v > 0 ? '+' : ''}${v.toFixed(1)}/s`;
+    bar('pwBar', s.power / st.powerCap, s.power < st.powerCap * 0.1);
+    set('pwTxt', `${fmt(s.power)} / ${fmt(st.powerCap)}${rate(flow.dp, s.power >= st.powerCap - 0.5)}`);
+    bar('amBar', s.ammo / st.ammoCap, s.ammo < 3);
+    set('amTxt', `${fmt(s.ammo)} / ${fmt(st.ammoCap)}${rate(flow.da, s.ammo >= st.ammoCap - 0.5)}`);
     let contacts = 0, locks = 0;
     for (const e of s.enemies) { if (visible(s, e)) contacts++; if (e.locked) locks++; }
     const sweepPct = Math.round(s.sweepSpeed / st.sweep * 100);
