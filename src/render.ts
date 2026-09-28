@@ -5,9 +5,9 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ARENA_R, ENEMIES, EW_ARC, KINDS, PAL, PAD_SLOTS, PERIM_R, type EnemyKind } from './config.ts';
-import { emitting, focusBearing, radarRange, radarSector, freeSlots, padAngle, phase, shownKind, visible, type State } from './sim.ts';
+import { emitting, focusBearing, radarRange, radarSector, freeSlots, padAngle, phase, shownKind, visible, type Shot, type State } from './sim.ts';
 
-const MAX_ENEMIES = 2000, MAX_LOCKS = 64, MAX_SHOTS = 600, MAX_SHARDS = 2500, MAX_WAVES = 64, MAX_BEAMS = 96, MAX_BLIPS = 1024;
+const MAX_ENEMIES = 2000, MAX_LOCKS = 64, MAX_SHOTS = 600, MAX_SHARDS = 2500, MAX_WAVES = 64, MAX_BEAMS = 3000, MAX_FRONTS = 48, MAX_BLIPS = 1024;
 const VIS = 1.6; // enemies drawn bigger than their hitbox so they read at a glance
 const TAU = Math.PI * 2;
 const CURVE = 0.06; // CRT lens curve; pick/project undo it so clicks land where things are drawn
@@ -151,10 +151,12 @@ export function createRenderer() {
 
   // ---- base: a Patriot battery, rebuilt when its shape key changes ----
   // Vehicles are built with +x as the business end (launch canisters, radar face). Parts listed in
-  // `aimers` traverse toward the current target, `sweepers` turn with the radar sweep; the number is the parent's yaw.
+  // `aimers` traverse toward their effector's target (keyed: 'pac' = the battery's, 'hel', 'hpm', 'pad<slot>'),
+  // `sweepers` turn with the radar sweep; the number is the parent's yaw.
   let base = new THREE.Group(), baseKey = '';
-  const aimers: [THREE.Object3D, number][] = [], sweepers: [THREE.Object3D, number][] = [];
-  let launchPts: [number, number][] = [];
+  const aimers: [THREE.Object3D, number, string][] = [], sweepers: [THREE.Object3D, number][] = [];
+  // Where each effector's rounds leave from: launcher muzzles (x, y, z), and the HEL / HPM apertures.
+  let pacPts: number[][] = [], irisPts: number[][] = [], helPt = [0, 1.6, 0], hpmPt = [0, 1.6, 0];
   const fill = new THREE.MeshBasicMaterial({ color: 0x010603, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
   const edgeMats = new Map<number, THREE.LineBasicMaterial>();
   const solid = (geo: THREE.BufferGeometry, edge: number, x = 0, y = 0, z = 0, parent: THREE.Object3D = base, mat: THREE.Material = fill) => {
@@ -191,11 +193,11 @@ export function createRenderer() {
 
   function buildBase(s: State) {
     scene.remove(base);
-    base = new THREE.Group(); aimers.length = sweepers.length = 0; launchPts = [];
+    base = new THREE.Group(); aimers.length = sweepers.length = 0; pacPts = []; irisPts = [];
     const L = s.level, W = s.st.weapons, R1 = 3.6, R2 = 6.4, R3 = 9;
 
     // AN/MPQ-65 phased-array radar on its trailer, center. With the AESA upgrade it becomes LTAMDS: extra rear arrays for 360° cover.
-    const radar = group(base); aimers.push([radar, 0]);
+    const radar = group(base); aimers.push([radar, 0, 'pac']);
     solid(box(2.4, 0.3, 1.4), MID, -0.3, 0.6, 0, radar);
     for (const x of [-1.1, -0.4]) for (const z of [-0.6, 0.6]) solid(new THREE.CylinderGeometry(0.3, 0.3, 0.2, 8).rotateX(Math.PI / 2), MID, x, 0.3, z, radar);
     solid(box(1.4, 0.9, 1.3), MID, -0.6, 1.2, 0, radar); // electronics shelter
@@ -233,14 +235,16 @@ export function createRenderer() {
     if (W.pulse) { // HEL 50 kW laser weapon: beam director on a traversing mount
       const a = slot(4, 6, 0.3), ry = tangent(a), g = vehicle(R1, a, 2.2, ry);
       solid(box(1.3, 0.7, 1.1), MID, -0.2, 1.1, 0, g);
-      const t = group(g, 0.5, 1.5, 0); aimers.push([t, ry]);
+      const t = group(g, 0.5, 1.5, 0); aimers.push([t, ry, 'hel']);
+      helPt = [Math.cos(a) * R1, 2.15, Math.sin(a) * R1];
       solid(new THREE.CylinderGeometry(0.35, 0.4, 0.4, 8), BRIGHT, 0, 0.2, 0, t);
       solid(new THREE.CylinderGeometry(0.28, 0.28, 0.7, 8).rotateZ(Math.PI / 2), HOT, 0.2, 0.65, 0, t);
     }
     if (W.rail) { // Epirus Leonidas HPM: flat microwave array in a container
       const a = slot(5, 6, 0.3), ry = tangent(a), g = vehicle(R1, a, 2.4, ry);
       solid(box(2, 0.9, 1.2), MID, 0, 1.2, 0, g);
-      const t = group(g, 0.2, 1.7, 0); aimers.push([t, ry]);
+      const t = group(g, 0.2, 1.7, 0); aimers.push([t, ry, 'hpm']);
+      hpmPt = [Math.cos(a) * R1, 2.4, Math.sin(a) * R1];
       const panel = group(t, 0, 0.7, 0); panel.rotation.z = 0.3;
       solid(box(0.2, 1.3, 1.3), HOT, 0, 0, 0, panel);
       for (let i = 1; i < 4; i++) solid(box(0.02, 1.3, 0.02), BRIGHT, 0.11, 0, -0.65 + i * 0.325, panel);
@@ -264,22 +268,22 @@ export function createRenderer() {
     // Four PAC-3 MSE canisters each, raised to 38° and traversing toward the target.
     for (let i = 0; i < Math.min(8, L + 1); i++) {
       const a = slot(i, 8, TAU / 16), ry = radial(a), g = vehicle(R2, a, 2.8, ry, false);
-      aimers.push([canisters(g, 2, 2, 2.6, 0.5, 0.66, 0.1), ry]);
-      launchPts.push([Math.cos(a) * R2, Math.sin(a) * R2]);
+      aimers.push([canisters(g, 2, 2, 2.6, 0.5, 0.66, 0.1), ry, 'pac']);
+      pacPts.push([Math.cos(a) * R2, 2.4, Math.sin(a) * R2]);
       if (L >= 5) solid(box(0.4, 0.7, 3).rotateY(ry), MID, Math.cos(a) * (R2 + 2.4), 0.35, Math.sin(a) * (R2 + 2.4)); // earth berm
     }
     // IRIS-T SLX launchers: 8 canisters, steep launch, one per upgrade level (max 4).
     for (let i = 0; i < Math.min(4, s.lv.missile ?? 0); i++) {
       const a = slot(i, 4), ry = radial(a), g = vehicle(R3, a, 2.6, ry);
-      aimers.push([canisters(g, 2, 4, 2.2, 0.32, 1.05, 0.2), ry]);
-      launchPts.push([Math.cos(a) * R3, Math.sin(a) * R3]);
+      aimers.push([canisters(g, 2, 4, 2.2, 0.32, 1.05, 0.2), ry, 'pac']);
+      irisPts.push([Math.cos(a) * R3, 2.7, Math.sin(a) * R3]);
     }
     // Perimeter pads: MANTIS gun turret, Stinger team, EW jammer mast.
     for (const p of s.perim) {
       const a = Math.atan2(p.z, p.x), ry = radial(a), g = group(base, p.x, 0, p.z, ry);
       solid(box(1.6, 0.3, 1.6), MID, 0, 0.15, 0, g);
       if (p.k === 'mantis') {
-        const t = group(g, 0, 0.3, 0); aimers.push([t, ry]);
+        const t = group(g, 0, 0.3, 0); aimers.push([t, ry, `pad${p.slot}`]);
         solid(box(0.9, 0.7, 0.9), BRIGHT, 0, 0.35, 0, t);
         solid(new THREE.CylinderGeometry(0.06, 0.06, 1.6, 5).rotateZ(Math.PI / 2), HOT, 1.1, 0.5, 0, t);
       } else if (p.k === 'stinger') {
@@ -333,11 +337,19 @@ export function createRenderer() {
   const missiles = instanced(edges(new THREE.ConeGeometry(0.35, 1.3, 4).rotateX(Math.PI / 2)), wire, MAX_SHOTS);
   const shardMesh = instanced(segs([-0.5, 0, 0, 0.5, 0, 0]), additive(0xffffff, true), MAX_SHARDS);
   const waveMesh = instanced(segs(ringPts(48)), additive(0xffffff, true), MAX_WAVES);
-  const beamMesh = instanced(new THREE.BoxGeometry(1, 1, 1), additive(), MAX_BEAMS);
+  // Beams and trails: unit box stretched between two points (HEL beams, HPM band, exhaust and smoke trails).
+  const beamMesh = instanced(new THREE.BoxGeometry(1, 1, 1).translate(0.5, 0, 0), additive(), MAX_BEAMS);
+  // HPM wavefronts: three thin arcs, scaled out from the array along the firing bearing.
+  const frontPts: number[] = [];
+  for (const r of [0.97, 1, 1.03]) for (let i = 0; i < 6; i++) {
+    const a = (i / 6 - 0.5) * 0.12, b = ((i + 1) / 6 - 0.5) * 0.12;
+    frontPts.push(Math.cos(a) * r, 0, Math.sin(a) * r, Math.cos(b) * r, 0, Math.sin(b) * r);
+  }
+  const frontMesh = instanced(segs(frontPts), additive(0xffffff, true), MAX_FRONTS);
   const blipMesh = instanced(new THREE.CircleGeometry(1, 12).rotateX(-Math.PI / 2), additive(), MAX_BLIPS);
   // Jammed sector: a faint amber wedge from the battery out along each Mi-8's bearing.
   const jamMesh = instanced(new THREE.RingGeometry(0.08, 1, 12, 1, -EW_ARC, EW_ARC * 2).rotateX(-Math.PI / 2), additive(), 16);
-  scene.add(shells, tracers, missiles, shardMesh, waveMesh, beamMesh, blipMesh, jamMesh);
+  scene.add(shells, tracers, missiles, shardMesh, waveMesh, beamMesh, frontMesh, blipMesh, jamMesh);
   // Incoming raid: three amber chevrons at the rim, pointing in along its bearing.
   const chevPts: number[] = [];
   for (let i = 0; i < 3; i++) chevPts.push(0.6 - i, 0, -0.8, -i, 0, 0, -i, 0, 0, 0.6 - i, 0, 0.8);
@@ -350,7 +362,12 @@ export function createRenderer() {
   // Particle pools: flat arrays, ring-buffer allocation, no per-frame garbage.
   const sh = { p: new Float32Array(MAX_SHARDS * 3), v: new Float32Array(MAX_SHARDS * 3), life: new Float32Array(MAX_SHARDS), max: new Float32Array(MAX_SHARDS), col: new Float32Array(MAX_SHARDS * 3), size: new Float32Array(MAX_SHARDS), next: 0 };
   const wv = { x: new Float32Array(MAX_WAVES), z: new Float32Array(MAX_WAVES), r: new Float32Array(MAX_WAVES), life: new Float32Array(MAX_WAVES), max: new Float32Array(MAX_WAVES), col: new Float32Array(MAX_WAVES * 3), next: 0 };
-  const bm = { a: new Float32Array(MAX_BEAMS * 4), w: new Float32Array(MAX_BEAMS), life: new Float32Array(MAX_BEAMS), max: new Float32Array(MAX_BEAMS), col: new Float32Array(MAX_BEAMS * 3), next: 0 };
+  // grow: 0 = beam (thins as it fades), 1 = smoke (spreads as it fades).
+  const bm = { a: new Float32Array(MAX_BEAMS * 6), w: new Float32Array(MAX_BEAMS), life: new Float32Array(MAX_BEAMS), max: new Float32Array(MAX_BEAMS), col: new Float32Array(MAX_BEAMS * 3), grow: new Uint8Array(MAX_BEAMS), next: 0 };
+  const fr = { x: new Float32Array(MAX_FRONTS), y: new Float32Array(MAX_FRONTS), z: new Float32Array(MAX_FRONTS), a: new Float32Array(MAX_FRONTS), t: new Float32Array(MAX_FRONTS), max: new Float32Array(MAX_FRONTS), next: 0 };
+  // Per-shot render state: where it left from (the sim launches PAC-3 / IRIS-T from the battery centre, the
+  // round is drawn from its launcher and eases onto the sim path), its age, and where it was last drawn.
+  const shotFx = new WeakMap<Shot, { ox: number; oy: number; oz: number; age: number; px: number; py: number; pz: number }>();
   const bl = { x: new Float32Array(MAX_BLIPS), z: new Float32Array(MAX_BLIPS), r: new Float32Array(MAX_BLIPS), life: new Float32Array(MAX_BLIPS), max: new Float32Array(MAX_BLIPS), next: 0 };
   const tmpC = new THREE.Color();
 
@@ -371,11 +388,24 @@ export function createRenderer() {
     wv.x[i] = x; wv.z[i] = z; wv.r[i] = r; wv.life[i] = wv.max[i] = life;
     tmpC.setHex(color).multiplyScalar(k); wv.col.set([tmpC.r, tmpC.g, tmpC.b], i * 3);
   }
-  function beam(x: number, z: number, x2: number, z2: number, w: number, color: number, life: number) {
+  function beam(x: number, y: number, z: number, x2: number, y2: number, z2: number, w: number, color: number, life: number, k = 1, grow = 0) {
     const i = bm.next = (bm.next + 1) % MAX_BEAMS;
-    bm.a.set([x, z, x2, z2], i * 4); bm.w[i] = w; bm.life[i] = bm.max[i] = life;
-    tmpC.setHex(color); bm.col.set([tmpC.r, tmpC.g, tmpC.b], i * 3);
+    const a = bm.a, j = i * 6;
+    a[j] = x; a[j + 1] = y; a[j + 2] = z; a[j + 3] = x2; a[j + 4] = y2; a[j + 5] = z2;
+    bm.w[i] = w; bm.life[i] = bm.max[i] = life; bm.grow[i] = grow;
+    tmpC.setHex(color).multiplyScalar(k); bm.col[i * 3] = tmpC.r; bm.col[i * 3 + 1] = tmpC.g; bm.col[i * 3 + 2] = tmpC.b;
   }
+  // Laser: wide soft glow around a white-hot core, and a splash of sparks where it lands.
+  function laser(x: number, y: number, z: number, x2: number, z2: number) {
+    beam(x, y, z, x2, 1.4, z2, 0.5, BRIGHT, 0.16, 0.45);
+    beam(x, y, z, x2, 1.4, z2, 0.14, 0xeaffee, 0.12);
+    shards(x2, z2, 2, 0xeaffee, 5, 0.5, 1.4);
+  }
+  function front(x: number, y: number, z: number, a: number, delay: number, max: number) {
+    const i = fr.next = (fr.next + 1) % MAX_FRONTS;
+    fr.x[i] = x; fr.y[i] = y; fr.z[i] = z; fr.a[i] = a; fr.t[i] = -delay; fr.max[i] = max;
+  }
+  const aimT = new Map<string, number>(), aimCur = new Map<string, number>();
   function blip(x: number, z: number, r: number, life: number) {
     const i = bl.next = (bl.next + 1) % MAX_BLIPS;
     bl.x[i] = x; bl.z[i] = z; bl.r[i] = r; bl.life[i] = bl.max[i] = life;
@@ -395,10 +425,25 @@ export function createRenderer() {
         }
         case 'hit': e.n ? (wave(e.x, e.z, e.n, HOT, 0.35), shards(e.x, e.z, 6, BRIGHT, 10)) : shards(e.x, e.z, 2, HOT, 6, 0.5); break;
         case 'baseHit': wave(0, 0, 9, ALERT, 0.5, 1.5); shards(e.x, e.z, 10, ALERT, 12, 1.2); gridFlash = 1; break;
-        case 'gun': shards(e.x, e.z, 2, 0xffffff, 3, 0.4, 1); break; // muzzle flash
-        case 'beam': beam(e.x, e.z, e.x2, e.z2, 0.18, BRIGHT, 0.12); break;
-        case 'rail': beam(e.x, e.z, e.x2, e.z2, 0.7, BRIGHT, 0.35); beam(e.x, e.z, e.x2, e.z2, 0.2, HOT, 0.25); wave(0, 0, 5, HOT, 0.3); break;
-        case 'shot': { const [x, z] = launchPts[Math.floor(Math.random() * launchPts.length)] ?? [0, 0]; shards(x, z, 4, HOT, 4, 0.5, 2.4); break; } // launch flash at a random launcher
+        case 'gun': { // MANTIS: the pad's turret swings onto the target, muzzle flash at the barrel tip
+          const a = Math.atan2(e.z2 - e.z, e.x2 - e.x), p = s.perim.find(p => Math.abs(p.x - e.x) + Math.abs(p.z - e.z) < 0.01);
+          if (p) aimT.set(`pad${p.slot}`, a);
+          shards(e.x + Math.cos(a) * 1.9, e.z + Math.sin(a) * 1.9, 2, 0xffffff, 3, 0.4, 0.8);
+          break;
+        }
+        case 'beam': // from the HEL (sim fires from the centre), or a hop between contacts (ARC LASER, OVERKILL)
+          if (e.x || e.z) laser(e.x, 1.4, e.z, e.x2, e.z2);
+          else { aimT.set('hel', Math.atan2(e.z2 - helPt[2], e.x2 - helPt[0])); laser(helPt[0], helPt[1], helPt[2], e.x2, e.z2); }
+          break;
+        case 'rail': { // HPM: a shimmering band down the line, crossed by wavefronts rolling out from the array
+          const [x, y, z] = hpmPt, a = Math.atan2(e.z2 - z, e.x2 - x), len = Math.hypot(e.x2 - x, e.z2 - z);
+          aimT.set('hpm', a);
+          beam(x, y, z, e.x2, 1.4, e.z2, 2.2, BRIGHT, 0.4, 0.12);
+          beam(x, y, z, e.x2, 1.4, e.z2, 0.25, HOT, 0.3, 0.6);
+          for (let i = 0; i < 6; i++) front(x, y, z, a, i * 0.05, len);
+          wave(x, z, 4, HOT, 0.3);
+          break;
+        }
         case 'level': wave(0, 0, 40, BRIGHT, 1.2, 1.5); wave(0, 0, 25, HOT, 0.9); shards(0, 0, 40, BRIGHT, 20, 1.2, 3); gridFlash = 0.6; break;
         case 'warning': wave(0, 0, ARENA_R, ALERT, 1.5, 1.5); break;
         case 'arm': wave(e.x, e.z, 6, ALERT, 0.8, 1.5); break;
@@ -420,12 +465,13 @@ export function createRenderer() {
     }
   }
 
-  const pools = [...Object.values(enemyFills), ...Object.values(enemyEdges), brackets, hpBars, shells, tracers, missiles, shardMesh, waveMesh, beamMesh, blipMesh, jamMesh, padMarks, dwellMesh];
+  const pools = [...Object.values(enemyFills), ...Object.values(enemyEdges), brackets, hpBars, shells, tracers, missiles, shardMesh, waveMesh, beamMesh, frontMesh, blipMesh, jamMesh, padMarks, dwellMesh];
   const sent = new Map<THREE.InstancedMesh, number>();
   const dummy = new THREE.Object3D();
   const camRight = new THREE.Vector3();
   const markEnd = markLine.geometry.attributes.position as THREE.BufferAttribute;
-  let turretA = 0, clock = 0;
+  const dir = new THREE.Vector3(), X = new THREE.Vector3(1, 0, 0);
+  let clock = 0;
 
   function render(s: State, dt: number) {
     clock += dt;
@@ -470,9 +516,12 @@ export function createRenderer() {
       raidMark.rotation.y = -a; raidMark.scale.setScalar(2.2);
       (raidMark.material as THREE.MeshBasicMaterial).color.setHex(ALERT).multiplyScalar(0.6 + 0.8 * (1 - pulse));
     }
-    let da = ((s.aim - turretA + Math.PI) % TAU + TAU) % TAU - Math.PI;
-    turretA += da * Math.min(1, dt * 15);
-    for (const [o, ry] of aimers) o.rotation.y = -turretA - ry;
+    aimT.set('pac', s.aim);
+    for (const [k, t] of aimT) {
+      const c = aimCur.get(k) ?? t, da = ((t - c + Math.PI) % TAU + TAU) % TAU - Math.PI;
+      aimCur.set(k, c + da * Math.min(1, dt * 15));
+    }
+    for (const [o, ry, k] of aimers) o.rotation.y = -(aimCur.get(k) ?? aimCur.get('pac')!) - ry;
     for (const [o, ry] of sweepers) o.rotation.y = -s.sweepA - ry;
 
     // Blip ghosts: every detected contact the sweep passes this frame leaves a mark that fades over one revolution.
@@ -562,15 +611,44 @@ export function createRenderer() {
     lockLines.geometry.setDrawRange(0, nl * 2);
     lockLines.geometry.attributes.position.needsUpdate = true;
 
-    // shots
+    // Shots. PAC-3: hot dart with a short exhaust flare. IRIS-T / Stinger: wire airframe laying a smoke
+    // trail that spreads and fades, so a homing turn stays readable. MANTIS: long thin tracer.
     shells.count = tracers.count = missiles.count = 0;
+    const play = s.phase === 'play';
     for (const p of s.shots) {
-      const m = p.kind === 'shell' ? shells : p.kind === 'tracer' ? tracers : missiles;
+      const tracer = p.kind === 'tracer', stinger = p.src === 'STINGER', y0 = tracer ? 1 : 1.6;
+      let f = shotFx.get(p);
+      if (!f) { // first frame: pick the launcher facing the shot, flash its muzzle
+        const pts = p.src === 'PAC-3' ? pacPts : p.src === 'IRIS-T' ? irisPts : null;
+        let o = [p.x, tracer ? 1 : 1.1, p.z];
+        if (pts?.length) {
+          const h = Math.atan2(p.vz, p.vx);
+          let bd = Infinity;
+          for (const q of pts) { const d = Math.abs(((Math.atan2(q[2], q[0]) - h + Math.PI) % TAU + TAU) % TAU - Math.PI); if (d < bd) { bd = d; o = q; } }
+        }
+        f = { ox: o[0] - p.x, oy: o[1] - y0, oz: o[2] - p.z, age: 0, px: o[0], py: o[1], pz: o[2] };
+        shotFx.set(p, f);
+        if (!tracer) { shards(o[0], o[2], p.kind === 'shell' ? 5 : 4, HOT, 4, 0.5, o[1]); wave(o[0], o[2], stinger ? 1.2 : 2, HOT, 0.25, 0.7); }
+      }
+      if (play) f.age += dt;
+      const blend = p.kind === 'shell' ? 0.25 : 0.6, u = Math.min(1, f.age / blend), k = (1 - u) * (1 - u) * (1 + 2 * u); // smoothstep out
+      const x = p.x + f.ox * k, y = y0 + f.oy * k, z = p.z + f.oz * k;
+      const dx = x - f.px, dy = y - f.py, dz = z - f.pz, moved = dx * dx + dy * dy + dz * dz > 1e-6;
+      if (moved && !tracer) {
+        if (p.kind === 'shell') beam(f.px, f.py, f.pz, x, y, z, 0.22, HOT, 0.12, 0.9);
+        else { // pale smoke that lingers and spreads, over a short hot flame at the motor
+          beam(f.px, f.py, f.pz, x, y, z, stinger ? 0.2 : 0.3, HOT, stinger ? 0.5 : 0.8, 0.4, 1);
+          beam(f.px, f.py, f.pz, x, y, z, 0.16, HOT, 0.07);
+        }
+      }
+      f.px = x; f.py = y; f.pz = z;
+      const m = p.kind === 'shell' ? shells : tracer ? tracers : missiles;
       if (m.count >= MAX_SHOTS) continue;
-      dummy.position.set(p.x, p.kind === 'tracer' ? 1 : 1.6, p.z); dummy.rotation.set(0, Math.atan2(p.vx, p.vz), 0); dummy.scale.setScalar(1);
+      dummy.position.set(x, y, z);
+      if (moved) dummy.lookAt(x + dx, y + dy, z + dz); else dummy.rotation.set(0, Math.atan2(p.vx, p.vz), 0);
+      dummy.scale.setScalar(stinger ? 0.7 : 1);
       dummy.updateMatrix(); m.setMatrixAt(m.count, dummy.matrix);
-      m.setColorAt(m.count++, p.kind === 'tracer' ? tmpC.setHex(0xffffff) : tmpC.setHex(p.kind === 'shell' ? HOT : BRIGHT));
-      if (p.kind === 'missile' && Math.random() < 0.5) shards(p.x, p.z, 1, MID, 1, 0.5, 1.6);
+      m.setColorAt(m.count++, tracer ? tmpC.setHex(0xffffff) : tmpC.setHex(p.kind === 'shell' ? HOT : BRIGHT));
     }
 
     // particles
@@ -600,19 +678,34 @@ export function createRenderer() {
       waveMesh.setMatrixAt(waveMesh.count, dummy.matrix);
       waveMesh.setColorAt(waveMesh.count++, tmpC.setRGB(wv.col[j] * r, wv.col[j + 1] * r, wv.col[j + 2] * r));
     }
+    // Beams and trails hold still while the game is paused, like the blips.
     beamMesh.count = 0;
     for (let i = 0; i < MAX_BEAMS; i++) {
       if (bm.life[i] <= 0) continue;
-      bm.life[i] -= dt;
-      const r = Math.max(0, bm.life[i] / bm.max[i]), j = i * 4, c = i * 3;
-      const [x, z, x2, z2] = [bm.a[j], bm.a[j + 1], bm.a[j + 2], bm.a[j + 3]];
-      const len = Math.hypot(x2 - x, z2 - z);
-      dummy.position.set((x + x2) / 2, 1.6, (z + z2) / 2);
-      dummy.rotation.set(0, -Math.atan2(z2 - z, x2 - x), 0);
-      dummy.scale.set(len, bm.w[i] * r, bm.w[i] * r);
+      if (play) bm.life[i] -= dt;
+      const r = Math.max(0, bm.life[i] / bm.max[i]), j = i * 6, c = i * 3, a = bm.a;
+      dir.set(a[j + 3] - a[j], a[j + 4] - a[j + 1], a[j + 5] - a[j + 2]);
+      const len = dir.length();
+      if (len < 1e-4) continue;
+      const w = bm.w[i] * (bm.grow[i] ? 1 + 2 * (1 - r) : 0.35 + 0.65 * r), b = bm.grow[i] ? r * r : r;
+      dummy.position.set(a[j], a[j + 1], a[j + 2]);
+      dummy.quaternion.setFromUnitVectors(X, dir.divideScalar(len));
+      dummy.scale.set(len, w, w);
       dummy.updateMatrix();
       beamMesh.setMatrixAt(beamMesh.count, dummy.matrix);
-      beamMesh.setColorAt(beamMesh.count++, tmpC.setRGB(bm.col[c] * r, bm.col[c + 1] * r, bm.col[c + 2] * r));
+      beamMesh.setColorAt(beamMesh.count++, tmpC.setRGB(bm.col[c] * b, bm.col[c + 1] * b, bm.col[c + 2] * b));
+    }
+    frontMesh.count = 0;
+    for (let i = 0; i < MAX_FRONTS; i++) {
+      if (fr.max[i] <= 0) continue;
+      if (play) fr.t[i] += dt;
+      const d = fr.t[i] * 160;
+      if (d >= fr.max[i]) { fr.max[i] = 0; continue; }
+      if (d < 1) continue; // still waiting its turn
+      dummy.position.set(fr.x[i], fr.y[i] - 0.8 * d / fr.max[i], fr.z[i]); dummy.rotation.set(0, -fr.a[i], 0); dummy.scale.setScalar(d);
+      dummy.updateMatrix();
+      frontMesh.setMatrixAt(frontMesh.count, dummy.matrix);
+      frontMesh.setColorAt(frontMesh.count++, tmpC.setHex(HOT).multiplyScalar(1.2 * (1 - d / fr.max[i])));
     }
     blipMesh.count = 0;
     for (let i = 0; i < MAX_BLIPS; i++) {
