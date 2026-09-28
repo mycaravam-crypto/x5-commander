@@ -172,4 +172,9 @@ ok(s.enemies[0].locked, 'fusion keeps the lock through EMCON');
   ok(dailySeed('2026-09-28') === dailySeed('2026-09-28') && dailySeed('2026-09-28') !== dailySeed('2026-09-29'), 'daily seed');
 }
 
+// Doctrines: free levels without base-level progress; daily ops ignore them.
+s = newGame(1, '', 'sensor');
+ok(s.lv.range === 2 && s.bought === 0 && s.level === 1 && s.st.radarRange > newGame(1).st.radarRange, 'doctrine loadout');
+ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies standard');
+
 console.log(`ok · idle ${idle.t.toFixed(0)}s/${idle.kills} kills · bot ${b.t.toFixed(0)}s/${b.kills} kills lv${b.level} [${b.perks.join(',')}]`);

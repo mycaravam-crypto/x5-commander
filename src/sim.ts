@@ -1,6 +1,6 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, PHASE_LEN, ELITE_EVERY,
-  ENEMIES, KINDS, WEAPONS, PHASES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty,
+  ENEMIES, KINDS, WEAPONS, PHASES, DOCTRINES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty,
   ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   type EnemyKind, type PerimKind, type WeaponKind, type Mod,
 } from './config.ts';
@@ -41,10 +41,12 @@ export const dailySeed = (date: string) => [...date].reduce((h, c) => Math.imul(
 
 // The seed drives two separate streams: the spawn schedule and the perk drafts. Everything that depends on
 // how you play (detection rolls, launches) uses Math.random, so it can't shift the schedule.
-export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '') {
+export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine = 'standard') {
+  const doc = DOCTRINES.find(d => d.id === doctrine && !daily) ?? DOCTRINES[0];
   const s = {
     phase: 'start' as Phase,
     daily, // date of the daily op, '' for a normal run
+    doctrine: doc.id,
     world: { seed },
     perkRng: { seed: seed ^ 0x9E3779B9 },
     t: 0,
@@ -53,12 +55,12 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '') {
     kills: 0,
     combo: 0,
     lastKill: -99,
-    lv: {} as Record<string, number>,
+    lv: { ...doc.lv } as Record<string, number>,
     bought: 0,
     level: 1,
     perks: [] as string[],
     perkChoices: [] as string[],
-    st: deriveStats({}, []),
+    st: deriveStats(doc.lv, []),
     hp: 0,
     power: 0,
     ammo: 0,

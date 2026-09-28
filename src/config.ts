@@ -187,6 +187,16 @@ export const PERKS: { id: string; name: string; desc: string; fx: PerkFx; rule?:
   { id: 'frag', name: 'FRAG WARHEADS', desc: 'PAC-3 hits splash for 50% · -15% fire rate', fx: { addFrag: 0.5, rate: 0.85 }, rule: true, min: 5 },
 ];
 
+// Doctrines: a starting loadout picked before a normal run (daily ops fly STANDARD). Free upgrade levels that
+// don't count toward base level. Unlocked by your all-time records.
+export type Records = { time: number; kills: number; level: number; earned: number };
+export const DOCTRINES: { id: string; name: string; desc: string; need: string; lv: Record<string, number>; unlock: (b: Records) => boolean }[] = [
+  { id: 'standard', name: 'STANDARD', desc: 'by the book', need: '', lv: {}, unlock: () => true },
+  { id: 'sensor', name: 'SENSOR NET', desc: 'LTAMDS 2 · GaN 2 · Track Memory 1', need: 'survive 5:00', lv: { range: 2, res: 2, persist: 1 }, unlock: b => b.time >= 300 },
+  { id: 'logistics', name: 'LOGISTICS', desc: 'Generator 2 · Canisters 2 · Reload 2', need: 'earn 5,000 credits in a run', lv: { gen: 2, acap: 2, aprod: 2 }, unlock: b => b.earned >= 5000 },
+  { id: 'strike', name: 'FORWARD STRIKE', desc: 'Lethality 2 · Salvo 1 · +1 ECS channel', need: 'reach base level 6', lv: { dmg: 2, rate: 1, slots: 1 }, unlock: b => b.level >= 6 },
+];
+
 // Base level L is reached at 1.5*(L-1)*L upgrades bought: 0, 3, 9, 18, 30, 45, 63...
 export const baseLevel = (bought: number) => {
   let l = 1;

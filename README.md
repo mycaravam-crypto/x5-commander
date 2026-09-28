@@ -37,6 +37,7 @@ The game runs entirely in the browser, with no backend and no asset files. `dist
 | T                      | Cycle the auto-targeting mode             |
 | F                      | EMCON: silence the radar (toggle)         |
 | 1 / 2 / 3              | Pick a perk when the base levels up       |
+| 1 – 4 (start screen)   | Pick a doctrine                           |
 | P / Esc                | Pause                                     |
 | M                      | Mute                                      |
 | R                      | Restart after game over                   |
@@ -93,6 +94,8 @@ A new phase starts every 75 seconds and changes the enemy mix: **PROBING → SAT
 
 ### The battery
 The base is laid out like a Patriot site and grows with its level: AN/MPQ-65 radar and Engagement Control Station (ECS) at the start, then the EPP-III power plant, the OE-349 antenna mast, a Hensoldt TRML-4D 360° radar that turns with the sweep, earth berms, and at level 6 the LTAMDS radar upgrade with rear arrays. Every level adds an M903 launcher (up to 8). Buying laser, IRIS-T SLX or HPM adds their vehicles.
+
+**Doctrines:** before a normal run, pick a starting loadout of free upgrade levels (they don't count toward base level). **STANDARD** is always available. The others unlock from your all-time records: **SENSOR NET** (survive 5:00), **LOGISTICS** (earn 5,000 credits in a run) and **FORWARD STRIKE** (reach base level 6). Daily ops always fly STANDARD.
 
 **Daily op:** the same seed for everyone on the same (UTC) day, so the whole enemy schedule is identical: which enemies, bearings, raids and perk drafts. Your best time for the day is saved. `R` after a daily op flies it again.
 

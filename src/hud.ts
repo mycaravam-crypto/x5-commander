@@ -1,4 +1,5 @@
-import { ARENA_R, BASE_R, PLACE_TIME, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
+import { ARENA_R, BASE_R, PLACE_TIME, DOCTRINES, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
+import type { Records } from './config.ts';
 import { cost, emitting, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -10,8 +11,8 @@ const BOOT = ['PATRIOT BATTERY X5 EMPLACED', 'EPP-III POWER ..... OK', 'AN/MPQ-6
 const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 
 type Project = (x: number, z: number, y?: number) => readonly [number, number];
-type Best = { time: number; kills: number; level: number; earned: number };
-function loadBest(): Best {
+type Best = Records;
+export function loadBest(): Best {
   try { return JSON.parse(localStorage.getItem('x5-best')!) ?? { time: 0, kills: 0, level: 0, earned: 0 }; }
   catch { return { time: 0, kills: 0, level: 0, earned: 0 }; }
 }
@@ -22,7 +23,12 @@ function loadDaily(date: string): Daily {
   return { date, time: 0, kills: 0 };
 }
 
-export function createHud(actions: { buy(id: string): void; perk(i: number): void; start(daily?: boolean): void; restart(): void }) {
+const docsHtml = (s: State, best: Best) => DOCTRINES.map((d, i) => {
+  const open = d.unlock(best);
+  return `<button class="perk frame${d.id === s.doctrine ? ' sel' : ''}${open ? '' : ' locked'}" data-a="doc${i}"><b>${d.name}</b><span>${open ? d.desc : `LOCKED · ${d.need}`}</span><kbd>[${i + 1}]</kbd></button>`;
+}).join('');
+
+export function createHud(actions: { buy(id: string): void; perk(i: number): void; start(daily?: boolean): void; restart(): void; doctrine(i: number): void }) {
   for (const [k, v] of Object.entries(PAL)) document.documentElement.style.setProperty(`--${k}`, rgba(v));
 
   // ---- shop (built once) ----
@@ -42,13 +48,17 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const a = (e.target as HTMLElement).closest<HTMLElement>('[data-a]')?.dataset.a;
     if (a === 'start') actions.start();
     else if (a === 'daily') actions.start(true);
+    else if (a?.startsWith('doc')) actions.doctrine(+a.slice(3));
     else if (a === 'restart') actions.restart();
     else if (a?.startsWith('perk')) actions.perk(+a.slice(4));
   };
-  let shownPhase = '';
+  let shownPhase = '', shownDoc = '';
   function showOverlay(s: State) {
     const key = s.phase + s.perkChoices.join();
+    // Doctrine picks only redraw their row, so the boot text doesn't replay.
+    if (key === shownPhase && s.phase === 'start' && s.doctrine !== shownDoc) { shownDoc = s.doctrine; overlay.querySelector('.docs')!.innerHTML = docsHtml(s, loadBest()); }
     if (key === shownPhase) return;
+    shownDoc = s.doctrine;
     shownPhase = key;
     const best = loadBest();
     let html = '';
@@ -62,6 +72,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       <p>Power feeds radar, reloads, laser and HPM — run dry and the sweep slows.</p>
       <p>Anti-radiation missiles <span class="alert">home on your radar</span>. <b>[F] EMCON</b> goes silent so they miss, but you lose every lock.</p>
       ${best.time ? `<p class="dim">BEST · ${clock(best.time)} · ${fmt(best.kills)} kills · base lv ${best.level}</p>` : ''}
+      <p class="dim">DOCTRINE</p><div class="perks docs">${docsHtml(s, best)}</div>
       <button class="btn" data-a="start">DEPLOY [SPACE]</button> <button class="btn" data-a="daily">DAILY OP [D]</button>
       <p class="dim">Daily op: same raid for everyone today. ${(d => d.time ? `Your best today · ${clock(d.time)} · ${fmt(d.kills)} kills` : 'Not flown yet today.')(loadDaily(new Date().toISOString().slice(0, 10)))}</p></div></div>`;
     else if (s.phase === 'pause') html = `<div class="card"><h2>PAUSED</h2><p class="dim">[P] resume</p></div>`;
@@ -81,7 +92,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         if (rec) try { localStorage.setItem('x5-daily', JSON.stringify({ date: s.daily, time: s.t, kills: s.kills })); } catch { /* storage blocked: skip */ }
         daily = `<p class="${rec ? 'hot' : 'dim'}">DAILY OP ${s.daily} · ${rec ? 'NEW BEST TODAY ★' : `today's best ${clock(d.time)}`}</p>`;
       }
-      html = `<div class="card"><h1 class="alert">BATTERY LOST</h1>${daily}
+      const unlocked = DOCTRINES.filter(d => !d.unlock(best) && d.unlock(merged as Best)).map(d => `<p class="hot">DOCTRINE UNLOCKED · ${d.name}</p>`).join('');
+      html = `<div class="card"><h1 class="alert">BATTERY LOST</h1>${daily}${unlocked}
         <div class="score">${row('SURVIVED', 'time', clock)}${row('KILLS', 'kills', fmt)}${row('BASE LEVEL', 'level', String)}${row('CREDITS EARNED', 'earned', fmt)}</div>
         <p class="dim">perks: ${s.perks.map(id => PERKS.find(p => p.id === id)!.name).join(' · ') || 'none'}</p>
         <button class="btn" data-a="restart">REDEPLOY [R]</button></div>`;
