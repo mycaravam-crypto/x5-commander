@@ -54,6 +54,10 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     doctrine: doc.id,
     world: { seed },
     perkRng: { seed: seed ^ 0x9E3779B9 },
+    // Scheduled events get streams of their own, so how many normal spawns came before (which raid pacing
+    // and recovery lulls change) can't change which raid or strike comes next.
+    raidRng: { seed: seed ^ 0x2545F491 },
+    strikeRng: { seed: seed ^ 0x68E31DA4 },
     t: 0,
     credits: START_CREDITS,
     earned: 0,
@@ -91,6 +95,7 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     // Announced, not yet here: composition (in aircraft) and the bonus it pays if the objective holds.
     raid: null as null | { name: string; a: number; at: number; g: Partial<Record<EnemyKind, number>>; obj: RaidObjective; n: Partial<Record<EnemyKind, number>>; bonus: number },
     // The raid in the air: its id, aircraft left, objective still held, reward so far, bearing, objective, name.
+    raidNo: 0, // raids announced so far
     raidId: 0, raidLeft: 0, raidClean: true, raidReward: 0, raidA: 0, raidObj: 'battery' as RaidObjective, raidName: '',
     calmUntil: 0, // recovery lull after a raid defended
     // debrief counters
@@ -379,12 +384,14 @@ function spawn(s: State, dt: number) {
   }
   if (s.t >= s.nextElite) {
     s.nextElite += ELITE_EVERY;
-    const a = rw() * TAU, n = Math.floor(grow(s.t / 60, 1));
-    for (let i = 0; i < n; i++) spawnEnemy(s, 'elite', a + (i - n / 2) * 0.08, ARENA_R + 4 + i * 3, rw);
+    const sr = () => rand(s.strikeRng), a = sr() * TAU, n = Math.floor(grow(s.t / 60, 1));
+    for (let i = 0; i < n; i++) spawnEnemy(s, 'elite', a + (i - n / 2) * 0.08, ARENA_R + 4 + i * 3, sr);
     s.events.push({ k: 'warning' });
   }
   if (!s.raid && s.t >= s.nextRaid - RAID_WARN - s.st.raidWarn) {
-    const r = pick(s.world, RAIDS.filter(r => s.t >= r.from)), a = rw() * TAU;
+    // The pool goes by the raid's number (its nominal time), not the clock, so pacing can't change the pick.
+    const due = RAID_FIRST + s.raidNo++ * RAID_EVERY;
+    const r = pick(s.raidRng, RAIDS.filter(r => due >= r.from)), a = rand(s.raidRng) * TAU;
     // Same rounding spawnGroup will use at arrival, so the briefing matches what shows up.
     const scale = grow(s.nextRaid / 60, 0.7), n: Partial<Record<EnemyKind, number>> = {};
     let reward = 0;
@@ -401,7 +408,7 @@ function spawn(s: State, dt: number) {
     s.raid = null;
     s.raidId++; s.raidLeft = 0; s.raidClean = true; s.raidReward = 0; s.raidA = a; s.raidObj = obj; s.raidName = name; s.calmUntil = 0;
     // The escort jammer flies with the raid but doesn't count: the raid is over once the strikers are gone.
-    for (const e of spawnGroup(s, g, a, scale, rw)) if (e.kind !== 'ew') { e.raid = s.raidId; s.raidLeft++; s.raidReward += e.reward; }
+    for (const e of spawnGroup(s, g, a, scale, () => rand(s.raidRng))) if (e.kind !== 'ew') { e.raid = s.raidId; s.raidLeft++; s.raidReward += e.reward; }
     s.events.push({ k: 'raidStart', x: Math.cos(a) * ARENA_R, z: Math.sin(a) * ARENA_R, name });
   }
 }

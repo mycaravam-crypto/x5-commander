@@ -375,6 +375,30 @@ const withPerk = (id: string) => { const g = quiet(); g.perks = [id]; g.st = der
     return seen.join();
   };
   ok(spawns(7, false) === spawns(7, true), 'seeded schedule ignores other randomness');
+  // Through packages and raids, with the player working the commands: none of them touch the schedule.
+  // (No fire here, and before the SEAD raid, so every raid ends the same way and the pacing matches too.)
+  const long = (commands: boolean) => {
+    const g = newGame(11, '2026-09-28'); g.phase = 'play'; g.st.maxHp = g.hp = 1e9; g.st.slots = 0;
+    const seen: string[] = [];
+    for (let i = 0; i < 270 * 20; i++) {
+      const n = g.nextId;
+      if (commands && i % 97 === 0) { cycleDiscipline(g); cycleRadarMode(g); toggleEmcon(g); aimFocus(g, Math.random() - 0.5, 1); }
+      update(g, 1 / 20); g.events.length = 0;
+      for (const e of g.enemies) if (e.id >= n && e.kind !== 'arm') seen.push(`${e.kind}@${e.x.toFixed(2)}`);
+    }
+    return seen.join();
+  };
+  ok(long(false) === long(true), 'daily schedule (packages, raids) ignores the player\'s commands');
+  // Raids draw from their own stream: the same raids in the same order, however the pacing shifts.
+  const raids = (press: number) => {
+    const g = newGame(5, '2026-09-28'); g.phase = 'play'; g.st.maxHp = g.hp = 1e9; const out: string[] = [];
+    for (let i = 0; i < 500 * 20; i++) {
+      if (i === 200 * 20) g.nextRaid -= press; // as if an objective had been lost
+      update(g, 1 / 20); for (const e of g.events) if (e.k === 'raid') out.push(`${e.name}@${e.x.toFixed(1)}`); g.events.length = 0;
+    }
+    return out.slice(0, 4).join();
+  };
+  ok(raids(0) === raids(20), 'raid order is independent of pacing');
   ok(spawns(7, false) !== spawns(8, false), 'different seeds differ');
   ok(dailySeed('2026-09-28') === dailySeed('2026-09-28') && dailySeed('2026-09-28') !== dailySeed('2026-09-29'), 'daily seed');
 }

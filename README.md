@@ -159,7 +159,12 @@ The level-up card names what was built. The LTAMDS AESA upgrade adds rear arrays
 
 **Doctrines:** before a normal run, pick a starting loadout of free upgrade levels (they don't count toward base level). **STANDARD** is always available. The others unlock from your all-time records: **SENSOR NET** (survive 5:00), **LOGISTICS** (earn 5,000 credits in a run) and **FORWARD STRIKE** (reach base level 6). Daily ops always fly STANDARD.
 
-**Daily op:** the same seed for everyone on the same (UTC) day, so the whole enemy schedule is identical: which enemies, bearings, raids and perk drafts. Your best time for the day is saved. `R` after a daily op flies it again.
+**Progression layers.** There are three, and they stay separate:
+- **Run:** kills → credits → upgrades → base level → perks → more complex threats. All of it resets every run.
+- **Meta:** each run can set a record, and records unlock doctrines. Doctrines are only starting loadouts: they don't count toward base level and don't carry anything else between runs.
+- **Daily op:** a fixed challenge with a fixed doctrine (STANDARD), scored by your best time for the day.
+
+**Daily op:** the same seed for everyone on the same (UTC) day, so the whole enemy schedule is identical: which enemies, packages, bearings, raids and perk drafts. Your commands, radar mode and detection luck never touch that schedule. Normal waves, raids and strike packages each draw from their own seeded stream, so everyone gets the same raids in the same order. What play can change is pacing: a lost objective pulls the next raid earlier, and a raid in the air or a recovery lull thins the normal waves. Your best time for the day is saved. `R` after a daily op flies it again.
 
 **Feedback:** every tactical event gets a sound, a mark on the scope and a line in the log. That covers detection, lock acquired (a tick and a flash as the brackets snap on), lock lost (amber), launches, hits, kills (credit popups), ARM and Iskander launches and intercepts, jammers coming on station and going down, decoys classified, raids starting and ending, and battery hits (a red damage popup).
 

@@ -105,7 +105,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       <p>Power feeds radar, reloads, laser and HPM — run dry and the sweep slows.</p>
       <p>Anti-radiation missiles <span class="alert">home on your radar</span>. <b>[F] EMCON</b> goes silent so they miss, but you lose every lock.</p>
       ${best.time ? `<p class="dim">BEST · ${clock(best.time)} · ${fmt(best.kills)} kills · base lv ${best.level}</p>` : ''}
-      <p class="dim">DOCTRINE</p><div class="perks docs">${docsHtml(s, best)}</div>
+      <p class="dim">DOCTRINE · starting loadout, unlocked by your records</p><div class="perks docs">${docsHtml(s, best)}</div>
       <button class="btn" data-a="start">DEPLOY [SPACE]</button> <button class="btn" data-a="daily">DAILY OP [D]</button>
       <p class="dim">Daily op: same raid for everyone today. ${(d => d.time ? `Your best today · ${clock(d.time)} · ${fmt(d.kills)} kills` : 'Not flown yet today.')(loadDaily(new Date().toISOString().slice(0, 10)))}</p></div></div>`;
     else if (s.phase === 'pause') html = `<div class="card"><h2>PAUSED</h2><p class="dim">[P] resume</p></div>`;
