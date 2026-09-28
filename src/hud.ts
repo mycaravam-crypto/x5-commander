@@ -23,6 +23,22 @@ function loadDaily(date: string): Daily {
   return { date, time: 0, kills: 0 };
 }
 
+// One-time tips, shown the first time each thing happens (remembered across runs).
+const TIPS: Record<string, string> = {
+  start: 'Click a contact to make it the priority target. Spend credits in the shop on the right [Tab].',
+  raid: 'Raid inbound from one bearing. Kill all of it before anything lands for a clean-raid bonus.',
+  warning: 'Su-34s are tough and fire anti-radiation missiles at a radiating radar. Click one to focus fire on it.',
+  arm: 'ARM launch: it homes on your radar. Press [F] for EMCON before it gets close. While silent you lose every lock.',
+  tbm: 'Ballistic missile: only PAC-3 can hit it. Keep interceptors in stock and a lock slot free.',
+  jam: 'Jammer on station: detection drops in the amber sector. The Mi-8 itself shows clearly, so click it and kill it.',
+  ident: 'Decoy classified and released. Decoys look like Shaheds until locked for a moment. GaN T/R Modules classify faster.',
+  level: 'Base level up: new launcher and perimeter pads. Perimeter defenses fire on their own, without lock slots.',
+};
+const seenTips = (() => { try { return new Set<string>(JSON.parse(localStorage.getItem('x5-tips') ?? '[]')); } catch { return new Set<string>(); } })();
+
+// One line to paste in a chat.
+export const resultLine = (s: State) => `X5 COMMANDER · ${s.daily ? `DAILY OP ${s.daily}` : `${DOCTRINES.find(d => d.id === s.doctrine)!.name} RUN`} · ${clock(s.t)} · ${fmt(s.kills)} kills · lv ${s.level} · ${s.stats.clean}/${s.stats.raids} clean raids`;
+
 const docsHtml = (s: State, best: Best) => DOCTRINES.map((d, i) => {
   const open = d.unlock(best);
   return `<button class="perk frame${d.id === s.doctrine ? ' sel' : ''}${open ? '' : ' locked'}" data-a="doc${i}"><b>${d.name}</b><span>${open ? d.desc : `LOCKED · ${d.need}`}</span><kbd>[${i + 1}]</kbd></button>`;
@@ -52,6 +68,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     shop.append(b); rows.set(u.id, b);
   }
 
+  if (matchMedia('(pointer: coarse)').matches) shop.classList.add('hidden'); // phones: map first, shop on demand
+
   // ---- overlay ----
   const overlay = $('overlay');
   overlay.onclick = e => {
@@ -60,6 +78,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     else if (a === 'daily') actions.start(true);
     else if (a?.startsWith('doc')) actions.doctrine(+a.slice(3));
     else if (a === 'restart') actions.restart();
+    else if (a === 'share') share();
     else if (a?.startsWith('perk')) actions.perk(+a.slice(4));
   };
   let shownPhase = '', shownDoc = '';
@@ -107,10 +126,27 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         <div class="score">${row('SURVIVED', 'time', clock)}${row('KILLS', 'kills', fmt)}${row('BASE LEVEL', 'level', String)}${row('CREDITS EARNED', 'earned', fmt)}</div>
         ${debrief(s)}
         <p class="dim">perks: ${s.perks.map(id => PERKS.find(p => p.id === id)!.name).join(' · ') || 'none'}</p>
-        <button class="btn" data-a="restart">REDEPLOY [R]</button></div>`;
+        <button class="btn" data-a="restart">REDEPLOY [R]</button> <button class="btn" data-a="share">COPY RESULT [C]</button></div>`;
     }
     overlay.innerHTML = html;
     overlay.classList.toggle('on', !!html);
+  }
+
+  let lastState: State | null = null;
+  function share() {
+    if (!lastState) return;
+    const text = resultLine(lastState), btn = overlay.querySelector<HTMLElement>('[data-a=share]');
+    navigator.clipboard.writeText(text).then(() => { if (btn) btn.textContent = 'COPIED ✓'; }, () => prompt('Copy your result:', text));
+  }
+
+  // ---- tips ----
+  const tipEl = $('tip');
+  let tipUntil = 0;
+  function tip(k: string, t: number) {
+    if (!TIPS[k] || seenTips.has(k)) return;
+    seenTips.add(k);
+    try { localStorage.setItem('x5-tips', JSON.stringify([...seenTips])); } catch { /* storage blocked: skip */ }
+    tipEl.textContent = TIPS[k]; tipEl.classList.add('on'); tipUntil = t + 9;
   }
 
   // ---- banner + popups ----
@@ -139,8 +175,9 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const TAU = Math.PI * 2, a0 = lastSweep, swept = ((s.sweepA - a0) % TAU + TAU) % TAU;
     lastSweep = s.sweepA;
     const on = emitting(s);
-    if (on && swept < 1) { g.fillStyle = rgba(PAL.bright, 0.35); g.beginPath(); g.moveTo(C, C); g.arc(C, C, rr, a - swept, a); g.fill(); }
-    if (on) { g.strokeStyle = rgba(PAL.hot); g.beginPath(); g.moveTo(C, C); g.lineTo(C + Math.cos(a) * rr, C + Math.sin(a) * rr); g.stroke(); }
+    const aesa = s.st.aesa;
+    if (on && !aesa && swept < 1) { g.fillStyle = rgba(PAL.bright, 0.35); g.beginPath(); g.moveTo(C, C); g.arc(C, C, rr, a - swept, a); g.fill(); }
+    if (on && !aesa) { g.strokeStyle = rgba(PAL.hot); g.beginPath(); g.moveTo(C, C); g.lineTo(C + Math.cos(a) * rr, C + Math.sin(a) * rr); g.stroke(); }
     for (const e of s.enemies) if (e.kind === 'ew' && e.orbit) { // jam strobe: bearing only, no range
       const d = Math.hypot(e.x, e.z) || 1, R = ARENA_R + 4;
       g.strokeStyle = rgba(PAL.alert, 0.2 + Math.random() * 0.4); g.lineWidth = 2;
@@ -149,9 +186,9 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     for (const e of s.enemies) {
       if (!visible(s, e)) continue;
       const rel = ((Math.atan2(e.z, e.x) - a0) % TAU + TAU) % TAU;
-      if (!e.locked && !(swept < 1 && rel <= swept)) continue;
+      if (!e.locked && !aesa && !(swept < 1 && rel <= swept)) continue;
       const x = px(e.x, e.z), y = py(e.x, e.z), r = 1.5 + e.size;
-      g.fillStyle = e.kind === 'arm' ? rgba(PAL.alert) : rgba(e.locked ? PAL.hot : PAL.bright, Math.min(1, ENEMIES[shownKind(e)].glow) * (e.ided ? 0.35 : 1));
+      g.fillStyle = e.kind === 'arm' || e.kind === 'tbm' ? rgba(PAL.alert) : rgba(e.locked ? PAL.hot : PAL.bright, Math.min(1, ENEMIES[shownKind(e)].glow) * (e.ided ? 0.35 : 1));
       g.fillRect(x - r / 2, y - r / 2, r, r);
       if (e.locked) { g.strokeStyle = rgba(e.id === s.marked ? PAL.hot : PAL.mid); g.strokeRect(x - r, y - r, r * 2, r * 2); }
     }
@@ -198,7 +235,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   }
 
   // ---- text (throttled) ----
-  let acc = 1, lastPhase = '', armSaid = -99;
+  let ffSpeed = 1, acc = 1, lastPhase = '', armSaid = -99, tbmSaid = -99;
   const set = (id: string, v: string) => { const el = $(id); if (el.textContent !== v) el.textContent = v; };
   const bar = (id: string, r: number, crit = false) => { const el = $(id); el.style.setProperty('--r', String(Math.round(Math.max(0, Math.min(1, r)) * 20) / 20)); el.classList.toggle('crit', crit); };
 
@@ -219,6 +256,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       : sweepPct < 100 ? `<span class="alert">${sweepPct}% LOW PWR</span>` : 'RADIATING';
     $('info').innerHTML = [
       ['TRACKS', contacts], ['ENGAGED', `${locks} / ${st.slots}`], ['MODE [T]', MODES[s.mode]],
+      ...ffSpeed > 1 ? [['SPEED [X]', `<span class="hot">${ffSpeed}×</span>`]] : [],
       ['RANGE', `${Math.round(st.radarRange)}m`], ['PERIMETER', `${s.perim.length} / ${perimSlots(s.level)} pads`], ['RADAR [F]', radar],
       ...s.placing ? [['PAD', `<span class="hot">CLICK MAP · ${Math.max(0, PLACE_TIME - (s.t - s.placing.since)).toFixed(0)}s</span>`]] : [],
       ...s.raid ? [['RAID', `<span class="alert">BRG ${pad3(bearing(Math.cos(s.raid.a), Math.sin(s.raid.a)))} · T-${Math.max(0, s.raid.at - s.t).toFixed(0)}s</span>`]]
@@ -240,7 +278,11 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   }
 
   return {
-    update(s: State, dt: number, yaw: number, project: Project) {
+    update(s: State, dt: number, yaw: number, project: Project, speed = 1) {
+      lastState = s; ffSpeed = speed;
+      if (s.phase === 'play' && s.t > 2) tip('start', s.t);
+      for (const e of s.events) tip(e.k, s.t);
+      if (tipEl.classList.contains('on') && (s.t > tipUntil || s.t < tipUntil - 9 || s.phase === 'start')) tipEl.classList.remove('on');
       for (const e of s.events) {
         if (e.k === 'kill' && e.n) {
           const el = popups[nextPop = (nextPop + 1) % popups.length];
@@ -253,6 +295,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
           log(`ARM LAUNCH BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
           if (s.t - armSaid > 3 && !s.emcon) { armSaid = s.t; say('⚠ ARM INBOUND · [F] EMCON', 'warn'); }
         }
+        else if (e.k === 'tbm') { log(`BALLISTIC LAUNCH BRG ${pad3(bearing(e.x, e.z))}`, 'alert'); if (s.t - tbmSaid > 4) { tbmSaid = s.t; say('⚠ BALLISTIC MISSILE · PAC-3 ONLY', 'warn'); } }
         else if (e.k === 'radarDown') { say('⚠ RADAR HIT', 'warn'); log(`MPQ-65 HIT · OFFLINE ${(s.radarDownUntil - s.t).toFixed(0)}s`, 'alert'); }
         else if (e.k === 'emcon') log(s.emcon ? 'EMCON · RADAR SILENT' : 'RADIATING', s.emcon ? 'alert' : '');
         else if (e.k === 'jam') log(`JAMMING BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
@@ -261,6 +304,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         else if (e.k === 'raid') { say(`⚠ ${e.name} · BRG ${pad3(bearing(e.x, e.z))}`, 'warn'); log(`${e.name} · BRG ${pad3(bearing(e.x, e.z))}`, 'alert'); }
         else if (e.k === 'raidClear') { say(`RAID DEFEATED · +${fmt(e.n)}`, 'info'); log(`RAID CLEAN · +${fmt(e.n)}`); }
         else if (e.k === 'raidLeak') log('RAID LEAKED · NO BONUS', 'alert');
+        else if (e.k === 'aesa') { say('LTAMDS ONLINE · 360° STARE', 'info'); log('AESA ONLINE · SWEEP RETIRED'); }
         else if (e.k === 'level') log(`BATTERY LV ${s.level} · LAUNCHER EMPLACED · ${perimSlots(s.level)} PERIMETER PADS`);
         else if (e.k === 'buy') { acc = 1; }
       }
@@ -270,7 +314,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         if (lastPhase) { say(`PHASE · ${pn}`, mod.name ? 'warn' : 'info'); if (mod.desc) log(mod.desc.toUpperCase(), 'alert'); }
         lastPhase = pn;
       }
-      if (s.phase === 'start') { lastPhase = ''; armSaid = -99; }
+      if (s.phase === 'start') { lastPhase = ''; armSaid = tbmSaid = -99; }
       drawRadar(s, yaw, dt);
       placeLabels(s, project);
       if (s.phase === 'play' && (logAcc += dt) >= 0.3) { logAcc = 0; scanLog(s); }
@@ -279,5 +323,6 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     },
     flash(id: string) { const b = rows.get(id)!; b.classList.remove('pop'); void b.offsetWidth; b.classList.add('pop'); },
     toggleShop: () => shop.classList.toggle('hidden'),
+    share,
   };
 }

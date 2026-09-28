@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, buy, cost, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, emitting, jamFactor, phase, draft, placePad, rand, dailySeed, type State } from './sim.ts';
-import { baseLevel, UPGRADES, PERKS, deriveStats, EW_ORBIT, MODS, PHASES, PHASE_LEN, RAID_WARN } from './config.ts';
+import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, emitting, jamFactor, phase, draft, placePad, rand, dailySeed, type State } from './sim.ts';
+import { baseLevel, difficulty, UPGRADES, PERKS, deriveStats, EW_ORBIT, MODS, PHASES, PHASE_LEN, RAID_WARN } from './config.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
 const rng = { seed: 12345 };
@@ -21,7 +21,15 @@ ok([0, 2, 3, 8, 9, 18].map(baseLevel).join() === '1,1,2,2,3,4', 'baseLevel thres
 let s = newGame();
 ok(cost(s, 'gen') === 50, 'base cost');
 s.lv.gen = 2; ok(cost(s, 'gen') === Math.round(50 * 1.45 ** 2), 'exp cost');
-s.lv.armor = 7; ok(cost(s, 'armor') === Infinity, 'max level');
+s.lv.modes = 3; ok(cost(s, 'modes') === Infinity, 'switch upgrades max out');
+s.lv.hp = 60; ok(cost(s, 'hp') < Infinity, 'regular upgrades have no max');
+s.lv.armor = 100; ok(deriveStats(s.lv, []).armor <= 0.85, 'armor diminishes');
+s.level = 9; s.lv.sweep = 8; ok(cost(s, 'sweep') === Infinity && lockReason(s, 'sweep') === 'NEEDS AESA', 'rotating radar scan cap');
+s.lv.aesa = 1; ok(cost(s, 'sweep') < Infinity, 'AESA lifts the scan cap');
+
+// Difficulty grows, but slower and slower: the second 30 min add less than the first.
+{ const d = (m: number) => difficulty(m * 60).spawnRate * difficulty(m * 60).hp;
+  ok(d(30) > d(10) && d(60) - d(30) < d(30) - d(0), 'difficulty is sub-linear'); }
 
 // Nothing happens before start
 s = newGame(); run(s, 5); ok(s.t === 0, 'start phase frozen');
@@ -41,6 +49,22 @@ ok(!invisibleShot, 'locks only on visible');
 ok(s.kills > 0 && s.credits > 120, `kills earn credits (kills=${s.kills})`);
 run(s, 900);
 ok((s.phase as string) === 'over', 'idle base eventually falls');
+
+// AESA: no sweep needed, contacts still get found all round.
+s = quiet(); s.lv.aesa = 1; s.st = deriveStats(s.lv, []);
+for (let i = 0; i < 8; i++) spawnEnemy(s, 'tank', i / 8 * Math.PI * 2, 30).hp = 1e9;
+s.st.slots = 0;
+{ const seen = new Set<number>(); run(s, 12, () => { for (const e of s.enemies) if (visible(s, e)) seen.add(e.id); });
+  ok(seen.size === 8, `AESA detects all round (${seen.size}/8)`); }
+
+// Iskander: only PAC-3 can touch it.
+s = quiet(); s.lv.pulse = s.lv.rail = s.lv.missile = 1; s.st = deriveStats(s.lv, []); s.st.weapons.cannon = null;
+spawnEnemy(s, 'tbm', 0, 40);
+run(s, 6);
+ok(!s.stats.dmg.HEL && !s.stats.dmg.HPM && !s.stats.dmg['IRIS-T'] && s.hp < s.st.maxHp, 'Iskander ignores all but PAC-3');
+s = quiet(); spawnEnemy(s, 'tbm', 0, 40).hp = 1;
+run(s, 6);
+ok(s.stats.kills.tbm === 1, 'PAC-3 kills an Iskander');
 
 // Undetected enemy is never locked
 s = newGame(); s.phase = 'play'; s.st.radarRange = 0;

@@ -134,6 +134,13 @@ export function createRenderer() {
   sweep.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(1, 0, 0)]), new THREE.LineBasicMaterial({ color: HOT })));
   sweep.position.y = 0.06; scene.add(sweep);
   let lastSweep = 0;
+  // AESA: no sweep. Faint beam dwells flash at random bearings at a fixed calm rate, whatever the scan rate,
+  // and a contact leaves a blip each time it's re-detected.
+  const DWELLS = 24, dwellMesh = instanced(new THREE.RingGeometry(0.06, 1, 6, 1, -0.1, 0.2).rotateX(-Math.PI / 2), additive(), DWELLS);
+  const dw = { a: new Float32Array(DWELLS), life: new Float32Array(DWELLS), next: 0 };
+  scene.add(dwellMesh);
+  let dwellAcc = 0;
+  const lastSeen = new WeakMap<object, number>();
 
   // ---- base: a Patriot battery, rebuilt when its shape key changes ----
   // Vehicles are built with +x as the business end (launch canisters, radar face). Parts listed in
@@ -180,7 +187,7 @@ export function createRenderer() {
     base = new THREE.Group(); aimers.length = sweepers.length = 0; launchPts = [];
     const L = s.level, W = s.st.weapons, R1 = 3.6, R2 = 6.4, R3 = 9;
 
-    // AN/MPQ-65 phased-array radar on its trailer, center. From L6 it becomes LTAMDS: extra rear arrays for 360° cover.
+    // AN/MPQ-65 phased-array radar on its trailer, center. With the AESA upgrade it becomes LTAMDS: extra rear arrays for 360° cover.
     const radar = group(base); aimers.push([radar, 0]);
     solid(box(2.4, 0.3, 1.4), MID, -0.3, 0.6, 0, radar);
     for (const x of [-1.1, -0.4]) for (const z of [-0.6, 0.6]) solid(new THREE.CylinderGeometry(0.3, 0.3, 0.2, 8).rotateX(Math.PI / 2), MID, x, 0.3, z, radar);
@@ -189,7 +196,7 @@ export function createRenderer() {
     solid(box(0.25, 2.4, 2.2), BRIGHT, 0, 0, 0, face);
     face.add(lineLoop(Array.from({ length: 32 }, (_, i) => new THREE.Vector3(0.14, Math.sin(i / 32 * TAU) * 0.85, Math.cos(i / 32 * TAU) * 0.85)), HOT));
     for (const z of [-0.85, 0.85]) solid(box(0.1, 0.3, 0.3), HOT, 0.14, -0.95, z, face); // sidelobe cancellers
-    if (L >= 6) for (const side of [-1, 1]) {
+    if (s.st.aesa) for (const side of [-1, 1]) {
       const rear = group(radar, -1.1, 1.8, side * 0.45, side * (Math.PI - 1.05)); rear.rotation.z = 0.3;
       solid(box(0.2, 1.4, 1.2).translate(0.1, 0, 0), BRIGHT, 0, 0, 0, rear);
     }
@@ -276,6 +283,7 @@ export function createRenderer() {
     decoy: new THREE.OctahedronGeometry(0.65), // same as the Shahed; only drawn once classified
     arm: new THREE.ConeGeometry(0.22, 1.8, 4).rotateZ(-Math.PI / 2),
     ew: new THREE.CylinderGeometry(0.75, 0.75, 0.45, 6),
+    tbm: new THREE.ConeGeometry(0.35, 2.4, 6).rotateZ(-Math.PI / 2),
   };
   const wire = new THREE.MeshBasicMaterial({ wireframe: true });
   const enemyFills = {} as Record<EnemyKind, THREE.InstancedMesh>, enemyEdges = {} as Record<EnemyKind, THREE.InstancedMesh>;
@@ -352,7 +360,7 @@ export function createRenderer() {
     bl.x[i] = x; bl.z[i] = z; bl.r[i] = r; bl.life[i] = bl.max[i] = life;
   }
 
-  const KILL_SHARDS: Record<EnemyKind, number> = { swarm: 3, scout: 4, drone: 6, tank: 12, elite: 20, decoy: 4, arm: 5, ew: 12 };
+  const KILL_SHARDS: Record<EnemyKind, number> = { swarm: 3, scout: 4, drone: 6, tank: 12, elite: 20, decoy: 4, arm: 5, ew: 12, tbm: 10 };
   function consume(s: State) {
     for (const e of s.events) {
       switch (e.k) {
@@ -373,6 +381,7 @@ export function createRenderer() {
         case 'level': wave(0, 0, 40, BRIGHT, 1.2, 1.5); wave(0, 0, 25, HOT, 0.9); shards(0, 0, 40, BRIGHT, 20, 1.2, 3); gridFlash = 0.6; break;
         case 'warning': wave(0, 0, ARENA_R, ALERT, 1.5, 1.5); break;
         case 'arm': wave(e.x, e.z, 6, ALERT, 0.8, 1.5); break;
+        case 'tbm': wave(e.x, e.z, 4, ALERT, 0.6); break;
         case 'jam': wave(e.x, e.z, 8, ALERT, 1.2); break;
         case 'ident': wave(e.x, e.z, 3, MID, 0.4); break;
         case 'radarDown': wave(0, 0, 14, ALERT, 0.8, 1.5); shards(0, 1.9, 30, ALERT, 14, 1, 2.5); gridFlash = 1; break;
@@ -391,7 +400,7 @@ export function createRenderer() {
   function render(s: State, dt: number) {
     clock += dt;
     consume(s);
-    const key = `${s.level}${!!s.st.weapons.pulse}${s.lv.missile ?? 0}${!!s.st.weapons.rail}${s.perim.length}`;
+    const key = `${s.level}${s.st.aesa}${!!s.st.weapons.pulse}${s.lv.missile ?? 0}${!!s.st.weapons.rail}${s.perim.length}`;
     if (key !== baseKey) { baseKey = key; buildBase(s); }
 
     // camera
@@ -404,7 +413,7 @@ export function createRenderer() {
 
     // radar + base
     const on = emitting(s);
-    sweep.rotation.y = -s.sweepA; sweep.scale.setScalar(s.st.radarRange); sweep.visible = on;
+    sweep.rotation.y = -s.sweepA; sweep.scale.setScalar(s.st.radarRange); sweep.visible = on && !s.st.aesa;
     radarRing.scale.setScalar(s.st.radarRange);
     (radarRing.material as THREE.LineBasicMaterial).opacity = on ? 0.5 : 0.12 + 0.08 * Math.sin(clock * 6);
     trackRing.scale.setScalar(s.st.trackRange);
@@ -431,7 +440,22 @@ export function createRenderer() {
 
     // Blip ghosts: every detected contact the sweep passes this frame leaves a mark that fades over one revolution.
     const swept = ((s.sweepA - lastSweep) % TAU + TAU) % TAU, r2 = s.st.radarRange ** 2;
-    if (swept > 0 && swept < 1) for (const e of s.enemies) {
+    dwellMesh.count = 0;
+    if (s.st.aesa) {
+      if (on && s.phase === 'play' && (dwellAcc += dt * 5) >= 1) { dwellAcc = 0; dw.a[dw.next] = Math.random() * TAU; dw.life[dw.next] = 0.6; dw.next = (dw.next + 1) % DWELLS; }
+      for (let i = 0; i < DWELLS; i++) {
+        if (dw.life[i] <= 0) continue;
+        if (s.phase === 'play') dw.life[i] -= dt;
+        dummy.position.set(0, 0.07, 0); dummy.rotation.set(0, -dw.a[i], 0); dummy.scale.setScalar(s.st.radarRange);
+        dummy.updateMatrix(); dwellMesh.setMatrixAt(dwellMesh.count, dummy.matrix);
+        dwellMesh.setColorAt(dwellMesh.count++, tmpC.setHex(BRIGHT).multiplyScalar(0.025 * Math.max(0, dw.life[i] / 0.6)));
+      }
+      for (const e of s.enemies) {
+        if (e.locked || e.seenUntil <= (lastSeen.get(e) ?? -1)) continue;
+        lastSeen.set(e, e.seenUntil);
+        if (e.seenUntil > s.t) blip(e.x, e.z, e.size * VIS * 0.7, 1.5);
+      }
+    } else if (swept > 0 && swept < 1) for (const e of s.enemies) {
       if (!visible(s, e) || e.x * e.x + e.z * e.z > r2) continue;
       if (((Math.atan2(e.z, e.x) - lastSweep) % TAU + TAU) % TAU <= swept) blip(e.x, e.z, e.size * VIS * 0.7, TAU / Math.max(0.5, s.sweepSpeed));
     }
@@ -463,7 +487,8 @@ export function createRenderer() {
       if (e.kind === 'tank') b *= 0.55 + 0.45 * Math.sin(clock * 5 + e.id); // slow pulse
       if (e.kind === 'elite') b *= Math.sin(clock * 20 + e.id) > 0 ? 1 : 0.2; // hard strobe
       if (k === 'decoy') b *= 0.35; // classified: a ghost
-      const col = k === 'arm' ? ALERT : e.locked ? HOT : BRIGHT; // ARMs are the one enemy drawn in amber
+      if (k === 'tbm') b *= Math.sin(clock * 30 + e.id) > 0 ? 1.4 : 0.5; // fast strobe
+      const col = k === 'arm' || k === 'tbm' ? ALERT : e.locked ? HOT : BRIGHT; // missiles on the battery are amber
       const sz = e.size * VIS;
       dummy.position.set(e.x, sz * 0.6, e.z);
       dummy.rotation.set(k === 'drone' || k === 'elite' ? clock * 2 : 0, -Math.atan2(e.vz, e.vx) + (k === 'swarm' ? clock * 6 : k === 'ew' ? clock : 0), 0);
@@ -563,7 +588,7 @@ export function createRenderer() {
       blipMesh.setColorAt(blipMesh.count++, tmpC.setHex(BRIGHT).multiplyScalar(0.7 * r * r));
     }
 
-    for (const m of [...Object.values(enemyFills), ...Object.values(enemyEdges), brackets, hpBars, shells, tracers, missiles, shardMesh, waveMesh, beamMesh, blipMesh, jamMesh, padMarks]) {
+    for (const m of [...Object.values(enemyFills), ...Object.values(enemyEdges), brackets, hpBars, shells, tracers, missiles, shardMesh, waveMesh, beamMesh, blipMesh, jamMesh, padMarks, dwellMesh]) {
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }

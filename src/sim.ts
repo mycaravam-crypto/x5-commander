@@ -1,6 +1,6 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, PHASE_LEN, ELITE_EVERY,
-  ENEMIES, KINDS, WEAPONS, PHASES, DOCTRINES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty,
+  ENEMIES, KINDS, WEAPONS, PHASES, DOCTRINES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, SWEEP_CAP, grow, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty,
   ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   type EnemyKind, type PerimKind, type WeaponKind, type Mod,
 } from './config.ts';
@@ -21,11 +21,11 @@ export interface Shot {
   dmg: number; splash: number; life: number; target: number; src: string; // src: weapon, for the debrief
 }
 export type Ev =
-  | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect' | 'arm' | 'jam' | 'ident'; x: number; z: number; kind?: EnemyKind; n?: number }
+  | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect' | 'arm' | 'tbm' | 'jam' | 'ident'; x: number; z: number; kind?: EnemyKind; n?: number }
   | { k: 'beam' | 'rail' | 'gun'; x: number; z: number; x2: number; z2: number }
   | { k: 'raid'; x: number; z: number; name: string }
   | { k: 'raidClear' | 'raidLeak'; n: number }
-  | { k: 'level' | 'warning' | 'buy' | 'placing' | 'lock' | 'over' | 'emcon' | 'radarDown' };
+  | { k: 'level' | 'warning' | 'buy' | 'placing' | 'lock' | 'over' | 'emcon' | 'radarDown' | 'aesa' };
 
 export type Phase = 'start' | 'play' | 'pause' | 'perk' | 'over';
 
@@ -95,6 +95,7 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
 export type State = ReturnType<typeof newGame>;
 
 const TAU = Math.PI * 2;
+const AESA_SPIN = 1.2; // rad/s, cosmetic
 const pick = <T>(r: { seed: number }, a: T[]) => a[Math.floor(rand(r) * a.length)];
 export const visible = (s: State, e: Enemy) => e.locked || e.seenUntil > s.t;
 const NO_MOD: Mod = { name: '', desc: '' };
@@ -126,6 +127,7 @@ export function jamFactor(s: State, e: { x: number; z: number }) {
 export const lockReason = (s: State, id: string) => {
   const u = UPGRADES.find(u => u.id === id)!;
   if (u.req && s.level < u.req) return `BASE LV ${u.req}`;
+  if (id === 'sweep' && !s.lv.aesa && (s.lv.sweep ?? 0) >= SWEEP_CAP) return 'NEEDS AESA';
   if (PERIM_KINDS.includes(id as PerimKind)) {
     if (s.placing) return 'PLACING';
     if (s.perim.length >= perimSlots(s.level)) return 'PADS FULL';
@@ -144,6 +146,7 @@ export function buy(s: State, id: string) {
   s.credits -= c;
   s.lv[id] = (s.lv[id] ?? 0) + 1;
   s.bought++;
+  if (id === 'aesa') s.events.push({ k: 'aesa' });
   if (PERIM_KINDS.includes(id as PerimKind)) {
     s.placing = { k: id as PerimKind, since: s.t };
     s.events.push({ k: 'placing' });
@@ -255,7 +258,7 @@ export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2
     reward: T.reward, size: T.size, seenUntil: -1, locked: false, incoming: 0, wob: rnd() * TAU,
     born: s.t, cd: 3, aim: NaN, lockT: 0, ided: false, orbit: false, raid: 0,
   });
-  if (kind === 'arm') s.events.push({ k: 'arm', x, z }); // ESM hears the launch, radar or not
+  if (kind === 'arm' || kind === 'tbm') s.events.push({ k: kind, x, z }); // ESM / early warning hears the launch, radar or not
   return s.enemies[s.enemies.length - 1];
 }
 
@@ -273,7 +276,7 @@ function spawn(s: State, dt: number) {
   }
   if (s.t >= s.nextElite) {
     s.nextElite += ELITE_EVERY;
-    const a = rw() * TAU, n = 1 + Math.floor(s.t / 300);
+    const a = rw() * TAU, n = Math.floor(grow(s.t / 60, 1));
     for (let i = 0; i < n; i++) spawnEnemy(s, 'elite', a + (i - n / 2) * 0.08, ARENA_R + 4 + i * 3, rw);
     s.events.push({ k: 'warning' });
   }
@@ -284,7 +287,7 @@ function spawn(s: State, dt: number) {
     s.events.push({ k: 'raid', x: Math.cos(a) * ARENA_R, z: Math.sin(a) * ARENA_R, name: r.name });
   }
   if (s.raid && s.t >= s.raid.at) {
-    const { a, g } = s.raid, scale = 1 + s.t / 400;
+    const { a, g } = s.raid, scale = grow(s.t / 60, 0.7);
     s.raid = null;
     s.raidId++; s.raidLeft = 0; s.raidClean = true; s.raidReward = 0;
     let row = 0;
@@ -366,7 +369,9 @@ function jammed(s: State, e: Enemy) {
 // Pads engage the closest radar contact in their own range; no lock slot needed.
 function perimeter(s: State, dt: number) {
   const P = s.st.perim;
-  const jammers = s.perim.filter(p => p.k === 'jammer').length, need = jammers * P.jammer.power * dt;
+  const r2 = P.jammer.range ** 2;
+  const jammers = s.perim.filter(p => p.k === 'jammer' && s.enemies.some(e => (e.x - p.x) ** 2 + (e.z - p.z) ** 2 < r2)).length;
+  const need = jammers * P.jammer.power * dt;
   s.jamming = jammers > 0 && s.power >= need;
   if (s.jamming) s.power -= need;
   for (const p of s.perim) {
@@ -376,7 +381,7 @@ function perimeter(s: State, dt: number) {
     if (p.cd > 0 || s.ammo < w.ammo) continue;
     let best: Enemy | null = null, bd = w.range ** 2;
     for (const e of s.enemies) {
-      if (!visible(s, e) || e.ided || e.incoming >= e.hp) continue;
+      if (!visible(s, e) || e.ided || e.incoming >= e.hp || ENEMIES[e.kind].pacOnly) continue;
       const d = (e.x - p.x) ** 2 + (e.z - p.z) ** 2;
       if (d < bd) { bd = d; best = e; }
     }
@@ -430,13 +435,14 @@ function powerAndAmmo(s: State, dt: number) {
 function radar(s: State, dt: number) {
   if (!emitting(s)) return;
   const a0 = s.sweepA, da = s.sweepSpeed * dt;
-  s.sweepA = (a0 + da) % TAU;
+  // An AESA stares all round: each contact gets the looks a rotating beam would give it, at random moments.
+  // sweepA then only turns the TRML-4D head (and the sweep ping) at a calm fixed rate.
+  s.sweepA = (a0 + (s.st.aesa ? AESA_SPIN * dt * s.sweepSpeed / s.st.sweep : da)) % TAU;
   const r2 = s.st.radarRange ** 2, { mod } = phase(s);
   let newly = 0;
   for (const e of s.enemies) {
     if (e.x * e.x + e.z * e.z > r2) continue;
-    const rel = ((Math.atan2(e.z, e.x) - a0) % TAU + TAU) % TAU;
-    if (rel > da) continue;
+    if (s.st.aesa ? Math.random() >= da / TAU : ((Math.atan2(e.z, e.x) - a0) % TAU + TAU) % TAU > da) continue;
     if (Math.random() < ENEMIES[e.kind].sig * s.st.res * jamFactor(s, e) * (mod.sig ?? 1)) {
       if (e.seenUntil < s.t) newly++;
       e.seenUntil = s.t + s.st.persist * (mod.persist ?? 1);
@@ -480,7 +486,8 @@ function track(s: State, dt: number) {
   const m = s.marked ? s.enemies.find(e => e.id === s.marked) : undefined;
   if (m && !m.locked && visible(s, m) && m.x * m.x + m.z * m.z <= tr2) {
     if (locks >= s.st.slots) {
-      const drop = s.enemies.find(e => e.locked);
+      let drop: Enemy | null = null;
+      for (const e of s.enemies) if (e.locked && (!drop || score(s, e) < score(s, drop))) drop = e;
       if (drop) { drop.locked = false; locks--; }
     }
     m.locked = true; locks++;
@@ -507,7 +514,7 @@ function fire(s: State, dt: number) {
     if (!w || s.cooldown[k] > 0) continue;
     const r2 = w.range ** 2;
     // Spread weapons over locks; fall back to any lock in range.
-    const inRange = targets.filter(e => e.x * e.x + e.z * e.z <= r2 && e.incoming < e.hp);
+    const inRange = targets.filter(e => e.x * e.x + e.z * e.z <= r2 && e.incoming < e.hp && (k === 'cannon' || !ENEMIES[e.kind].pacOnly));
     const e = inRange[wi++ % Math.max(1, inRange.length)];
     if (!e) continue;
     if (s.ammo < w.ammo || s.power < w.power) continue;
@@ -563,7 +570,11 @@ function moveShots(s: State, dt: number) {
     p.life -= dt;
     if (p.kind === 'missile') {
       let t = s.enemies.find(e => e.id === p.target);
-      if (!t) { t = s.enemies.find(e => e.locked); if (t) { p.target = t.id; t.incoming += p.dmg; } }
+      if (!t) {
+        let bd = Infinity;
+        for (const e of s.enemies) { const d = (e.x - p.x) ** 2 + (e.z - p.z) ** 2; if (e.locked && !ENEMIES[e.kind].pacOnly && d < bd) { bd = d; t = e; } }
+        if (t) { p.target = t.id; t.incoming += p.dmg; }
+      }
       if (t) {
         const dx = t.x - p.x, dz = t.z - p.z, d = Math.hypot(dx, dz) || 1;
         const sp = WEAPONS.missile.speed;
@@ -574,6 +585,7 @@ function moveShots(s: State, dt: number) {
     p.x += p.vx * dt; p.z += p.vz * dt;
     let hit: Enemy | null = null;
     for (const e of s.enemies) {
+      if (p.kind !== 'shell' && ENEMIES[e.kind].pacOnly) continue; // flies straight through anything else
       const r = e.size * 0.8 + 0.4;
       if ((e.x - p.x) ** 2 + (e.z - p.z) ** 2 < r * r) { hit = e; break; }
     }
@@ -598,6 +610,7 @@ function explode(s: State, x: number, z: number, r: number, dmg: number, src: st
 
 function damage(s: State, e: Enemy, dmg: number, src: string) {
   if (e.hp <= 0) return; // already dead this frame
+  if (ENEMIES[e.kind].pacOnly && src !== 'PAC-3') return;
   if (e.id === s.marked) dmg *= s.st.markDmg;
   s.stats.dmg[src] = (s.stats.dmg[src] ?? 0) + Math.min(dmg, e.hp);
   e.hp -= dmg;

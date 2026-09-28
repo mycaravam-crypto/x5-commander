@@ -21,6 +21,7 @@ Other scripts:
 |-----------------|-----------------------------------------------------------|
 | `npm run build` | Type-checks, then builds a static site into `dist/`        |
 | `npm test`      | Runs a headless check of the game simulation in Node       |
+| `npm run balance [seeds] [cap-s]` | Bots play many seeded runs; median survival per doctrine and per perk |
 
 The game runs entirely in the browser, with no backend and no asset files. `dist/` can be hosted on any static file server.
 
@@ -39,15 +40,24 @@ The game runs entirely in the browser, with no backend and no asset files. `dist
 | 1 / 2 / 3              | Pick a perk when the base levels up       |
 | 1 – 4 (start screen)   | Pick a doctrine                           |
 | P / Esc                | Pause                                     |
+| X                      | 2× speed (toggle)                         |
 | M                      | Mute                                      |
+| C                      | Copy your result line after game over     |
 | R                      | Restart after game over                   |
 
 The game pauses by itself when the window loses focus.
 
+**Touch screens:** tap marks a contact or places a pad, one-finger drag rotates, pinch zooms. On-screen buttons cover the shop, EMCON, mode, 2× and pause.
+
+The first time you meet each threat or mechanic, a short tip explains it. Tips don't come back once you've seen them.
+
 ## Gameplay
 
 ### Radar decides everything
-A rotating radar sweep reveals enemies within its range. Each time the sweep passes over an enemy, there's a chance it gets detected. The chance depends on the enemy's signature and your radar resolution. **Undetected enemies are invisible and can't be shot.** A detected contact fades again after the radar's *persistence* time runs out.
+A rotating radar sweep reveals enemies within its range (until you buy the AESA, below). Each time the sweep passes over an enemy, there's a chance it gets detected. The chance depends on the enemy's signature and your radar resolution. **Undetected enemies are invisible and can't be shot.** A detected contact fades again after the radar's *persistence* time runs out.
+
+### LTAMDS AESA
+A rotating radar can take at most 8 levels of *Scan Rate*. From base level 4 you can buy **LTAMDS AESA**, a staring array that covers all directions at once. It gives every contact the same number of looks a sweep would, at random moments. This adds +25% scan rate and removes the Scan Rate cap. The spinning sweep is replaced by faint beam flashes and a blip each time a contact is detected again, so the screen stays readable however fast you scan.
 
 ### Radar threats and EMCON
 The enemy fights your radar, not just your base.
@@ -71,15 +81,15 @@ Detected enemies are locked, up to your number of **lock slots**. A lock holds a
 From base level 2 you can buy perimeter pads: **MANTIS 35mm C-RAM** (fast gun, short range), **Stinger teams** (homing, mid range) and **EW jammers** (slow nearby contacts, drain power). Each base level opens 2 more pads, up to 8. Pads engage any radar contact in their own range without using a lock slot. After buying a pad, **click the map** to put it on the nearest free spot on the ring, facing where the threats come from. If you don't click within 8 seconds, it places itself toward the nearest contact.
 
 ### Power and ammo
-Your generator fills a power pool. The radar drains power continuously, and so do ammo production, pulse shots and railgun shots. **When power runs short, the radar sweep slows** (down to 25% speed), so you see less. Balancing seeing, shooting and building is the core tension of the game.
+Your generator fills a power pool. The radar drains power continuously, and so do interceptor production, laser shots and HPM shots. **When power runs short, the radar sweep slows** (down to 25% speed), so you see less. Balancing seeing, shooting and building is the core tension of the game.
 
 ### Credits, upgrades and base levels
-Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits. There are 19 upgrades in 6 groups: BATTERY, POWER, SENSORS, FIRE CONTROL, WEAPONS and MAGAZINE. Each upgrade costs more with every level. Buying upgrades raises your **base level**, which adds visible structures to the base and offers a **perk draft: pick 1 of 3**. Every perk has a tradeoff, for example *GLASS CANNON*: +100% damage, −40% max HP. From base level 5, every draft also offers one **rule perk** (marked ★ NEW RULE) that changes how the battery plays, until you've taken them all: *TRACK FUSION* (locks hold while the radar is dark), *LPI WAVEFORM* (ARMs only find you inside 25 m), *OVERWATCH* (your marked target takes double damage), *ARC LASER* (laser jumps to 2 more targets; needs the laser), *SCAVENGER* (kills refund interceptors) and *FRAG WARHEADS* (PAC-3 hits splash).
+Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits. There are 23 upgrades in 7 groups: BATTERY, POWER, SENSORS, FIRE CONTROL, WEAPONS, MAGAZINE and PERIMETER. Each upgrade costs more with every level. There is **no max level**, except for *Threat Evaluation* and *LTAMDS AESA*, which are on/off, and Scan Rate before the AESA. Earth Revetments have diminishing returns, up to 85% less damage taken. Buying upgrades raises your **base level**, which adds visible structures to the base and offers a **perk draft: pick 1 of 3**. Every perk has a tradeoff, for example *GLASS CANNON*: +100% damage, −40% max HP. From base level 5, every draft also offers one **rule perk** (marked ★ NEW RULE) that changes how the battery plays, until you've taken them all: *TRACK FUSION* (locks hold while the radar is dark), *LPI WAVEFORM* (ARMs only find you inside 25 m), *OVERWATCH* (your marked target takes double damage), *ARC LASER* (laser jumps to 2 more targets; needs the laser), *SCAVENGER* (kills refund interceptors) and *FRAG WARHEADS* (PAC-3 hits splash).
 
 ### Enemies and phases
 A new phase starts every 75 seconds and changes the enemy mix: **PROBING → SATURATION → ROTARY STRIKE → AIR STRIKE → SEAD → COMBINED RAID**. After COMBINED RAID, every phase adds a **condition** on top of that mix, looping in this order: **NIGHT RAID** (contacts fade twice as fast), **GROUND CLUTTER** (−30% detection), **LULL** (a breather to rebuild), **JAMMING STORM** (more jammer helicopters), **SWARM TIDE** (many more, weaker enemies) and **SEAD WAVE** (strike aircraft and ARMs). Every 150 seconds, a *STRIKE AIRCRAFT* warning appears.
 
-**Raids:** from 1:50, a named raid arrives every 80 seconds, all from one bearing. It's announced 6 seconds ahead, with chevrons at the rim and a countdown in the side panel. Raids include SHAHED WAVE, LANCET PACK, FPV SWARM, DECOY SCREEN, HELO ASSAULT and SEAD STRIKE. Destroy the whole raid before anything hits the battery or the radar for a **clean-raid bonus**. Spawn rate, HP, speed and damage all increase steadily over time.
+**Raids:** from 1:50, a named raid arrives every 80 seconds, all from one bearing. It's announced 6 seconds ahead, with chevrons at the rim and a countdown in the side panel. Raids include SHAHED WAVE, LANCET PACK, FPV SWARM, DECOY SCREEN, HELO ASSAULT, SEAD STRIKE and ISKANDER SALVO. Destroy the whole raid before anything hits the battery or the radar for a **clean-raid bonus**. Spawn rate, HP, damage and raid size grow **logarithmically**: each doubling of play time adds about the same threat. A strong battery can keep going indefinitely.
 
 | Threat                      | Notes                                     |
 |-----------------------------|-------------------------------------------|
@@ -91,15 +101,16 @@ A new phase starts every 75 seconds and changes the enemy mix: **PROBING → SAT
 | Gerbera decoy               | Looks like a Shahed, harmless, no reward  |
 | Kh-31P anti-radiation missile | Very fast, knocks the radar offline     |
 | Mi-8MTPR-1 EW helicopter    | Stands off and jams a sector              |
+| Iskander-M ballistic missile | Very fast, big radar return, hits hard. **Only PAC-3 can hit it** |
 
 ### The battery
-The base is laid out like a Patriot site and grows with its level: AN/MPQ-65 radar and Engagement Control Station (ECS) at the start, then the EPP-III power plant, the OE-349 antenna mast, a Hensoldt TRML-4D 360° radar that turns with the sweep, earth berms, and at level 6 the LTAMDS radar upgrade with rear arrays. Every level adds an M903 launcher (up to 8). Buying laser, IRIS-T SLX or HPM adds their vehicles.
+The base is laid out like a Patriot site and grows with its level: AN/MPQ-65 radar and Engagement Control Station (ECS) at the start, then the EPP-III power plant, the OE-349 antenna mast, a Hensoldt TRML-4D 360° radar that turns with the sweep, earth berms, and, once you buy the AESA, LTAMDS rear arrays. Every level adds an M903 launcher (up to 8). Buying laser, IRIS-T SLX or HPM adds their vehicles.
 
 **Doctrines:** before a normal run, pick a starting loadout of free upgrade levels (they don't count toward base level). **STANDARD** is always available. The others unlock from your all-time records: **SENSOR NET** (survive 5:00), **LOGISTICS** (earn 5,000 credits in a run) and **FORWARD STRIKE** (reach base level 6). Daily ops always fly STANDARD.
 
 **Daily op:** the same seed for everyone on the same (UTC) day, so the whole enemy schedule is identical: which enemies, bearings, raids and perk drafts. Your best time for the day is saved. `R` after a daily op flies it again.
 
-An enemy that reaches the base damages it and dies. When base HP hits 0, the game is over. Your best time, kills, level and credits earned are saved in `localStorage`. The game-over card also shows a **debrief**: kills by enemy type, each weapon's share of the damage, clean raids, ARMs evaded and radar hits.
+An enemy that reaches the base damages it and dies. When base HP hits 0, the game is over. Your best time, kills, level and credits earned are saved in `localStorage`. The game-over card has **COPY RESULT** (`C`), which copies a one-line result to paste into a chat. It also shows a **debrief**: kills by enemy type, each weapon's share of the damage, clean raids, ARMs evaded and radar hits.
 
 ## Project layout
 
@@ -111,6 +122,7 @@ src/hud.ts        DOM HUD, mini-radar, shop, overlays
 src/sfx.ts        WebAudio sound effects, no audio files
 src/main.ts       boot, input, main loop
 src/sim.check.ts  `npm test` self-check
+src/balance.ts    `npm run balance` bot survey
 ```
 
 To rebalance the game, edit `src/config.ts`. Built with TypeScript, Vite and Three.js.

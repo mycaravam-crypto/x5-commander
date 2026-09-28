@@ -8,7 +8,7 @@
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--bright);
   font: 13px/1.3 ui-monospace, 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; user-select: none;
   text-transform: uppercase; text-shadow: var(--glow); }
-canvas { display: block; }
+canvas { display: block; touch-action: none; }
 /* Scanlines over everything, the 3D view included. */
 body::after { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 10;
   background: repeating-linear-gradient(transparent 0 2px, rgba(0, 0, 0, 0.3) 2px 3px); }
@@ -99,7 +99,7 @@ b { font-weight: 600; }
 #banner.info { color: var(--bright); text-shadow: 0 0 16px var(--bright); font-size: 22px; }
 @keyframes banner { 0% { opacity: 0; letter-spacing: 0.8em; } 12%, 70% { opacity: 1; letter-spacing: 0.3em; } 100% { opacity: 0; } }
 
-#overlay { inset: 0; display: none; place-items: center; background: rgba(0, 4, 1, 0.75); pointer-events: auto; backdrop-filter: blur(2px); }
+#overlay { inset: 0; display: none; place-items: safe center; overflow-y: auto; background: rgba(0, 4, 1, 0.75); pointer-events: auto; backdrop-filter: blur(2px); }
 #overlay.on { display: grid; }
 .card { text-align: center; max-width: 760px; padding: 20px; }
 .card h1 { font-size: 54px; letter-spacing: 0.25em; margin: 0 0 4px; color: var(--hot); text-shadow: 0 0 24px var(--bright); }
@@ -137,3 +137,29 @@ b { font-weight: 600; }
 @keyframes type { from { width: 0; } }
 .later { animation: fadein 0.5s var(--d) both; }
 @keyframes fadein { from { opacity: 0; } }
+
+/* One-time tip: bottom centre, fades in, stays ~9 s. */
+#tip { bottom: 34px; left: 50%; transform: translateX(-50%); max-width: 460px; padding: 8px 12px; font-size: 12px;
+  text-transform: none; --c: var(--hot); opacity: 0; transition: opacity 0.4s; }
+#tip.on { opacity: 1; }
+
+/* Touch screens: on-screen buttons for the keys, a smaller HUD, no keyboard help. */
+#touch { display: none; bottom: 12px; right: 12px; gap: 6px; pointer-events: auto; }
+#touch button { all: unset; padding: 10px 12px; border: 1px solid var(--mid); background: var(--panel); color: var(--bright); font-size: 12px; letter-spacing: 0.1em; }
+#touch button:active { background: var(--bright); color: var(--bg); }
+@media (pointer: coarse) {
+  #touch { display: flex; }
+  #help { display: none; }
+  #tip { bottom: 64px; }
+}
+@media (max-width: 760px) {
+  #top { gap: 10px; padding: 6px 10px; top: 6px; }
+  .stat b { font-size: 14px; }
+  #left { transform: scale(0.72); transform-origin: top left; top: 60px; left: 6px; }
+  #shop { top: 60px; right: 6px; bottom: 64px; width: 210px; }
+  #bottom { display: none; }
+  #tip { max-width: calc(100% - 24px); }
+  .perks { flex-wrap: wrap; }
+  .card h1 { font-size: 32px; }
+  #banner { font-size: 18px; white-space: normal; width: 90%; }
+}

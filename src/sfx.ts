@@ -37,7 +37,7 @@ function noise(dur: number, vol = 0.08, freq = 1200) {
 }
 
 const last: Record<string, number> = {};
-const GAP: Record<string, number> = { gun: 0.07, shot: 0.05, beam: 0.06, hit: 0.04, kill: 0.04, detect: 0.25, missile: 0.08, baseHit: 0.1, arm: 0.5, ident: 0.1 };
+const GAP: Record<string, number> = { gun: 0.07, shot: 0.05, beam: 0.06, hit: 0.04, kill: 0.04, detect: 0.25, missile: 0.08, baseHit: 0.1, arm: 0.5, tbm: 0.8, ident: 0.1 };
 
 export function play(k: string) {
   if (!ctx || muted) return;
@@ -60,6 +60,7 @@ export function play(k: string) {
     case 'level': [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.18, 'square', 0.04, f, i * 0.09)); break;
     case 'warning': for (let i = 0; i < 3; i++) { tone(440, 0.2, 'sawtooth', 0.05, 440, i * 0.45); tone(330, 0.2, 'sawtooth', 0.05, 330, i * 0.45 + 0.22); } break;
     case 'arm': for (let i = 0; i < 5; i++) tone(2400, 0.045, 'square', 0.03, 2400, i * 0.08); break; // RWR launch warning
+    case 'tbm': for (let i = 0; i < 4; i++) tone(i % 2 ? 660 : 990, 0.12, 'square', 0.04, i % 2 ? 660 : 990, i * 0.13); break; // ballistic warning
     case 'radarDown': noise(0.7, 0.15, 1500); tone(900, 0.9, 'sawtooth', 0.06, 50); break;
     case 'emcon': tone(700, 0.12, 'triangle', 0.04, 350); break;
     case 'jam': noise(0.8, 0.04, 6000); break;
