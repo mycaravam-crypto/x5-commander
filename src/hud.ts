@@ -152,7 +152,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       const rel = ((Math.atan2(e.z, e.x) - a0) % TAU + TAU) % TAU;
       if (!e.locked && !aesa && !(swept < 1 && rel <= swept)) continue;
       const x = px(e.x, e.z), y = py(e.x, e.z), r = 1.5 + e.size;
-      g.fillStyle = e.kind === 'arm' ? rgba(PAL.alert) : rgba(e.locked ? PAL.hot : PAL.bright, Math.min(1, ENEMIES[shownKind(e)].glow) * (e.ided ? 0.35 : 1));
+      g.fillStyle = e.kind === 'arm' || e.kind === 'tbm' ? rgba(PAL.alert) : rgba(e.locked ? PAL.hot : PAL.bright, Math.min(1, ENEMIES[shownKind(e)].glow) * (e.ided ? 0.35 : 1));
       g.fillRect(x - r / 2, y - r / 2, r, r);
       if (e.locked) { g.strokeStyle = rgba(e.id === s.marked ? PAL.hot : PAL.mid); g.strokeRect(x - r, y - r, r * 2, r * 2); }
     }
@@ -199,7 +199,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   }
 
   // ---- text (throttled) ----
-  let acc = 1, lastPhase = '', armSaid = -99;
+  let acc = 1, lastPhase = '', armSaid = -99, tbmSaid = -99;
   const set = (id: string, v: string) => { const el = $(id); if (el.textContent !== v) el.textContent = v; };
   const bar = (id: string, r: number, crit = false) => { const el = $(id); el.style.setProperty('--r', String(Math.round(Math.max(0, Math.min(1, r)) * 20) / 20)); el.classList.toggle('crit', crit); };
 
@@ -254,6 +254,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
           log(`ARM LAUNCH BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
           if (s.t - armSaid > 3 && !s.emcon) { armSaid = s.t; say('⚠ ARM INBOUND · [F] EMCON', 'warn'); }
         }
+        else if (e.k === 'tbm') { log(`BALLISTIC LAUNCH BRG ${pad3(bearing(e.x, e.z))}`, 'alert'); if (s.t - tbmSaid > 4) { tbmSaid = s.t; say('⚠ BALLISTIC MISSILE · PAC-3 ONLY', 'warn'); } }
         else if (e.k === 'radarDown') { say('⚠ RADAR HIT', 'warn'); log(`MPQ-65 HIT · OFFLINE ${(s.radarDownUntil - s.t).toFixed(0)}s`, 'alert'); }
         else if (e.k === 'emcon') log(s.emcon ? 'EMCON · RADAR SILENT' : 'RADIATING', s.emcon ? 'alert' : '');
         else if (e.k === 'jam') log(`JAMMING BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
@@ -272,7 +273,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         if (lastPhase) { say(`PHASE · ${pn}`, mod.name ? 'warn' : 'info'); if (mod.desc) log(mod.desc.toUpperCase(), 'alert'); }
         lastPhase = pn;
       }
-      if (s.phase === 'start') { lastPhase = ''; armSaid = -99; }
+      if (s.phase === 'start') { lastPhase = ''; armSaid = tbmSaid = -99; }
       drawRadar(s, yaw, dt);
       placeLabels(s, project);
       if (s.phase === 'play' && (logAcc += dt) >= 0.3) { logAcc = 0; scanLog(s); }

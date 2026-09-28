@@ -21,7 +21,7 @@ export interface Shot {
   dmg: number; splash: number; life: number; target: number; src: string; // src: weapon, for the debrief
 }
 export type Ev =
-  | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect' | 'arm' | 'jam' | 'ident'; x: number; z: number; kind?: EnemyKind; n?: number }
+  | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect' | 'arm' | 'tbm' | 'jam' | 'ident'; x: number; z: number; kind?: EnemyKind; n?: number }
   | { k: 'beam' | 'rail' | 'gun'; x: number; z: number; x2: number; z2: number }
   | { k: 'raid'; x: number; z: number; name: string }
   | { k: 'raidClear' | 'raidLeak'; n: number }
@@ -258,7 +258,7 @@ export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2
     reward: T.reward, size: T.size, seenUntil: -1, locked: false, incoming: 0, wob: rnd() * TAU,
     born: s.t, cd: 3, aim: NaN, lockT: 0, ided: false, orbit: false, raid: 0,
   });
-  if (kind === 'arm') s.events.push({ k: 'arm', x, z }); // ESM hears the launch, radar or not
+  if (kind === 'arm' || kind === 'tbm') s.events.push({ k: kind, x, z }); // ESM / early warning hears the launch, radar or not
   return s.enemies[s.enemies.length - 1];
 }
 
@@ -381,7 +381,7 @@ function perimeter(s: State, dt: number) {
     if (p.cd > 0 || s.ammo < w.ammo) continue;
     let best: Enemy | null = null, bd = w.range ** 2;
     for (const e of s.enemies) {
-      if (!visible(s, e) || e.ided || e.incoming >= e.hp) continue;
+      if (!visible(s, e) || e.ided || e.incoming >= e.hp || ENEMIES[e.kind].pacOnly) continue;
       const d = (e.x - p.x) ** 2 + (e.z - p.z) ** 2;
       if (d < bd) { bd = d; best = e; }
     }
@@ -514,7 +514,7 @@ function fire(s: State, dt: number) {
     if (!w || s.cooldown[k] > 0) continue;
     const r2 = w.range ** 2;
     // Spread weapons over locks; fall back to any lock in range.
-    const inRange = targets.filter(e => e.x * e.x + e.z * e.z <= r2 && e.incoming < e.hp);
+    const inRange = targets.filter(e => e.x * e.x + e.z * e.z <= r2 && e.incoming < e.hp && (k === 'cannon' || !ENEMIES[e.kind].pacOnly));
     const e = inRange[wi++ % Math.max(1, inRange.length)];
     if (!e) continue;
     if (s.ammo < w.ammo || s.power < w.power) continue;
@@ -572,7 +572,7 @@ function moveShots(s: State, dt: number) {
       let t = s.enemies.find(e => e.id === p.target);
       if (!t) {
         let bd = Infinity;
-        for (const e of s.enemies) { const d = (e.x - p.x) ** 2 + (e.z - p.z) ** 2; if (e.locked && d < bd) { bd = d; t = e; } }
+        for (const e of s.enemies) { const d = (e.x - p.x) ** 2 + (e.z - p.z) ** 2; if (e.locked && !ENEMIES[e.kind].pacOnly && d < bd) { bd = d; t = e; } }
         if (t) { p.target = t.id; t.incoming += p.dmg; }
       }
       if (t) {
@@ -585,6 +585,7 @@ function moveShots(s: State, dt: number) {
     p.x += p.vx * dt; p.z += p.vz * dt;
     let hit: Enemy | null = null;
     for (const e of s.enemies) {
+      if (p.kind !== 'shell' && ENEMIES[e.kind].pacOnly) continue; // flies straight through anything else
       const r = e.size * 0.8 + 0.4;
       if ((e.x - p.x) ** 2 + (e.z - p.z) ** 2 < r * r) { hit = e; break; }
     }
@@ -609,6 +610,7 @@ function explode(s: State, x: number, z: number, r: number, dmg: number, src: st
 
 function damage(s: State, e: Enemy, dmg: number, src: string) {
   if (e.hp <= 0) return; // already dead this frame
+  if (ENEMIES[e.kind].pacOnly && src !== 'PAC-3') return;
   if (e.id === s.marked) dmg *= s.st.markDmg;
   s.stats.dmg[src] = (s.stats.dmg[src] ?? 0) + Math.min(dmg, e.hp);
   e.hp -= dmg;

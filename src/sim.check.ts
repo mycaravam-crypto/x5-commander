@@ -57,6 +57,15 @@ s.st.slots = 0;
 { const seen = new Set<number>(); run(s, 12, () => { for (const e of s.enemies) if (visible(s, e)) seen.add(e.id); });
   ok(seen.size === 8, `AESA detects all round (${seen.size}/8)`); }
 
+// Iskander: only PAC-3 can touch it.
+s = quiet(); s.lv.pulse = s.lv.rail = s.lv.missile = 1; s.st = deriveStats(s.lv, []); s.st.weapons.cannon = null;
+spawnEnemy(s, 'tbm', 0, 40);
+run(s, 6);
+ok(!s.stats.dmg.HEL && !s.stats.dmg.HPM && !s.stats.dmg['IRIS-T'] && s.hp < s.st.maxHp, 'Iskander ignores all but PAC-3');
+s = quiet(); spawnEnemy(s, 'tbm', 0, 40).hp = 1;
+run(s, 6);
+ok(s.stats.kills.tbm === 1, 'PAC-3 kills an Iskander');
+
 // Undetected enemy is never locked
 s = newGame(); s.phase = 'play'; s.st.radarRange = 0;
 run(s, 20);

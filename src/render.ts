@@ -283,6 +283,7 @@ export function createRenderer() {
     decoy: new THREE.OctahedronGeometry(0.65), // same as the Shahed; only drawn once classified
     arm: new THREE.ConeGeometry(0.22, 1.8, 4).rotateZ(-Math.PI / 2),
     ew: new THREE.CylinderGeometry(0.75, 0.75, 0.45, 6),
+    tbm: new THREE.ConeGeometry(0.35, 2.4, 6).rotateZ(-Math.PI / 2),
   };
   const wire = new THREE.MeshBasicMaterial({ wireframe: true });
   const enemyFills = {} as Record<EnemyKind, THREE.InstancedMesh>, enemyEdges = {} as Record<EnemyKind, THREE.InstancedMesh>;
@@ -359,7 +360,7 @@ export function createRenderer() {
     bl.x[i] = x; bl.z[i] = z; bl.r[i] = r; bl.life[i] = bl.max[i] = life;
   }
 
-  const KILL_SHARDS: Record<EnemyKind, number> = { swarm: 3, scout: 4, drone: 6, tank: 12, elite: 20, decoy: 4, arm: 5, ew: 12 };
+  const KILL_SHARDS: Record<EnemyKind, number> = { swarm: 3, scout: 4, drone: 6, tank: 12, elite: 20, decoy: 4, arm: 5, ew: 12, tbm: 10 };
   function consume(s: State) {
     for (const e of s.events) {
       switch (e.k) {
@@ -380,6 +381,7 @@ export function createRenderer() {
         case 'level': wave(0, 0, 40, BRIGHT, 1.2, 1.5); wave(0, 0, 25, HOT, 0.9); shards(0, 0, 40, BRIGHT, 20, 1.2, 3); gridFlash = 0.6; break;
         case 'warning': wave(0, 0, ARENA_R, ALERT, 1.5, 1.5); break;
         case 'arm': wave(e.x, e.z, 6, ALERT, 0.8, 1.5); break;
+        case 'tbm': wave(e.x, e.z, 10, ALERT, 1, 1.5); break;
         case 'jam': wave(e.x, e.z, 8, ALERT, 1.2); break;
         case 'ident': wave(e.x, e.z, 3, MID, 0.4); break;
         case 'radarDown': wave(0, 0, 14, ALERT, 0.8, 1.5); shards(0, 1.9, 30, ALERT, 14, 1, 2.5); gridFlash = 1; break;
@@ -485,7 +487,8 @@ export function createRenderer() {
       if (e.kind === 'tank') b *= 0.55 + 0.45 * Math.sin(clock * 5 + e.id); // slow pulse
       if (e.kind === 'elite') b *= Math.sin(clock * 20 + e.id) > 0 ? 1 : 0.2; // hard strobe
       if (k === 'decoy') b *= 0.35; // classified: a ghost
-      const col = k === 'arm' ? ALERT : e.locked ? HOT : BRIGHT; // ARMs are the one enemy drawn in amber
+      if (k === 'tbm') b *= Math.sin(clock * 30 + e.id) > 0 ? 1.4 : 0.5; // fast strobe
+      const col = k === 'arm' || k === 'tbm' ? ALERT : e.locked ? HOT : BRIGHT; // missiles on the battery are amber
       const sz = e.size * VIS;
       dummy.position.set(e.x, sz * 0.6, e.z);
       dummy.rotation.set(k === 'drone' || k === 'elite' ? clock * 2 : 0, -Math.atan2(e.vz, e.vx) + (k === 'swarm' ? clock * 6 : k === 'ew' ? clock : 0), 0);
