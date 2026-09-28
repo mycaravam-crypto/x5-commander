@@ -1,4 +1,4 @@
-import { newGame, dailySeed, update, buy, pickPerk, markAt, placePad, cycleMode, toggleEmcon, type State } from './sim.ts';
+import { newGame, dailySeed, update, buy, pickPerk, markAt, placePad, cycleMode, cycleDiscipline, emergencyIntercept, toggleEmcon, type State } from './sim.ts';
 import { createRenderer } from './render.ts';
 import { createHud, loadBest } from './hud.ts';
 import { DOCTRINES } from './config.ts';
@@ -74,7 +74,9 @@ canvas.addEventListener('wheel', e => { e.preventDefault(); view.zoomBy(e.deltaY
 let speed = 1; // 2 = fast-forward: two sim steps per frame
 function key(code: string) {
   switch (code) {
-    case 'Space': case 'Enter': start(); break;
+    case 'Space': if (s.phase === 'start') start(); else emergencyIntercept(s); break;
+    case 'Enter': start(); break;
+    case 'KeyG': cycleDiscipline(s); break;
     case 'KeyD': start(true); break;
     case 'KeyP': case 'Escape': if (s.phase === 'play') s.phase = 'pause'; else if (s.phase === 'pause') s.phase = 'play'; break;
     case 'KeyT': cycleMode(s); break;
@@ -95,7 +97,7 @@ const held = new Set<string>();
 addEventListener('keyup', e => held.delete(e.code));
 addEventListener('keydown', e => {
   held.add(e.code);
-  if (e.code === 'Tab') e.preventDefault();
+  if (e.code === 'Tab' || e.code === 'Space') e.preventDefault();
   if (!e.repeat) key(e.code);
 });
 // On-screen buttons (touch screens) send the same codes as the keys.

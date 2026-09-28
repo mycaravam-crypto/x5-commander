@@ -115,6 +115,21 @@ export const WEAPONS: Record<WeaponKind, {
 
 export const MODES = ['CLOSEST', 'WEAKEST', 'RICHEST', 'FASTEST'] as const;
 
+// Fire discipline [G]: how hard the battery spends interceptors and power.
+// rate: fire rate · cost: ammo and power per shot · range: engagement range (fire late = better odds, closer threats)
+// commit: damage already in flight before a target is left alone (1 = just enough to kill it; more = overkill).
+export const DISCIPLINES = [
+  { name: 'CONSERVE', rate: 0.75, cost: 0.75, range: 0.75, commit: 1 },
+  { name: 'BALANCED', rate: 1, cost: 1, range: 1, commit: 1 },
+  { name: 'MAXIMUM', rate: 1.4, cost: 1.3, range: 1, commit: 1.6 },
+];
+// Priority target (click): always holds a lock slot, is engaged first and takes extra damage, but painting it
+// for fire control costs power every second it's held.
+export const PRIORITY_DMG = 1.25, PRIORITY_POWER = 1.2; // damage multiplier, power/s
+// Emergency intercept [Space]: every weapon (and every pad in range) fires only at the priority target (or the
+// most urgent threat), faster, and keeps firing past a sure kill. Costs power up front, then a long cooldown.
+export const INTERCEPT = { time: 4, cooldown: 30, power: 25, rate: 1.6 };
+
 export interface Upgrade {
   id: string; name: string; group: string; desc: string;
   base: number; mult: number; max: number;

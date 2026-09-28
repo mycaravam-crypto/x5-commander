@@ -385,6 +385,7 @@ export function createRenderer() {
         case 'jam': wave(e.x, e.z, 8, ALERT, 1.2); break;
         case 'ident': wave(e.x, e.z, 3, MID, 0.4); break;
         case 'radarDown': wave(0, 0, 14, ALERT, 0.8, 1.5); shards(0, 1.9, 30, ALERT, 14, 1, 2.5); gridFlash = 1; break;
+        case 'intercept': wave(e.x, e.z, 8, HOT, 0.6, 1.5); wave(0, 0, 12, HOT, 0.5); break;
         case 'emcon': wave(0, 0, s.st.radarRange, MID, 0.6); break;
         case 'raid': wave(e.x, e.z, 14, ALERT, 1.2, 1.5); break;
         case 'raidClear': wave(0, 0, 30, HOT, 1, 1.5); shards(0, 0, 30, HOT, 18, 1, 3); break;

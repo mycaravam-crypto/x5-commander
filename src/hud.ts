@@ -1,6 +1,6 @@
-import { ARENA_R, BASE_R, PLACE_TIME, DOCTRINES, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
+import { ARENA_R, BASE_R, PLACE_TIME, DOCTRINES, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
 import type { Records } from './config.ts';
-import { cost, emitting, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
+import { cost, emitting, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const $ = (id: string) => document.getElementById(id)!;
 const fmt = (n: number) => Math.floor(n).toLocaleString('en-US');
@@ -25,7 +25,9 @@ function loadDaily(date: string): Daily {
 
 // One-time tips, shown the first time each thing happens (remembered across runs).
 const TIPS: Record<string, string> = {
-  start: 'Click a contact to make it the priority target. Spend credits in the shop on the right [Tab].',
+  start: 'Click a contact to make it the priority target: engaged first, +25% damage, costs power while held. Spend credits in the shop [Tab].',
+  discipline: 'Fire discipline [G]: CONSERVE saves interceptors and fires late, MAXIMUM fires fast and overkills.',
+  intercept: 'Emergency intercept: every weapon on one threat for a few seconds. Long cooldown, costs power.',
   raid: 'Raid inbound from one bearing. Kill all of it before anything lands for a clean-raid bonus.',
   warning: 'Su-34s are tough and fire anti-radiation missiles at a radiating radar. Click one to focus fire on it.',
   arm: 'ARM launch: it homes on your radar. Press [F] for EMCON before it gets close. While silent you lose every lock.',
@@ -256,6 +258,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       : sweepPct < 100 ? `<span class="alert">${sweepPct}% LOW PWR</span>` : 'RADIATING';
     $('info').innerHTML = [
       ['TRACKS', contacts], ['ENGAGED', `${locks} / ${st.slots}`], ['MODE [T]', MODES[s.mode]],
+      ['FIRE [G]', s.discipline === 1 ? DISCIPLINES[1].name : `<span class="hot">${DISCIPLINES[s.discipline].name}</span>`],
+      ['INTERCEPT [SPC]', interceptActive(s) ? '<span class="hot">ENGAGING</span>' : (w => w ? `<span class="${w.endsWith('s') ? 'dim' : 'alert'}">${w}</span>` : '<span class="hot">READY</span>')(interceptBlock(s))],
       ...ffSpeed > 1 ? [['SPEED [X]', `<span class="hot">${ffSpeed}×</span>`]] : [],
       ['RANGE', `${Math.round(st.radarRange)}m`], ['PERIMETER', `${s.perim.length} / ${perimSlots(s.level)} pads`], ['RADAR [F]', radar],
       ...s.placing ? [['PAD', `<span class="hot">CLICK MAP · ${Math.max(0, PLACE_TIME - (s.t - s.placing.since)).toFixed(0)}s</span>`]] : [],
@@ -306,7 +310,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         else if (e.k === 'raidLeak') log('RAID LEAKED · NO BONUS', 'alert');
         else if (e.k === 'aesa') { say('LTAMDS ONLINE · 360° STARE', 'info'); log('AESA ONLINE · SWEEP RETIRED'); }
         else if (e.k === 'level') log(`BATTERY LV ${s.level} · LAUNCHER EMPLACED · ${perimSlots(s.level)} PERIMETER PADS`);
-        else if (e.k === 'buy') { acc = 1; }
+        else if (e.k === 'buy' || e.k === 'discipline') { acc = 1; if (e.k === 'discipline') log(`FIRE DISCIPLINE · ${DISCIPLINES[s.discipline].name}`); }
+        else if (e.k === 'intercept') { say('EMERGENCY INTERCEPT', 'info'); log(`INTERCEPT ${pad3(bearing(e.x, e.z))} · ALL WEAPONS · ${INTERCEPT.time}s`, 'alert'); acc = 1; }
       }
       const pn = phaseName(s);
       if (s.phase === 'play' && pn !== lastPhase) {
