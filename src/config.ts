@@ -272,7 +272,21 @@ export const baseLevel = (bought: number) => {
   return l;
 };
 
-export function deriveStats(lv: Record<string, number>, perks: string[]) {
+// What each base level builds. Every level also adds an M903 launcher (up to 8) and 2 perimeter pads.
+// Stat effects are applied in deriveStats; `desc` is what the level-up card shows.
+export const BASE_LEVELS: { name: string; desc: string }[] = [
+  { name: 'RADAR + ECS', desc: 'AN/MPQ-65 radar and engagement control station' },
+  { name: 'POWER PLANT', desc: 'EPP-III generators: +2 power/s' },
+  { name: 'COMMUNICATIONS', desc: 'OE-349 datalink: raids announced 5s earlier · +1s contact memory' },
+  { name: 'SURVEILLANCE RADAR', desc: 'TRML-4D: keeps searching at half range while the MPQ-65 is knocked out' },
+  { name: 'DEFENSIVE STRUCTURES', desc: 'earth berms round the launchers: +10% armor' },
+  { name: 'ADVANCED AIR DEFENSE', desc: 'second fire control shelter: +1 lock slot' },
+  { name: 'HARDENED COMMAND NODE', desc: 'hardened shelters: +25% max HP · ARM hits knock the radar out half as long' },
+];
+export const baseLevelInfo = (level: number) => BASE_LEVELS[Math.min(level, BASE_LEVELS.length) - 1];
+export const BACKUP_RADAR = 0.5; // TRML-4D range and detection chance while the MPQ-65 is down
+
+export function deriveStats(lv: Record<string, number>, perks: string[], level = 1) {
   const L = (id: string) => lv[id] ?? 0;
   const p = { dmg: 1, rate: 1, gen: 1, range: 1, sweep: 1, aprod: 1, credits: 1, hp: 1, persist: 1, drain: 1, trange: 1, addSlots: 0, addArmor: 0, addChain: 0,
     addFusion: 0, addLpi: 0, addArc: 0, addScav: 0, addFrag: 0, markDmg: 1,
@@ -290,18 +304,21 @@ export function deriveStats(lv: Record<string, number>, perks: string[]) {
   };
   const wlv = (k: string) => 1 + 0.4 * Math.max(0, L(k) - 1);
   return {
-    maxHp: (100 + 40 * L('hp')) * p.hp,
-    armor: Math.min(0.85, 0.85 * (1 - 0.88 ** L('armor')) + p.addArmor),
+    maxHp: (100 + 40 * L('hp')) * p.hp * (level >= 7 ? 1.25 : 1),
+    armor: Math.min(0.85, 0.85 * (1 - 0.88 ** L('armor')) + p.addArmor + (level >= 5 ? 0.1 : 0)),
     repair: 0.6 * L('repair'),
-    gen: (6 + 3 * L('gen')) * p.gen,
+    gen: (6 + 3 * L('gen') + (level >= 2 ? 2 : 0)) * p.gen,
+    raidWarn: level >= 3 ? 5 : 0, // s of extra raid warning
+    backupRadar: level >= 4,
+    armStun: level >= 7 ? 0.5 : 1,
     powerCap: 60 + 40 * L('cap'),
     radarRange: (42 + 7 * L('range')) * p.range,
     sweep: 2.5 * (1 + 0.2 * L('sweep')) * (L('aesa') ? 1.25 : 1) * p.sweep, // rad/s; with AESA: revisits/rev-equivalent
     aesa: L('aesa') > 0,
     res: 1 + 0.15 * L('res'),
-    persist: (4.5 + 1.5 * L('persist')) * p.persist,
+    persist: (4.5 + 1.5 * L('persist') + (level >= 3 ? 1 : 0)) * p.persist,
     drain: (1.5 + 0.25 * radarLv) * p.drain,
-    slots: 2 + L('slots') + p.addSlots,
+    slots: 2 + L('slots') + p.addSlots + (level >= 6 ? 1 : 0),
     trackRange: (45 + 6 * L('trange')) * p.trange,
     modes: 1 + L('modes'),
     ammoCap: 40 + 25 * L('acap'),

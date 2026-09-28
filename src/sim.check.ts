@@ -87,6 +87,23 @@ const b = bot();
 ok(b.t > idle.t, `upgrades help (${b.t.toFixed(0)}s vs ${idle.t.toFixed(0)}s)`);
 ok(b.level >= 3 && b.perks.length === b.level - 1, `base grows + perks (lv ${b.level}, perks ${b.perks.length})`);
 
+// Base levels add capability, not just numbers.
+{
+  const at = (level: number) => deriveStats({}, [], level);
+  ok(at(2).gen > at(1).gen && at(3).raidWarn > 0 && at(3).persist > at(2).persist, 'lv2 power plant, lv3 comms');
+  ok(!at(3).backupRadar && at(4).backupRadar && at(5).armor > at(4).armor && at(6).slots === at(5).slots + 1, 'lv4 backup radar, lv5 berms, lv6 second ECS');
+  ok(at(7).maxHp > at(6).maxHp && at(7).armStun < 1, 'lv7 hardened node');
+  // TRML-4D keeps contacts coming while an ARM has the MPQ-65 down; lv3 hears raids earlier.
+  const seen = (level: number) => { const g = quiet(); g.level = level; g.st = deriveStats(g.lv, [], level); g.radarDownUntil = 1e9;
+    const e = spawnEnemy(g, 'tank', 0, 15); e.hp = 1e9; e.speed = 0; let v = false, l = false;
+    run(g, 10, () => { v ||= visible(g, e); l ||= e.locked; }); return v && !l; };
+  ok(seen(4) && !seen(3), 'lv4: TRML-4D searches while the radar is down, without locks');
+  const g = quiet(); g.level = 3; g.st = deriveStats(g.lv, [], 3); g.nextRaid = 20; run(g, 20 - RAID_WARN - 4.5);
+  ok(g.raid, 'lv3: raids announced earlier');
+  const b = newGame(); b.phase = 'play'; b.credits = 1e6; for (let i = 0; i < 3; i++) buy(b, 'gen');
+  ok(b.level === 2 && b.st.gen === deriveStats(b.lv, [], 2).gen, 'level-up refreshes stats');
+}
+
 // Perimeter: gated by base level and pad count; a pad kills things on its own
 s = newGame(); s.phase = 'play'; s.credits = 1e6;
 ok(!buy(s, 'mantis'), 'mantis locked at lv1');

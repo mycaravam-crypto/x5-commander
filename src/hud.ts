@@ -1,4 +1,4 @@
-import { ARENA_R, BASE_R, PLACE_TIME, DOCTRINES, PACKAGES, OBJECTIVES, RAID_PRESS, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
+import { ARENA_R, BASE_R, PLACE_TIME, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, RAID_PRESS, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
 import type { Records } from './config.ts';
 import { cost, emitting, slots, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
@@ -36,7 +36,7 @@ const TIPS: Record<string, string> = {
   jam: 'Jammer on station: detection drops in the amber sector. The Mi-8 itself shows clearly, so click it and kill it.',
   ident: 'Decoy classified and released. Decoys look like Shaheds until locked for a moment. GaN T/R Modules classify faster.',
   package: 'Attack package: several types covering each other. The log says which element to kill first; mark it.',
-  level: 'Base level up: new launcher and perimeter pads. Perimeter defenses fire on their own, without lock slots.',
+  level: 'Base level up: every level builds something that changes what the battery can do, plus a launcher and 2 perimeter pads. Pads fire on their own, without lock slots.',
 };
 const seenTips = (() => { try { return new Set<string>(JSON.parse(localStorage.getItem('x5-tips') ?? '[]')); } catch { return new Set<string>(); } })();
 
@@ -109,7 +109,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       <button class="btn" data-a="start">DEPLOY [SPACE]</button> <button class="btn" data-a="daily">DAILY OP [D]</button>
       <p class="dim">Daily op: same raid for everyone today. ${(d => d.time ? `Your best today · ${clock(d.time)} · ${fmt(d.kills)} kills` : 'Not flown yet today.')(loadDaily(new Date().toISOString().slice(0, 10)))}</p></div></div>`;
     else if (s.phase === 'pause') html = `<div class="card"><h2>PAUSED</h2><p class="dim">[P] resume</p></div>`;
-    else if (s.phase === 'perk') html = `<div class="card"><h2>BATTERY LEVEL ${s.level} · CHOOSE A PERK</h2><div class="perks">${
+    else if (s.phase === 'perk') html = `<div class="card"><h2>BATTERY LEVEL ${s.level} · ${baseLevelInfo(s.level).name}</h2><p class="hot">${baseLevelInfo(s.level).desc}</p>${s.level > 1 ? `<p class="dim">+1 M903 LAUNCHER · ${perimSlots(s.level)} PERIMETER PADS</p>` : ''}<h2>CHOOSE A PERK</h2><div class="perks">${
       s.perkChoices.map((id, i) => { const p = PERKS.find(p => p.id === id)!; return `<button class="perk frame${p.rule ? ' rule' : ''}" data-a="perk${i}">${p.rule ? '<i>★ NEW RULE</i>' : ''}<b>${p.name}</b><span>${p.desc}</span><kbd>[${i + 1}]</kbd></button>`; }).join('')
     }</div></div>`;
     else if (s.phase === 'over') {
@@ -260,7 +260,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     let contacts = 0, locks = 0;
     for (const e of s.enemies) { if (visible(s, e)) contacts++; if (e.locked) locks++; }
     const sweepPct = Math.round(s.sweepSpeed / st.sweep * 100);
-    const radar = s.t < s.radarDownUntil ? `<span class="alert">DOWN ${(s.radarDownUntil - s.t).toFixed(1)}s</span>`
+    const radar = s.t < s.radarDownUntil ? `<span class="alert">DOWN ${(s.radarDownUntil - s.t).toFixed(1)}s${st.backupRadar && !s.emcon ? ' · TRML' : ''}</span>`
       : s.emcon ? '<span class="alert">EMCON · SILENT</span>'
       : sweepPct < 100 ? `<span class="alert">${sweepPct}% LOW PWR</span>` : 'RADIATING';
     const M = radarMode(s), scan = s.radarMode === 0 ? M.name : `<span class="hot">${M.name}${radarSector(s) ? ` ${pad3(bearing(Math.cos(focusBearing(s)), Math.sin(focusBearing(s))))}°` : ''}</span>`;
@@ -351,7 +351,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         else if (e.k === 'raidLeak') { say('OBJECTIVE LOST', 'warn'); log(`OBJECTIVE LOST · NEXT RAID ${RAID_PRESS}s SOONER`, 'alert'); }
         else if (e.k === 'raidEnd') log('RAID OVER · NO BONUS · NO RECOVERY', 'alert');
         else if (e.k === 'aesa') { say('LTAMDS ONLINE · 360° STARE', 'info'); log('AESA ONLINE · SWEEP RETIRED'); }
-        else if (e.k === 'level') log(`BATTERY LV ${s.level} · LAUNCHER EMPLACED · ${perimSlots(s.level)} PERIMETER PADS`);
+        else if (e.k === 'level') { const b = baseLevelInfo(s.level); say(`LV ${s.level} · ${b.name}`, 'info'); log(`BATTERY LV ${s.level} · ${b.name} · ${b.desc}`); }
         else if (e.k === 'buy' || e.k === 'discipline') { acc = 1; if (e.k === 'discipline') log(`FIRE DISCIPLINE · ${DISCIPLINES[s.discipline].name}`); }
         else if (e.k === 'intercept') { say('EMERGENCY INTERCEPT', 'info'); log(`INTERCEPT ${pad3(bearing(e.x, e.z))} · ALL WEAPONS · ${INTERCEPT.time}s`, 'alert'); acc = 1; }
       }

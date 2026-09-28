@@ -1,6 +1,6 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, PHASE_LEN, ELITE_EVERY,
-  ENEMIES, KINDS, WEAPONS, PHASES, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, RAID_SPAWN, RAID_RECOVER, RAID_CALM, RAID_PRESS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, SWEEP_CAP, grow, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty,
+  ENEMIES, KINDS, WEAPONS, PHASES, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, RAID_SPAWN, RAID_RECOVER, RAID_CALM, RAID_PRESS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, SWEEP_CAP, grow, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty, BACKUP_RADAR,
   RADAR_MODES, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   type EnemyKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
 } from './config.ts';
@@ -179,11 +179,11 @@ export function buy(s: State, id: string) {
     s.placing = { k: id as PerimKind, since: s.t };
     s.events.push({ k: 'placing' });
   }
-  refreshStats(s);
   s.events.push({ k: 'buy' });
-  const lvl = baseLevel(s.bought);
-  if (lvl > s.level) {
-    s.level = lvl;
+  const lvl = baseLevel(s.bought), up = lvl > s.level;
+  if (up) s.level = lvl;
+  refreshStats(s); // after the level: base levels carry stats of their own
+  if (up) {
     s.perkChoices = draft(s);
     s.phase = 'perk';
     s.events.push({ k: 'level' });
@@ -191,7 +191,7 @@ export function buy(s: State, id: string) {
   return true;
 }
 
-// 3 distinct perks the battery qualifies for; from base level 5, one of them changes the rules (while any are left).
+// 3 distinct perks the battery qualifies for; once rule perks are in reach, one of them changes the rules (while any are left).
 export function draft(s: State) {
   const pool = PERKS.filter(p => (p.min ?? 0) <= s.level && (!p.need || s.lv[p.need]) && !(p.rule && s.perks.includes(p.id)));
   const rules = pool.filter(p => p.rule).map(p => p.id);
@@ -226,7 +226,7 @@ export function pickPerk(s: State, i: number) {
 
 function refreshStats(s: State) {
   const oldMax = s.st.maxHp;
-  s.st = deriveStats(s.lv, s.perks);
+  s.st = deriveStats(s.lv, s.perks, s.level);
   // Keep HP ratio when max changes, but hull upgrades also heal the added amount.
   s.hp = Math.min(s.st.maxHp, s.hp + Math.max(0, s.st.maxHp - oldMax));
   s.power = Math.min(s.power, s.st.powerCap);
@@ -384,7 +384,7 @@ function spawn(s: State, dt: number) {
     for (let i = 0; i < n; i++) spawnEnemy(s, 'elite', a + (i - n / 2) * 0.08, ARENA_R + 4 + i * 3, rw);
     s.events.push({ k: 'warning' });
   }
-  if (!s.raid && s.t >= s.nextRaid - RAID_WARN) {
+  if (!s.raid && s.t >= s.nextRaid - RAID_WARN - s.st.raidWarn) {
     const r = pick(s.world, RAIDS.filter(r => s.t >= r.from)), a = rw() * TAU;
     // Same rounding spawnGroup will use at arrival, so the briefing matches what shows up.
     const scale = grow(s.nextRaid / 60, 0.7), n: Partial<Record<EnemyKind, number>> = {};
@@ -446,7 +446,8 @@ function moveEnemies(s: State, dt: number) {
       // Objective lost: PROTECT BATTERY by anything of the raid landing, PROTECT RADAR by any ARM hit while it's on.
       if (s.raidClean && s.raidLeft && (s.raidObj === 'radar' ? e.kind === 'arm' : e.raid === s.raidId && e.dmg > 0)) raidLost(s);
       if (e.kind === 'arm') {
-        s.radarDownUntil = Math.min(Math.max(s.radarDownUntil, s.t) + ARM_STUN, s.t + 2 * ARM_STUN);
+        const stun = ARM_STUN * s.st.armStun;
+        s.radarDownUntil = Math.min(Math.max(s.radarDownUntil, s.t) + stun, s.t + 2 * stun);
         s.events.push({ k: 'radarDown' });
         s.stats.radarHits++;
       }
@@ -518,7 +519,7 @@ function perimeter(s: State, dt: number) {
 // The enemy presses the advantage: no bonus, no recovery lull, and the next raid comes sooner.
 function raidLost(s: State) {
   s.raidClean = false;
-  s.nextRaid = Math.max(s.t + RAID_WARN + 5, s.nextRaid - RAID_PRESS);
+  s.nextRaid = Math.max(s.t + RAID_WARN + s.st.raidWarn + 5, s.nextRaid - RAID_PRESS);
   s.events.push({ k: 'raidLeak', n: RAID_PRESS });
 }
 
@@ -553,7 +554,19 @@ function powerAndAmmo(s: State, dt: number) {
   s.ammo += made; s.power -= made * st.ammoPower;
 }
 
+// While the MPQ-65 is knocked out (not in EMCON), a TRML-4D keeps searching at half range and chance: no fire
+// control locks, but contacts stay on the scope for the perimeter pads.
+export const backupSearching = (s: State) => s.st.backupRadar && !s.emcon && s.t < s.radarDownUntil;
+function backupRadar(s: State, dt: number) {
+  const da = s.st.sweep * dt, r2 = (s.st.radarRange * BACKUP_RADAR) ** 2;
+  for (const e of s.enemies) {
+    if (e.x * e.x + e.z * e.z > r2 || Math.random() >= da / TAU) continue;
+    if (Math.random() < ENEMIES[e.kind].sig * BACKUP_RADAR * s.st.res * jamFactor(s, e)) e.seenUntil = Math.max(e.seenUntil, s.t + s.st.persist);
+  }
+}
+
 function radar(s: State, dt: number) {
+  if (backupSearching(s)) backupRadar(s, dt);
   if (!emitting(s)) return;
   const a0 = s.sweepA, da = s.sweepSpeed * dt;
   // An AESA stares all round: each contact gets the looks a rotating beam would give it, at random moments.
