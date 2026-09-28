@@ -1,6 +1,6 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, PHASE_LEN, ELITE_EVERY,
-  ENEMIES, KINDS, WEAPONS, PHASES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty,
+  ENEMIES, KINDS, WEAPONS, PHASES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty,
   ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   type EnemyKind, type PerimKind, type WeaponKind, type Mod,
 } from './config.ts';
@@ -25,7 +25,7 @@ export type Ev =
   | { k: 'beam' | 'rail' | 'gun'; x: number; z: number; x2: number; z2: number }
   | { k: 'raid'; x: number; z: number; name: string }
   | { k: 'raidClear' | 'raidLeak'; n: number }
-  | { k: 'level' | 'warning' | 'buy' | 'lock' | 'over' | 'emcon' | 'radarDown' };
+  | { k: 'level' | 'warning' | 'buy' | 'placing' | 'lock' | 'over' | 'emcon' | 'radarDown' };
 
 export type Phase = 'start' | 'play' | 'pause' | 'perk' | 'over';
 
@@ -51,7 +51,8 @@ export function newGame() {
     sweepSpeed: 0, // effective, after power throttling
     enemies: [] as Enemy[],
     shots: [] as Shot[],
-    perim: [] as { k: PerimKind; x: number; z: number; cd: number }[],
+    perim: [] as { k: PerimKind; x: number; z: number; cd: number; slot: number }[],
+    placing: null as null | { k: PerimKind; since: number }, // bought, waiting for a click on the map
     jamming: false,
     emcon: false,
     radarDownUntil: 0,
@@ -106,7 +107,10 @@ export function jamFactor(s: State, e: { x: number; z: number }) {
 export const lockReason = (s: State, id: string) => {
   const u = UPGRADES.find(u => u.id === id)!;
   if (u.req && s.level < u.req) return `BASE LV ${u.req}`;
-  if (PERIM_KINDS.includes(id as PerimKind) && s.perim.length >= perimSlots(s.level)) return 'PADS FULL';
+  if (PERIM_KINDS.includes(id as PerimKind)) {
+    if (s.placing) return 'PLACING';
+    if (s.perim.length >= perimSlots(s.level)) return 'PADS FULL';
+  }
   return '';
 };
 
@@ -122,8 +126,8 @@ export function buy(s: State, id: string) {
   s.lv[id] = (s.lv[id] ?? 0) + 1;
   s.bought++;
   if (PERIM_KINDS.includes(id as PerimKind)) {
-    const a = s.perim.length / 8 * TAU; // pads fill round the ring, between the M903s
-    s.perim.push({ k: id as PerimKind, x: Math.cos(a) * PERIM_R, z: Math.sin(a) * PERIM_R, cd: 0 });
+    s.placing = { k: id as PerimKind, since: s.t };
+    s.events.push({ k: 'placing' });
   }
   refreshStats(s);
   s.events.push({ k: 'buy' });
@@ -145,6 +149,21 @@ export function draft(s: State) {
   const rest = pool.filter(p => !p.rule).map(p => p.id);
   while (out.length < 3) { const p = pick(rest); if (!out.includes(p)) out.push(p); }
   return out;
+}
+
+export const padAngle = (slot: number) => slot / PAD_SLOTS * TAU;
+export const freeSlots = (s: State) => [...Array(PAD_SLOTS).keys()].filter(i => !s.perim.some(p => p.slot === i));
+
+// Put the pending pad on the free slot closest in bearing to (x, z).
+export function placePad(s: State, x: number, z: number) {
+  if (!s.placing) return false;
+  const a = Math.atan2(z, x);
+  const slot = freeSlots(s).sort((i, j) => Math.abs(angDiff(a, padAngle(i))) - Math.abs(angDiff(a, padAngle(j))))[0];
+  if (slot === undefined) return false;
+  s.perim.push({ k: s.placing.k, x: Math.cos(padAngle(slot)) * PERIM_R, z: Math.sin(padAngle(slot)) * PERIM_R, cd: 0, slot });
+  s.placing = null;
+  s.events.push({ k: 'buy' });
+  return true;
 }
 
 export function pickPerk(s: State, i: number) {
@@ -196,6 +215,12 @@ export function update(s: State, dt: number) {
   track(s, dt);
   fire(s, dt);
   perimeter(s, dt);
+  if (s.placing && s.t - s.placing.since > PLACE_TIME) {
+    // Nobody picked a spot: face the nearest contact, or any threat at all.
+    let best = s.enemies[0], bd = Infinity;
+    for (const e of s.enemies) { const d = e.x * e.x + e.z * e.z; if (visible(s, e) && d < bd) { bd = d; best = e; } }
+    placePad(s, best?.x ?? 1, best?.z ?? 0);
+  }
   moveShots(s, dt);
   s.hp = Math.min(s.st.maxHp, s.hp + s.st.repair * dt);
   if (s.hp <= 0) { s.hp = 0; s.phase = 'over'; s.events.push({ k: 'over' }); }

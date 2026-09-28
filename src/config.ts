@@ -146,6 +146,8 @@ export const UPGRADES: Upgrade[] = [
 export type PerimKind = 'mantis' | 'stinger' | 'jammer';
 export const PERIM_KINDS: PerimKind[] = ['mantis', 'stinger', 'jammer'];
 export const PERIM_R = 13;
+export const PAD_SLOTS = 8; // fixed spots round the ring, between the M903s
+export const PLACE_TIME = 8; // s to click a spot before the pad places itself toward the nearest threat
 export const perimSlots = (level: number) => Math.min(8, 2 * (level - 1));
 export const PERIM = {
   mantis: { dmg: 1.2, rate: 10, range: 16, ammo: 0.15, power: 0 },

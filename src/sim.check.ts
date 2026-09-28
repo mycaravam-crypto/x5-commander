@@ -1,11 +1,14 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, buy, cost, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, emitting, jamFactor, phase, draft, type State } from './sim.ts';
+import { newGame, update, buy, cost, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, emitting, jamFactor, phase, draft, placePad, type State } from './sim.ts';
 import { baseLevel, UPGRADES, PERKS, deriveStats, EW_ORBIT, MODS, PHASES, PHASE_LEN, RAID_WARN } from './config.ts';
 
 const ok = (c: unknown, msg: string) => { if (!c) throw new Error('FAIL: ' + msg); };
 const run = (s: State, secs: number, each?: () => void) => {
   for (let i = 0; i < secs * 60; i++) { update(s, 1 / 60); each?.(); s.events.length = 0; }
 };
+
+// One thing at a time: no random spawns, strike packages or raids.
+const quiet = () => { const g = newGame(); g.phase = 'play'; g.spawnAcc = -1e9; g.nextElite = 1e9; g.nextRaid = 1e9; return g; };
 
 // Level thresholds
 ok([0, 2, 3, 8, 9, 18].map(baseLevel).join() === '1,1,2,2,3,4', 'baseLevel thresholds');
@@ -60,8 +63,12 @@ ok(b.level >= 3 && b.perks.length === b.level - 1, `base grows + perks (lv ${b.l
 s = newGame(); s.phase = 'play'; s.credits = 1e6;
 ok(!buy(s, 'mantis'), 'mantis locked at lv1');
 s.level = 2;
-ok(buy(s, 'mantis') && buy(s, 'mantis') && !buy(s, 'mantis'), 'lv2 = 2 pads');
+ok(buy(s, 'mantis') && !buy(s, 'mantis'), 'one pad placed at a time');
+ok(placePad(s, -10, 0) && s.perim[0].slot === 4, 'pad goes to the clicked side');
+ok(buy(s, 'mantis') && placePad(s, -10, 0) && s.perim[1].slot !== 4, 'taken slot skipped');
+ok(!buy(s, 'mantis'), 'lv2 = 2 pads');
 ok(s.perim.length === 2 && Math.hypot(s.perim[0].x, s.perim[0].z) > 10, 'pads on the ring');
+{ const g = quiet(); g.credits = 1e6; g.level = 2; buy(g, 'mantis'); run(g, 9); ok(g.perim.length === 1 && !g.placing, 'unplaced pad places itself'); }
 s.st.slots = 0; // no main-battery locks: only the pads can shoot
 run(s, 40);
 ok(s.kills > 0, `pads engage without locks (kills=${s.kills})`);
@@ -71,8 +78,6 @@ s = newGame(); s.phase = 'play'; run(s, 20);
 const v = s.enemies.find(e => visible(s, e));
 if (v) { markAt(s, v.x, v.z); ok(s.marked === v.id, 'markAt'); }
 
-// Radar threats, one at a time: no random spawns, no strike packages.
-const quiet = () => { const g = newGame(); g.phase = 'play'; g.spawnAcc = -1e9; g.nextElite = 1e9; g.nextRaid = 1e9; return g; };
 
 // ARM vs a radiating radar: it connects and the radar goes dark.
 s = quiet(); s.st.slots = 0; spawnEnemy(s, 'arm', 0, 40);

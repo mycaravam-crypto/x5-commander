@@ -29,7 +29,7 @@ The game runs entirely in the browser, with no backend and no asset files. `dist
 | Input                  | Action                                    |
 |------------------------|-------------------------------------------|
 | Space / Enter          | Start game                                |
-| Left click             | Mark a contact as the priority target     |
+| Left click             | Mark a contact as the priority target, or place a bought pad |
 | Mouse wheel            | Zoom                                      |
 | Right-drag / Q / E     | Rotate camera                             |
 | Tab                    | Show / hide the upgrade shop              |
@@ -64,6 +64,9 @@ Detected enemies are locked, up to your number of **lock slots**. A lock holds a
 | HEL 50 kW laser          | Power        | Instant, rapid beam                                     |
 | IRIS-T SLX               | Interceptors | Homing, blast-frag splash; one extra launcher per level |
 | Leonidas HPM (microwave) | Power        | Huge hit, affects everything along the line             |
+
+### Perimeter defenses
+From base level 2 you can buy perimeter pads: **MANTIS 35mm C-RAM** (fast gun, short range), **Stinger teams** (homing, mid range) and **EW jammers** (slow nearby contacts, drain power). Each base level opens 2 more pads, up to 8. Pads engage any radar contact in their own range without using a lock slot. After buying a pad, **click the map** to put it on the nearest free spot on the ring, facing where the threats come from. If you don't click within 8 seconds, it places itself toward the nearest contact.
 
 ### Power and ammo
 Your generator fills a power pool. The radar drains power continuously, and so do ammo production, pulse shots and railgun shots. **When power runs short, the radar sweep slows** (down to 25% speed), so you see less. Balancing seeing, shooting and building is the core tension of the game.

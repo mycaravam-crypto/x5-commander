@@ -1,4 +1,4 @@
-import { newGame, update, buy, pickPerk, markAt, cycleMode, toggleEmcon, type State } from './sim.ts';
+import { newGame, update, buy, pickPerk, markAt, placePad, cycleMode, toggleEmcon, type State } from './sim.ts';
 import { createRenderer } from './render.ts';
 import { createHud } from './hud.ts';
 import * as sfx from './sfx.ts';
@@ -20,7 +20,7 @@ let dragX: number | null = null;
 canvas.addEventListener('mousedown', e => {
   if (e.button === 2) { dragX = e.clientX; return; }
   const p = view.pick(e.clientX, e.clientY);
-  if (p && s.phase === 'play') markAt(s, p.x, p.z);
+  if (p && s.phase === 'play' && !placePad(s, p.x, p.z)) markAt(s, p.x, p.z);
 });
 addEventListener('mousemove', e => { if (dragX !== null) { view.rotate((e.clientX - dragX) * 0.008); dragX = e.clientX; } });
 addEventListener('mouseup', () => { dragX = null; });

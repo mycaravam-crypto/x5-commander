@@ -4,8 +4,8 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { ARENA_R, ENEMIES, EW_ARC, KINDS, PAL, type EnemyKind } from './config.ts';
-import { emitting, phase, shownKind, visible, type State } from './sim.ts';
+import { ARENA_R, ENEMIES, EW_ARC, KINDS, PAL, PAD_SLOTS, PERIM_R, type EnemyKind } from './config.ts';
+import { emitting, freeSlots, padAngle, phase, shownKind, visible, type State } from './sim.ts';
 
 const MAX_ENEMIES = 2000, MAX_LOCKS = 64, MAX_SHOTS = 600, MAX_SHARDS = 2500, MAX_WAVES = 64, MAX_BEAMS = 96, MAX_BLIPS = 1024;
 const VIS = 1.6; // enemies drawn bigger than their hitbox so they read at a glance
@@ -314,6 +314,9 @@ export function createRenderer() {
   for (let i = 0; i < 3; i++) chevPts.push(0.6 - i, 0, -0.8, -i, 0, 0, -i, 0, 0, 0.6 - i, 0, 0.8);
   const raidMark = new THREE.Mesh(segs(chevPts), additive(ALERT, true));
   raidMark.visible = false; scene.add(raidMark);
+  // Free pad spots, shown while a bought pad waits to be placed.
+  const padMarks = instanced(segs(ringPts(16, 2)), additive(0xffffff, true), PAD_SLOTS);
+  scene.add(padMarks);
 
   // Particle pools: flat arrays, ring-buffer allocation, no per-frame garbage.
   const sh = { p: new Float32Array(MAX_SHARDS * 3), v: new Float32Array(MAX_SHARDS * 3), life: new Float32Array(MAX_SHARDS), max: new Float32Array(MAX_SHARDS), col: new Float32Array(MAX_SHARDS * 3), size: new Float32Array(MAX_SHARDS), next: 0 };
@@ -408,6 +411,13 @@ export function createRenderer() {
     gridFlash = Math.max(0, gridFlash - dt * 2.5);
     gridMat.color.setScalar((phase(s).mod.dark ? 0.45 : 1) + gridFlash * 4);
     raidMark.visible = !!s.raid;
+    padMarks.count = 0;
+    if (s.placing) for (const i of freeSlots(s)) {
+      dummy.position.set(Math.cos(padAngle(i)) * PERIM_R, 0.15, Math.sin(padAngle(i)) * PERIM_R);
+      dummy.rotation.set(0, clock, 0); dummy.scale.setScalar(1.6 + 0.3 * Math.sin(clock * 6));
+      dummy.updateMatrix(); padMarks.setMatrixAt(padMarks.count, dummy.matrix);
+      padMarks.setColorAt(padMarks.count++, tmpC.setHex(HOT));
+    }
     if (s.raid) {
       const pulse = (clock * 1.5) % 1;
       raidMark.position.set(Math.cos(s.raid.a) * (ARENA_R - 1 - pulse * 3), 0.2, Math.sin(s.raid.a) * (ARENA_R - 1 - pulse * 3));
@@ -553,7 +563,7 @@ export function createRenderer() {
       blipMesh.setColorAt(blipMesh.count++, tmpC.setHex(BRIGHT).multiplyScalar(0.7 * r * r));
     }
 
-    for (const m of [...Object.values(enemyFills), ...Object.values(enemyEdges), brackets, hpBars, shells, tracers, missiles, shardMesh, waveMesh, beamMesh, blipMesh, jamMesh]) {
+    for (const m of [...Object.values(enemyFills), ...Object.values(enemyEdges), brackets, hpBars, shells, tracers, missiles, shardMesh, waveMesh, beamMesh, blipMesh, jamMesh, padMarks]) {
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }

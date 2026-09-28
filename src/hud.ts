@@ -1,4 +1,4 @@
-import { ARENA_R, BASE_R, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
+import { ARENA_R, BASE_R, PLACE_TIME, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
 import { cost, emitting, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -183,6 +183,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     $('info').innerHTML = [
       ['TRACKS', contacts], ['ENGAGED', `${locks} / ${st.slots}`], ['MODE [T]', MODES[s.mode]],
       ['RANGE', `${Math.round(st.radarRange)}m`], ['PERIMETER', `${s.perim.length} / ${perimSlots(s.level)} pads`], ['RADAR [F]', radar],
+      ...s.placing ? [['PAD', `<span class="hot">CLICK MAP · ${Math.max(0, PLACE_TIME - (s.t - s.placing.since)).toFixed(0)}s</span>`]] : [],
       ...s.raid ? [['RAID', `<span class="alert">BRG ${pad3(bearing(Math.cos(s.raid.a), Math.sin(s.raid.a)))} · T-${Math.max(0, s.raid.at - s.t).toFixed(0)}s</span>`]]
         : s.raidLeft ? [['RAID', `${s.raidLeft} left${s.raidClean ? ' · CLEAN' : ''}`]] : [],
     ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
@@ -219,6 +220,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         else if (e.k === 'emcon') log(s.emcon ? 'EMCON · RADAR SILENT' : 'RADIATING', s.emcon ? 'alert' : '');
         else if (e.k === 'jam') log(`JAMMING BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
         else if (e.k === 'ident') log('DECOY CLASSIFIED · TRACK RELEASED');
+        else if (e.k === 'placing') say(`CLICK THE MAP TO PLACE ${s.placing!.k.toUpperCase()}`, 'info');
         else if (e.k === 'raid') { say(`⚠ ${e.name} · BRG ${pad3(bearing(e.x, e.z))}`, 'warn'); log(`${e.name} · BRG ${pad3(bearing(e.x, e.z))}`, 'alert'); }
         else if (e.k === 'raidClear') { say(`RAID DEFEATED · +${fmt(e.n)}`, 'info'); log(`RAID CLEAN · +${fmt(e.n)}`); }
         else if (e.k === 'raidLeak') log('RAID LEAKED · NO BONUS', 'alert');
