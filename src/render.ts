@@ -70,10 +70,11 @@ function gridTexture(renderer: THREE.WebGLRenderer, R: number) {
 }
 
 const CRT = {
-  uniforms: { tDiffuse: { value: null }, time: { value: 0 }, curve: { value: CURVE } },
+  // blind: 0 = radar up, ~0.3 = EMCON, 1 = radar knocked out (static, rolling bars, drained colour).
+  uniforms: { tDiffuse: { value: null }, time: { value: 0 }, curve: { value: CURVE }, blind: { value: 0 } },
   vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
   fragmentShader: `
-    uniform sampler2D tDiffuse; uniform float time, curve; varying vec2 vUv;
+    uniform sampler2D tDiffuse; uniform float time, curve, blind; varying vec2 vUv;
     void main() {
       vec2 c = vUv - 0.5;
       c *= 1.0 + curve * dot(c, c);
@@ -81,7 +82,9 @@ const CRT = {
       if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
       vec3 col = texture2D(tDiffuse, uv).rgb;
       float n = fract(sin(dot(uv * 913.0 + fract(time), vec2(12.9898, 78.233))) * 43758.5453);
-      col += (n - 0.5) * vec3(0.012, 0.04, 0.02);
+      col = mix(col, vec3(dot(col, vec3(0.3, 0.6, 0.1))) * vec3(1.0, 0.5, 0.3), blind * 0.55);
+      col += (n - 0.5) * vec3(0.012, 0.04, 0.02) * (1.0 + blind * 10.0);
+      col += step(0.97, fract(uv.y * 2.0 - time * 0.6)) * blind * vec3(0.06, 0.03, 0.02);
       col *= 1.0 - 1.1 * dot(c, c);
       gl_FragColor = vec4(col, 1.0);
     }`,
@@ -623,6 +626,8 @@ export function createRenderer() {
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
     crt.uniforms.time.value = clock;
+    const blind = s.phase !== 'play' && s.phase !== 'pause' ? 0 : s.t < s.radarDownUntil ? 1 : s.emcon ? 0.3 : 0;
+    crt.uniforms.blind.value += (blind - crt.uniforms.blind.value) * Math.min(1, dt * 6);
     composer.render(dt);
   }
 

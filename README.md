@@ -64,6 +64,7 @@ A rotating radar can take at most 8 levels of *Scan Rate*. From base level 4 you
 
 ### Radar threats and EMCON
 The enemy fights your radar, not just your base.
+- **The HUD shows the radar's state.** Knocked out: the whole screen goes to static with rolling bars and drained colour, the frames turn red, the mini radar shows NO RADAR, and a red countdown reads RADAR DOWN, NO FIRE CONTROL. EMCON gets a quieter amber banner. Red is kept for the worst states only: radar knocked out and battery critical.
 - **Anti-radiation missiles (Kh-31P)** home on a radiating radar. Su-34s launch them once they're in range, and in the SEAD phase they arrive in salvos. A hit takes the radar **offline for 6 s** (repeated hits stack up to 12 s). You get warning: every launch sounds the radar-warning tone and shows its bearing.
 - **EMCON (`F`)** stops the radar transmitting. Inbound ARMs lose the emitter and veer off, the radar stops draining power, but fire control drops every lock and contacts coast on track memory. Go silent early: an ARM that's already close still hits.
 - **Radar modes (`V`)**, each a trade-off. EMCON works on top of any of them.
@@ -114,7 +115,7 @@ A new phase starts every 75 seconds and changes the enemy mix: **PROBING → SAT
 An EW helicopter in a package is an **escort**: it goes in first and holds station on the package's bearing instead of circling, so its jammed sector stays over the package.
 
 **Raids:** from 1:50, a named raid arrives every 80 seconds, all from one bearing. Each one runs the same way:
-1. **Warning and preparation (10 s):** a briefing card shows the sector, the raid's name, its composition, the objective and the bonus, with chevrons at the rim. Use the time to set radar, fire discipline and priority.
+1. **Warning and preparation (10 s):** a briefing card shows the sector, the raid's name, its composition, the objective and the bonus, with chevrons at the rim. When that part of the rim is off screen, an amber arrow on the screen edge points toward it. Use the time to set radar, fire discipline and priority.
 2. **Attack:** a siren sounds and the HUD frames turn amber. Normal spawns thin out to 40% while the raid is in the air, and the card tracks what's left and whether the objective still holds.
 3. **Resolution:** the objective is **PROTECT BATTERY** (nothing in the raid lands) or, for SEAD STRIKE, **PROTECT RADAR** (no ARM hits the radar while the raid is on).
    - **Held:** the bonus pays out, then a **15 s recovery** with spawns at 30%.
