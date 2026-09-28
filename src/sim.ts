@@ -1,6 +1,6 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, PHASE_LEN, ELITE_EVERY,
-  ENEMIES, KINDS, WEAPONS, PHASES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, SWEEP_CAP, grow, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty,
+  ENEMIES, KINDS, WEAPONS, PHASES, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, SWEEP_CAP, grow, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty,
   ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   type EnemyKind, type PerimKind, type WeaponKind, type Mod,
 } from './config.ts';
@@ -15,6 +15,8 @@ export interface Enemy {
   lockT: number; ided: boolean; // decoy: time held in lock, classified yet
   orbit: boolean; // Mi-8 jammer: on station and jamming
   raid: number; // id of the raid it belongs to, 0 = none
+  pkg: number; // id of the attack package or raid group it flies with, 0 = none
+  hold: number; // escort jammer: bearing it holds station on, NaN = circles
 }
 export interface Shot {
   kind: 'shell' | 'missile' | 'tracer'; x: number; z: number; vx: number; vz: number;
@@ -24,6 +26,7 @@ export type Ev =
   | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect' | 'arm' | 'tbm' | 'jam' | 'ident'; x: number; z: number; kind?: EnemyKind; n?: number }
   | { k: 'beam' | 'rail' | 'gun'; x: number; z: number; x2: number; z2: number }
   | { k: 'raid'; x: number; z: number; name: string }
+  | { k: 'package'; x: number; z: number; name: string }
   | { k: 'raidClear' | 'raidLeak'; n: number }
   | { k: 'intercept'; x: number; z: number }
   | { k: 'level' | 'warning' | 'buy' | 'placing' | 'lock' | 'over' | 'emcon' | 'radarDown' | 'aesa' | 'discipline' };
@@ -89,6 +92,7 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     intercept: { until: 0, target: 0 }, // emergency intercept in progress
     interceptReady: 0, // time the next intercept can be called
     nextId: 1,
+    nextPkg: 1,
     events: [] as Ev[],
     shake: 0,
   };
@@ -107,9 +111,9 @@ const NO_MOD: Mod = { name: '', desc: '' };
 export function phase(s: State) {
   const i = Math.floor(s.t / PHASE_LEN);
   if (i < PHASES.length) return { ...PHASES[i], mod: NO_MOD };
-  const mod = MODS[(i - PHASES.length) % MODS.length], w = { ...PHASES[PHASES.length - 1].w };
+  const last = PHASES[PHASES.length - 1], mod = MODS[(i - PHASES.length) % MODS.length], w = { ...last.w };
   for (const [k, v] of Object.entries(mod.w ?? {}) as [EnemyKind, number][]) w[k] = (w[k] ?? 0) + v;
-  return { name: mod.name, w, mod };
+  return { name: mod.name, w, mod, pk: last.pk };
 }
 export const phaseName = (s: State) => phase(s).name;
 export const emitting = (s: State) => !s.emcon && s.t >= s.radarDownUntil;
@@ -300,19 +304,42 @@ export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2
     id: s.nextId++, kind, x, z, vx: -Math.cos(a) * speed, vz: -Math.sin(a) * speed,
     hp, maxHp: hp, speed, dmg: T.dmg * d.dmg,
     reward: T.reward, size: T.size, seenUntil: -1, locked: false, incoming: 0, wob: rnd() * TAU,
-    born: s.t, cd: 3, aim: NaN, lockT: 0, ided: false, orbit: false, raid: 0,
+    born: s.t, cd: 3, aim: NaN, lockT: 0, ided: false, orbit: false, raid: 0, pkg: 0, hold: NaN,
   });
   if (kind === 'arm' || kind === 'tbm') s.events.push({ k: kind, x, z }); // ESM / early warning hears the launch, radar or not
   return s.enemies[s.enemies.length - 1];
 }
 
+// A group flying in together from bearing `a`, in rows, counts in packs. Escort jammers hold its bearing.
+function spawnGroup(s: State, g: Partial<Record<EnemyKind, number>>, a: number, scale: number, rw: () => number) {
+  const id = s.nextPkg++, out: Enemy[] = [];
+  let row = 0;
+  for (const [kind, n] of Object.entries(g) as [EnemyKind, number][]) {
+    for (let i = 0; i < Math.max(1, Math.round(n * scale)); i++, row++) for (let j = 0; j < ENEMIES[kind].pack; j++) {
+      const e = spawnEnemy(s, kind, a + (rw() - 0.5) * 0.35, ARENA_R + 2 + row * 1.5 + rw() * 2, rw);
+      e.pkg = id;
+      // The escort goes in ahead, on the axis, so it's on station jamming before the package is in radar range.
+      if (kind === 'ew') { e.hold = a; e.x = Math.cos(a) * (EW_ORBIT + 6); e.z = Math.sin(a) * (EW_ORBIT + 6); }
+      out.push(e);
+    }
+  }
+  return out;
+}
+
 function spawn(s: State, dt: number) {
   const rw = () => rand(s.world);
-  const { w, mod } = phase(s);
+  const { w, mod, pk } = phase(s);
   s.spawnAcc += difficulty(s.t).spawnRate * (mod.spawn ?? 1) * dt;
   const total = KINDS.reduce((a, k) => a + (w[k] ?? 0), 0);
   while (s.spawnAcc >= 1) {
     s.spawnAcc--;
+    const pkgs = PACKAGES.filter(p => s.t >= p.from);
+    if (pk && pkgs.length && rw() < pk) {
+      const p = pick(s.world, pkgs), a = rw() * TAU;
+      spawnGroup(s, p.g, a, 1, rw);
+      s.events.push({ k: 'package', x: Math.cos(a) * ARENA_R, z: Math.sin(a) * ARENA_R, name: p.name });
+      continue;
+    }
     let r = rw() * total, kind: EnemyKind = 'drone';
     for (const k of KINDS) { r -= w[k] ?? 0; if (r <= 0) { kind = k; break; } }
     const a = rw() * TAU;
@@ -334,13 +361,7 @@ function spawn(s: State, dt: number) {
     const { a, g } = s.raid, scale = grow(s.t / 60, 0.7);
     s.raid = null;
     s.raidId++; s.raidLeft = 0; s.raidClean = true; s.raidReward = 0;
-    let row = 0;
-    for (const [kind, n] of Object.entries(g) as [EnemyKind, number][]) {
-      for (let i = 0; i < Math.round(n * scale); i++, row++) for (let j = 0; j < ENEMIES[kind].pack; j++) {
-        const e = spawnEnemy(s, kind, a + (rw() - 0.5) * 0.35, ARENA_R + 2 + row * 1.5 + rw() * 2, rw);
-        e.raid = s.raidId; s.raidLeft++; s.raidReward += e.reward;
-      }
-    }
+    for (const e of spawnGroup(s, g, a, scale, rw)) { e.raid = s.raidId; s.raidLeft++; s.raidReward += e.reward; }
   }
 }
 
@@ -365,8 +386,9 @@ function moveEnemies(s: State, dt: number) {
       e.vz = nz * sp + nx * wob;
       if (e.kind === 'ew' && (e.orbit || d <= EW_ORBIT)) {
         // On station: circle the battery (direction from wob), easing back onto the orbit radius.
+        // An escort holds its package's bearing instead, so the jammed sector stays over the package.
         if (!e.orbit) { e.orbit = true; s.events.push({ k: 'jam', x: e.x, z: e.z }); }
-        const dir = e.wob < Math.PI ? 1 : -1, pull = (d - EW_ORBIT) * 0.5;
+        const dir = Number.isNaN(e.hold) ? (e.wob < Math.PI ? 1 : -1) : -Math.max(-1, Math.min(1, angDiff(e.hold, Math.atan2(e.z, e.x)) * 4)), pull = (d - EW_ORBIT) * 0.5;
         e.vx = -nz * dir * sp + nx * pull;
         e.vz = nx * dir * sp + nz * pull;
       }

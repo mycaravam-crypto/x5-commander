@@ -95,6 +95,16 @@ Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits
 ### Enemies and phases
 A new phase starts every 75 seconds and changes the enemy mix: **PROBING → SATURATION → ROTARY STRIKE → AIR STRIKE → SEAD → COMBINED RAID**. After COMBINED RAID, every phase adds a **condition** on top of that mix, looping in this order: **NIGHT RAID** (contacts fade twice as fast), **GROUND CLUTTER** (−30% detection), **LULL** (a breather to rebuild), **JAMMING STORM** (more jammer helicopters), **SWARM TIDE** (many more, weaker enemies) and **SEAD WAVE** (strike aircraft and ARMs). Every 150 seconds, a *STRIKE AIRCRAFT* warning appears.
 
+**Attack packages:** from ROTARY STRIKE on, some spawns are a package instead of a single pack: several types flying in together from one bearing, each covering another's weakness. The log names the element to kill first.
+
+| Package      | From | Composition                              | Kill first | Because                                             |
+|--------------|------|------------------------------------------|------------|-----------------------------------------------------|
+| JAMMED SWARM | 2:30 | Mi-8 escort, 12 FPV, 2 Shahed            | Mi-8       | the swarm flies inside the jammer's sector          |
+| SEAD PACKAGE | 4:00 | Su-34, 2 Kh-31P, 3 decoys, Shahed        | Su-34      | decoys soak locks while the Su-34 keeps firing ARMs |
+| SATURATION   | 5:00 | 6 decoys, Mi-8 escort, 3 Lancets, Mi-28  | Mi-28      | the heavy hides among decoys and fast Lancets       |
+
+An EW helicopter in a package is an **escort**: it goes in first and holds station on the package's bearing instead of circling, so its jammed sector stays over the package.
+
 **Raids:** from 1:50, a named raid arrives every 80 seconds, all from one bearing. It's announced 6 seconds ahead, with chevrons at the rim and a countdown in the side panel. Raids include SHAHED WAVE, LANCET PACK, FPV SWARM, DECOY SCREEN, HELO ASSAULT, SEAD STRIKE and ISKANDER SALVO. Destroy the whole raid before anything hits the battery or the radar for a **clean-raid bonus**. Spawn rate, HP, damage and raid size grow **logarithmically**: each doubling of play time adds about the same threat. A strong battery can keep going indefinitely.
 
 | Threat                      | Notes                                     |

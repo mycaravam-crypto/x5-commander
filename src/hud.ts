@@ -1,4 +1,4 @@
-import { ARENA_R, BASE_R, PLACE_TIME, DOCTRINES, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
+import { ARENA_R, BASE_R, PLACE_TIME, DOCTRINES, PACKAGES, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
 import type { Records } from './config.ts';
 import { cost, emitting, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
@@ -34,6 +34,7 @@ const TIPS: Record<string, string> = {
   tbm: 'Ballistic missile: only PAC-3 can hit it. Keep interceptors in stock and a lock slot free.',
   jam: 'Jammer on station: detection drops in the amber sector. The Mi-8 itself shows clearly, so click it and kill it.',
   ident: 'Decoy classified and released. Decoys look like Shaheds until locked for a moment. GaN T/R Modules classify faster.',
+  package: 'Attack package: several types covering each other. The log says which element to kill first; mark it.',
   level: 'Base level up: new launcher and perimeter pads. Perimeter defenses fire on their own, without lock slots.',
 };
 const seenTips = (() => { try { return new Set<string>(JSON.parse(localStorage.getItem('x5-tips') ?? '[]')); } catch { return new Set<string>(); } })();
@@ -306,6 +307,12 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         else if (e.k === 'ident') log('DECOY CLASSIFIED · TRACK RELEASED');
         else if (e.k === 'placing') say(`CLICK THE MAP TO PLACE ${s.placing!.k.toUpperCase()}`, 'info');
         else if (e.k === 'raid') { say(`⚠ ${e.name} · BRG ${pad3(bearing(e.x, e.z))}`, 'warn'); log(`${e.name} · BRG ${pad3(bearing(e.x, e.z))}`, 'alert'); }
+        else if (e.k === 'package') {
+          const p = PACKAGES.find(p => p.name === e.name)!;
+          say(`${e.name} · BRG ${pad3(bearing(e.x, e.z))}`, 'warn');
+          log(`${e.name} BRG ${pad3(bearing(e.x, e.z))} · KILL ${ENEMIES[p.first].code} FIRST`, 'alert');
+          log(p.why.toUpperCase());
+        }
         else if (e.k === 'raidClear') { say(`RAID DEFEATED · +${fmt(e.n)}`, 'info'); log(`RAID CLEAN · +${fmt(e.n)}`); }
         else if (e.k === 'raidLeak') log('RAID LEAKED · NO BONUS', 'alert');
         else if (e.k === 'aesa') { say('LTAMDS ONLINE · 360° STARE', 'info'); log('AESA ONLINE · SWEEP RETIRED'); }

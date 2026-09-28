@@ -40,14 +40,28 @@ export const ENEMIES: Record<EnemyKind, EnemyType> = {
 };
 export const KINDS = Object.keys(ENEMIES) as EnemyKind[];
 
-// Spawn weights per phase; last entry repeats forever.
-export const PHASES: { name: string; w: Partial<Record<EnemyKind, number>> }[] = [
+// Spawn weights per phase; last entry repeats forever. pk: chance that a spawn event is an attack package instead.
+export const PHASES: { name: string; w: Partial<Record<EnemyKind, number>>; pk?: number }[] = [
   { name: 'PROBING', w: { scout: 3, drone: 2 } },
   { name: 'SATURATION', w: { scout: 2, drone: 3, swarm: 1, decoy: 1 } },
-  { name: 'ROTARY STRIKE', w: { scout: 2, drone: 3, swarm: 1, tank: 1, decoy: 1 } },
-  { name: 'AIR STRIKE', w: { scout: 2, drone: 3, swarm: 1, tank: 1, elite: 0.15, decoy: 1, ew: 0.1, tbm: 0.1 } },
-  { name: 'SEAD', w: { scout: 1, drone: 3, swarm: 1, tank: 1, decoy: 2, arm: 0.3, ew: 0.15 } },
-  { name: 'COMBINED RAID', w: { scout: 2, drone: 3, swarm: 2, tank: 1.5, elite: 0.3, decoy: 1.5, arm: 0.2, ew: 0.1, tbm: 0.15 } },
+  { name: 'ROTARY STRIKE', w: { scout: 2, drone: 3, swarm: 1, tank: 1, decoy: 1 }, pk: 0.04 },
+  { name: 'AIR STRIKE', w: { scout: 2, drone: 3, swarm: 1, tank: 1, elite: 0.15, decoy: 1, ew: 0.1, tbm: 0.1 }, pk: 0.05 },
+  { name: 'SEAD', w: { scout: 1, drone: 3, swarm: 1, tank: 1, decoy: 2, arm: 0.3, ew: 0.15 }, pk: 0.07 },
+  { name: 'COMBINED RAID', w: { scout: 2, drone: 3, swarm: 2, tank: 1.5, elite: 0.3, decoy: 1.5, arm: 0.2, ew: 0.1, tbm: 0.15 }, pk: 0.08 },
+];
+
+// Attack packages: existing types flying in together from one bearing, each covering another's weakness.
+// Counts are packs (a decoy pack is 3, an FPV pack 6). An EW helicopter in a package is an escort: it holds
+// station on the package's bearing instead of circling, so its jammed sector covers the rest of the package.
+// `first` is the element to dismantle first; `why` says what happens if you don't.
+export interface Package { name: string; from: number; g: Partial<Record<EnemyKind, number>>; first: EnemyKind; why: string }
+export const PACKAGES: Package[] = [
+  { name: 'SEAD PACKAGE', from: 240, g: { elite: 1, arm: 1, decoy: 1, drone: 1 }, first: 'elite',
+    why: 'decoys soak locks while the Su-34 keeps launching ARMs' },
+  { name: 'JAMMED SWARM', from: 150, g: { ew: 1, swarm: 2, drone: 2 }, first: 'ew',
+    why: 'the swarm hides in the jammer\'s sector' },
+  { name: 'SATURATION', from: 300, g: { decoy: 2, ew: 1, scout: 3, tank: 1 }, first: 'tank',
+    why: 'the Mi-28 hides among decoys and fast Lancets under jamming' },
 ];
 
 // After the last phase, each PHASE_LEN brings a new condition on top of COMBINED RAID's mix, looping in order.
@@ -72,7 +86,9 @@ export const RAIDS: { name: string; from: number; g: Partial<Record<EnemyKind, n
   { name: 'FPV SWARM', from: 0, g: { swarm: 3 } },
   { name: 'DECOY SCREEN', from: 150, g: { decoy: 2, drone: 4 } },
   { name: 'HELO ASSAULT', from: 200, g: { tank: 3, scout: 3 } },
-  { name: 'SEAD STRIKE', from: 280, g: { arm: 2, decoy: 2, drone: 3 } },
+  { name: 'SEAD STRIKE', from: 280, g: { elite: 1, arm: 2, decoy: 2, drone: 2 } },
+  { name: 'SWARM ASSAULT', from: 200, g: { ew: 1, swarm: 3, drone: 4 } },
+  { name: 'SATURATION STRIKE', from: 360, g: { decoy: 2, ew: 1, scout: 5, tank: 2 } },
   { name: 'ISKANDER SALVO', from: 240, g: { tbm: 3 } },
 ];
 
