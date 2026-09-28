@@ -1,5 +1,5 @@
 import {
-  ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, PHASE_LEN, ELITE_EVERY,
+  ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, PHASE_LEN, ELITE_EVERY, ELITE_FIRST, PK_GROW, PK_MAX,
   ENEMIES, KINDS, WEAPONS, PHASES, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, RAID_SPAWN, RAID_RECOVER, RAID_CALM, RAID_PRESS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, SWEEP_CAP, grow, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty, BACKUP_RADAR,
   RADAR_MODES, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   type EnemyKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
@@ -90,7 +90,7 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     cooldown: { cannon: 0, pulse: 0, missile: 0, rail: 0 } as Record<WeaponKind, number>,
     aim: 0, // turret heading, for rendering
     spawnAcc: 0,
-    nextElite: ELITE_EVERY,
+    nextElite: ELITE_FIRST,
     nextRaid: RAID_FIRST,
     // Announced, not yet here: composition (in aircraft) and the bonus it pays if the objective holds.
     raid: null as null | { name: string; a: number; at: number; g: Partial<Record<EnemyKind, number>>; obj: RaidObjective; n: Partial<Record<EnemyKind, number>>; bonus: number },
@@ -127,7 +127,8 @@ export function phase(s: State) {
   if (i < PHASES.length) return { ...PHASES[i], mod: NO_MOD };
   const last = PHASES[PHASES.length - 1], mod = MODS[(i - PHASES.length) % MODS.length], w = { ...last.w };
   for (const [k, v] of Object.entries(mod.w ?? {}) as [EnemyKind, number][]) w[k] = (w[k] ?? 0) + v;
-  return { name: mod.name, w, mod, pk: last.pk };
+  const loop = i - PHASES.length; // packages get likelier every phase past the scripted ones
+  return { name: mod.name, w, mod, pk: Math.min(PK_MAX, (last.pk ?? 0) + PK_GROW * (loop + 1)) };
 }
 export const phaseName = (s: State) => phase(s).name;
 export const emitting = (s: State) => !s.emcon && s.t >= s.radarDownUntil;

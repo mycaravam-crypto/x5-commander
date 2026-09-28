@@ -7,7 +7,7 @@ export const COMBO_WINDOW = 1.5; // s between kills to keep the combo
 export const COMBO_BONUS = 0.02; // +2% credits per combo step
 export const COMBO_CAP = 50;
 export const PHASE_LEN = 75; // s
-export const ELITE_EVERY = 150; // s
+export const ELITE_EVERY = 150, ELITE_FIRST = 225; // s: Su-34 strike packages, from the SEAD phase on
 
 // Green phosphor palette, shared by the 3D scene and the CSS (hud.ts copies it into CSS variables).
 // Hierarchy: dim/mid for the frame, bright for what's active, hot for what's locked or selected, amber (alert)
@@ -41,15 +41,18 @@ export const ENEMIES: Record<EnemyKind, EnemyType> = {
 };
 export const KINDS = Object.keys(ENEMIES) as EnemyKind[];
 
-// Spawn weights per phase; last entry repeats forever. pk: chance that a spawn event is an attack package instead.
+// Difficulty comes in phases of PHASE_LEN, each adding a kind of problem rather than just more HP:
+// 1 learn the systems · 2 mixed threats · 3 jammers + decoys · 4 SEAD · 5 heavy coordinated raids ·
+// 6+ conditions on top, with attack packages ever more likely (PK_GROW per loop, up to PK_MAX).
+// Spawn weights per phase; the last entry repeats. pk: chance a spawn event is an attack package instead.
 export const PHASES: { name: string; w: Partial<Record<EnemyKind, number>>; pk?: number }[] = [
   { name: 'PROBING', w: { scout: 3, drone: 2 } },
-  { name: 'SATURATION', w: { scout: 2, drone: 3, swarm: 1, decoy: 1 } },
-  { name: 'ROTARY STRIKE', w: { scout: 2, drone: 3, swarm: 1, tank: 1, decoy: 1 }, pk: 0.04 },
-  { name: 'AIR STRIKE', w: { scout: 2, drone: 3, swarm: 1, tank: 1, elite: 0.15, decoy: 1, ew: 0.1, tbm: 0.1 }, pk: 0.05 },
-  { name: 'SEAD', w: { scout: 1, drone: 3, swarm: 1, tank: 1, decoy: 2, arm: 0.3, ew: 0.15 }, pk: 0.07 },
-  { name: 'COMBINED RAID', w: { scout: 2, drone: 3, swarm: 2, tank: 1.5, elite: 0.3, decoy: 1.5, arm: 0.2, ew: 0.1, tbm: 0.15 }, pk: 0.08 },
+  { name: 'MIXED THREATS', w: { scout: 2, drone: 3, swarm: 1, tank: 0.5 } },
+  { name: 'EW SCREEN', w: { scout: 2, drone: 3, swarm: 1, tank: 0.7, decoy: 1.5, ew: 0.15 }, pk: 0.05 },
+  { name: 'SEAD', w: { scout: 1, drone: 3, swarm: 1, tank: 1, decoy: 2, elite: 0.15, arm: 0.3, ew: 0.15 }, pk: 0.07 },
+  { name: 'COORDINATED RAID', w: { scout: 2, drone: 3, swarm: 2, tank: 1.5, elite: 0.3, decoy: 1.5, arm: 0.2, ew: 0.1, tbm: 0.15 }, pk: 0.1 },
 ];
+export const PK_GROW = 0.02, PK_MAX = 0.25;
 
 // Attack packages: existing types flying in together from one bearing, each covering another's weakness.
 // Counts are packs (a decoy pack is 3, an FPV pack 6). An EW helicopter in a package is an escort: it holds
@@ -57,7 +60,7 @@ export const PHASES: { name: string; w: Partial<Record<EnemyKind, number>>; pk?:
 // `first` is the element to dismantle first; `why` says what happens if you don't.
 export interface Package { name: string; from: number; g: Partial<Record<EnemyKind, number>>; first: EnemyKind; why: string }
 export const PACKAGES: Package[] = [
-  { name: 'SEAD PACKAGE', from: 240, g: { elite: 1, arm: 1, decoy: 1, drone: 1 }, first: 'elite',
+  { name: 'SEAD PACKAGE', from: 225, g: { elite: 1, arm: 1, decoy: 1, drone: 1 }, first: 'elite',
     why: 'decoys soak locks while the Su-34 keeps launching ARMs' },
   { name: 'JAMMED SWARM', from: 150, g: { ew: 1, swarm: 2, drone: 2 }, first: 'ew',
     why: 'the swarm hides in the jammer\'s sector' },
@@ -93,10 +96,10 @@ export const RAIDS: { name: string; from: number; g: Partial<Record<EnemyKind, n
   { name: 'FPV SWARM', from: 0, g: { swarm: 3 } },
   { name: 'DECOY SCREEN', from: 150, g: { decoy: 2, drone: 4 } },
   { name: 'HELO ASSAULT', from: 200, g: { tank: 3, scout: 3 } },
-  { name: 'SEAD STRIKE', from: 280, g: { elite: 1, arm: 2, decoy: 2, drone: 2 }, obj: 'radar' },
-  { name: 'SWARM ASSAULT', from: 200, g: { ew: 1, swarm: 3, drone: 4 } },
-  { name: 'SATURATION STRIKE', from: 360, g: { decoy: 2, ew: 1, scout: 5, tank: 2 } },
-  { name: 'ISKANDER SALVO', from: 240, g: { tbm: 3 } },
+  { name: 'SEAD STRIKE', from: 225, g: { elite: 1, arm: 2, decoy: 2, drone: 2 }, obj: 'radar' },
+  { name: 'SWARM ASSAULT', from: 150, g: { ew: 1, swarm: 3, drone: 4 } },
+  { name: 'SATURATION STRIKE', from: 300, g: { decoy: 2, ew: 1, scout: 5, tank: 2 } },
+  { name: 'ISKANDER SALVO', from: 300, g: { tbm: 3 } },
 ];
 
 // Radar threats. ARMs home on the radar while it radiates, and a hit takes it offline. EMCON [F] silences it:
@@ -128,8 +131,9 @@ export const grow = (m: number, k: number) => 1 + k * Math.log1p(m / 4);
 export function difficulty(t: number) {
   const m = t / 60;
   return {
-    spawnRate: 0.6 * grow(m, 1.6), // spawn events / s
-    hp: grow(m, 1),
+    // Composition carries most of the difficulty (see PHASES), so raw numbers grow gently.
+    spawnRate: 0.6 * grow(m, 1.4), // spawn events / s
+    hp: grow(m, 0.75),
     speed: 1 + 0.025 * Math.min(m, 20),
     dmg: grow(m, 0.6),
   };
