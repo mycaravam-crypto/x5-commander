@@ -1,7 +1,7 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, PHASE_LEN, ELITE_EVERY,
-  ENEMIES, KINDS, WEAPONS, PHASES, MODES, UPGRADES, PERKS, baseLevel, deriveStats, difficulty,
-  type EnemyKind, type Stats, type WeaponKind,
+  ENEMIES, KINDS, WEAPONS, PHASES, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty,
+  type EnemyKind, type PerimKind, type WeaponKind,
 } from './config.ts';
 
 export interface Enemy {
@@ -15,7 +15,7 @@ export interface Shot {
 }
 export type Ev =
   | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect'; x: number; z: number; kind?: EnemyKind; n?: number }
-  | { k: 'beam' | 'rail'; x: number; z: number; x2: number; z2: number }
+  | { k: 'beam' | 'rail' | 'gun'; x: number; z: number; x2: number; z2: number }
   | { k: 'level' | 'warning' | 'buy' | 'lock' | 'over' };
 
 export type Phase = 'start' | 'play' | 'pause' | 'perk' | 'over';
@@ -42,6 +42,8 @@ export function newGame() {
     sweepSpeed: 0, // effective, after power throttling
     enemies: [] as Enemy[],
     shots: [] as Shot[],
+    perim: [] as { k: PerimKind; x: number; z: number; cd: number }[],
+    jamming: false,
     cooldown: { cannon: 0, pulse: 0, missile: 0, rail: 0 } as Record<WeaponKind, number>,
     aim: 0, // turret heading, for rendering
     spawnAcc: 0,
@@ -65,9 +67,17 @@ export const phaseName = (s: State) => PHASES[Math.min(PHASES.length - 1, Math.f
 
 // ---------- player actions ----------
 
+// Why an upgrade can't be bought right now ('' = it can).
+export const lockReason = (s: State, id: string) => {
+  const u = UPGRADES.find(u => u.id === id)!;
+  if (u.req && s.level < u.req) return `BASE LV ${u.req}`;
+  if (PERIM_KINDS.includes(id as PerimKind) && s.perim.length >= perimSlots(s.level)) return 'PADS FULL';
+  return '';
+};
+
 export const cost = (s: State, id: string) => {
   const u = UPGRADES.find(u => u.id === id)!;
-  return (s.lv[id] ?? 0) >= u.max ? Infinity : Math.round(u.base * u.mult ** (s.lv[id] ?? 0));
+  return (s.lv[id] ?? 0) >= u.max || lockReason(s, id) ? Infinity : Math.round(u.base * u.mult ** (s.lv[id] ?? 0));
 };
 
 export function buy(s: State, id: string) {
@@ -76,6 +86,10 @@ export function buy(s: State, id: string) {
   s.credits -= c;
   s.lv[id] = (s.lv[id] ?? 0) + 1;
   s.bought++;
+  if (PERIM_KINDS.includes(id as PerimKind)) {
+    const a = s.perim.length / 8 * TAU; // pads fill round the ring, between the M903s
+    s.perim.push({ k: id as PerimKind, x: Math.cos(a) * PERIM_R, z: Math.sin(a) * PERIM_R, cd: 0 });
+  }
   refreshStats(s);
   s.events.push({ k: 'buy' });
   const lvl = baseLevel(s.bought);
@@ -135,6 +149,7 @@ export function update(s: State, dt: number) {
   radar(s, dt);
   track(s);
   fire(s, dt);
+  perimeter(s, dt);
   moveShots(s, dt);
   s.hp = Math.min(s.st.maxHp, s.hp + s.st.repair * dt);
   if (s.hp <= 0) { s.hp = 0; s.phase = 'over'; s.events.push({ k: 'over' }); }
@@ -176,14 +191,52 @@ function moveEnemies(s: State, dt: number) {
     const d = Math.hypot(e.x, e.z) || 1;
     const nx = -e.x / d, nz = -e.z / d;
     const wob = Math.sin(s.t * 2 + e.wob) * ENEMIES[e.kind].wobble * Math.min(1, d / 20);
-    e.vx = nx * e.speed - nz * wob;
-    e.vz = nz * e.speed + nx * wob;
+    const sp = e.speed * (e.kind !== 'elite' && jammed(s, e) ? JAM_SLOW : 1);
+    e.vx = nx * sp - nz * wob;
+    e.vz = nz * sp + nx * wob;
     e.x += e.vx * dt; e.z += e.vz * dt;
     if (d < BASE_R + e.size * 0.5) {
       s.hp -= e.dmg * armor;
       s.shake = Math.min(1.5, s.shake + 0.3 + e.dmg / 40);
       s.events.push({ k: 'baseHit', x: e.x, z: e.z, kind: e.kind });
       removeAt(s, i);
+    }
+  }
+}
+
+function jammed(s: State, e: Enemy) {
+  if (!s.jamming) return false;
+  const r2 = s.st.perim.jammer.range ** 2;
+  return s.perim.some(p => p.k === 'jammer' && (e.x - p.x) ** 2 + (e.z - p.z) ** 2 < r2);
+}
+
+// Pads engage the closest radar contact in their own range; no lock slot needed.
+function perimeter(s: State, dt: number) {
+  const P = s.st.perim;
+  const jammers = s.perim.filter(p => p.k === 'jammer').length, need = jammers * P.jammer.power * dt;
+  s.jamming = jammers > 0 && s.power >= need;
+  if (s.jamming) s.power -= need;
+  for (const p of s.perim) {
+    if (p.k === 'jammer') continue;
+    const w = P[p.k];
+    p.cd = Math.max(0, p.cd - dt);
+    if (p.cd > 0 || s.ammo < w.ammo) continue;
+    let best: Enemy | null = null, bd = w.range ** 2;
+    for (const e of s.enemies) {
+      if (!visible(s, e) || e.incoming >= e.hp) continue;
+      const d = (e.x - p.x) ** 2 + (e.z - p.z) ** 2;
+      if (d < bd) { bd = d; best = e; }
+    }
+    if (!best) continue;
+    s.ammo -= w.ammo; p.cd = 1 / w.rate;
+    if (p.k === 'mantis') {
+      s.events.push({ k: 'gun', x: p.x, z: p.z, x2: best.x, z2: best.z });
+      damage(s, best, w.dmg);
+    } else {
+      const d = Math.sqrt(bd) || 1;
+      s.shots.push({ kind: 'missile', x: p.x, z: p.z, vx: (best.x - p.x) / d * 15, vz: (best.z - p.z) / d * 15, dmg: w.dmg, splash: 0, life: 3, target: best.id });
+      best.incoming += w.dmg;
+      s.events.push({ k: 'missile', x: p.x, z: p.z });
     }
   }
 }

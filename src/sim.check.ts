@@ -56,6 +56,16 @@ const b = bot();
 ok(b.t > idle.t, `upgrades help (${b.t.toFixed(0)}s vs ${idle.t.toFixed(0)}s)`);
 ok(b.level >= 3 && b.perks.length === b.level - 1, `base grows + perks (lv ${b.level}, perks ${b.perks.length})`);
 
+// Perimeter: gated by base level and pad count; a pad kills things on its own
+s = newGame(); s.phase = 'play'; s.credits = 1e6;
+ok(!buy(s, 'mantis'), 'mantis locked at lv1');
+s.level = 2;
+ok(buy(s, 'mantis') && buy(s, 'mantis') && !buy(s, 'mantis'), 'lv2 = 2 pads');
+ok(s.perim.length === 2 && Math.hypot(s.perim[0].x, s.perim[0].z) > 10, 'pads on the ring');
+s.st.slots = 0; // no main-battery locks: only the pads can shoot
+run(s, 40);
+ok(s.kills > 0, `pads engage without locks (kills=${s.kills})`);
+
 // Manual mark picks nearest visible enemy
 s = newGame(); s.phase = 'play'; run(s, 20);
 const v = s.enemies.find(e => visible(s, e));
