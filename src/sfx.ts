@@ -64,6 +64,8 @@ export function play(k: string) {
     case 'emcon': tone(700, 0.12, 'triangle', 0.04, 350); break;
     case 'jam': noise(0.8, 0.04, 6000); break;
     case 'ident': tone(1100, 0.06, 'triangle', 0.025, 700); break;
+    case 'raid': for (let i = 0; i < 2; i++) { tone(587, 0.25, 'sawtooth', 0.05, 587, i * 0.5); tone(440, 0.25, 'sawtooth', 0.05, 440, i * 0.5 + 0.25); } break;
+    case 'raidClear': [659, 784, 988, 1319].forEach((f, i) => tone(f, 0.15, 'square', 0.04, f, i * 0.07)); break;
     case 'over': [392, 330, 262, 196].forEach((f, i) => tone(f, 0.35, 'sawtooth', 0.06, f * 0.9, i * 0.22)); break;
   }
 }

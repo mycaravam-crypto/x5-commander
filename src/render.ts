@@ -5,7 +5,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ARENA_R, ENEMIES, EW_ARC, KINDS, PAL, type EnemyKind } from './config.ts';
-import { emitting, shownKind, visible, type State } from './sim.ts';
+import { emitting, phase, shownKind, visible, type State } from './sim.ts';
 
 const MAX_ENEMIES = 2000, MAX_LOCKS = 64, MAX_SHOTS = 600, MAX_SHARDS = 2500, MAX_WAVES = 64, MAX_BEAMS = 96, MAX_BLIPS = 1024;
 const VIS = 1.6; // enemies drawn bigger than their hitbox so they read at a glance
@@ -309,6 +309,11 @@ export function createRenderer() {
   // Jammed sector: a faint amber wedge from the battery out along each Mi-8's bearing.
   const jamMesh = instanced(new THREE.RingGeometry(0.08, 1, 12, 1, -EW_ARC, EW_ARC * 2).rotateX(-Math.PI / 2), additive(), 16);
   scene.add(shells, tracers, missiles, shardMesh, waveMesh, beamMesh, blipMesh, jamMesh);
+  // Incoming raid: three amber chevrons at the rim, pointing in along its bearing.
+  const chevPts: number[] = [];
+  for (let i = 0; i < 3; i++) chevPts.push(0.6 - i, 0, -0.8, -i, 0, 0, -i, 0, 0, 0.6 - i, 0, 0.8);
+  const raidMark = new THREE.Mesh(segs(chevPts), additive(ALERT, true));
+  raidMark.visible = false; scene.add(raidMark);
 
   // Particle pools: flat arrays, ring-buffer allocation, no per-frame garbage.
   const sh = { p: new Float32Array(MAX_SHARDS * 3), v: new Float32Array(MAX_SHARDS * 3), life: new Float32Array(MAX_SHARDS), max: new Float32Array(MAX_SHARDS), col: new Float32Array(MAX_SHARDS * 3), size: new Float32Array(MAX_SHARDS), next: 0 };
@@ -369,6 +374,8 @@ export function createRenderer() {
         case 'ident': wave(e.x, e.z, 3, MID, 0.4); break;
         case 'radarDown': wave(0, 0, 14, ALERT, 0.8, 1.5); shards(0, 1.9, 30, ALERT, 14, 1, 2.5); gridFlash = 1; break;
         case 'emcon': wave(0, 0, s.st.radarRange, MID, 0.6); break;
+        case 'raid': wave(e.x, e.z, 14, ALERT, 1.2, 1.5); break;
+        case 'raidClear': wave(0, 0, 30, HOT, 1, 1.5); shards(0, 0, 30, HOT, 18, 1, 3); break;
       }
     }
   }
@@ -399,7 +406,14 @@ export function createRenderer() {
     (radarRing.material as THREE.LineBasicMaterial).opacity = on ? 0.5 : 0.12 + 0.08 * Math.sin(clock * 6);
     trackRing.scale.setScalar(s.st.trackRange);
     gridFlash = Math.max(0, gridFlash - dt * 2.5);
-    gridMat.color.setScalar(1 + gridFlash * 4);
+    gridMat.color.setScalar((phase(s).mod.dark ? 0.45 : 1) + gridFlash * 4);
+    raidMark.visible = !!s.raid;
+    if (s.raid) {
+      const pulse = (clock * 1.5) % 1;
+      raidMark.position.set(Math.cos(s.raid.a) * (ARENA_R - 1 - pulse * 3), 0.2, Math.sin(s.raid.a) * (ARENA_R - 1 - pulse * 3));
+      raidMark.rotation.y = -s.raid.a; raidMark.scale.setScalar(2.2);
+      (raidMark.material as THREE.MeshBasicMaterial).color.setHex(ALERT).multiplyScalar(0.6 + 0.8 * (1 - pulse));
+    }
     let da = ((s.aim - turretA + Math.PI) % TAU + TAU) % TAU - Math.PI;
     turretA += da * Math.min(1, dt * 15);
     for (const [o, ry] of aimers) o.rotation.y = -turretA - ry;

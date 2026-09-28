@@ -1,8 +1,8 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, PHASE_LEN, ELITE_EVERY,
-  ENEMIES, KINDS, WEAPONS, PHASES, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty,
+  ENEMIES, KINDS, WEAPONS, PHASES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty,
   ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
-  type EnemyKind, type PerimKind, type WeaponKind,
+  type EnemyKind, type PerimKind, type WeaponKind, type Mod,
 } from './config.ts';
 
 export interface Enemy {
@@ -14,6 +14,7 @@ export interface Enemy {
   aim: number; // ARM: heading it flies blind on, NaN while guided
   lockT: number; ided: boolean; // decoy: time held in lock, classified yet
   orbit: boolean; // Mi-8 jammer: on station and jamming
+  raid: number; // id of the raid it belongs to, 0 = none
 }
 export interface Shot {
   kind: 'shell' | 'missile' | 'tracer'; x: number; z: number; vx: number; vz: number;
@@ -22,6 +23,8 @@ export interface Shot {
 export type Ev =
   | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect' | 'arm' | 'jam' | 'ident'; x: number; z: number; kind?: EnemyKind; n?: number }
   | { k: 'beam' | 'rail' | 'gun'; x: number; z: number; x2: number; z2: number }
+  | { k: 'raid'; x: number; z: number; name: string }
+  | { k: 'raidClear' | 'raidLeak'; n: number }
   | { k: 'level' | 'warning' | 'buy' | 'lock' | 'over' | 'emcon' | 'radarDown' };
 
 export type Phase = 'start' | 'play' | 'pause' | 'perk' | 'over';
@@ -56,6 +59,9 @@ export function newGame() {
     aim: 0, // turret heading, for rendering
     spawnAcc: 0,
     nextElite: ELITE_EVERY,
+    nextRaid: RAID_FIRST,
+    raid: null as null | { name: string; a: number; at: number; g: Partial<Record<EnemyKind, number>> }, // announced, not yet here
+    raidId: 0, raidLeft: 0, raidClean: true, raidReward: 0,
     mode: 0,
     marked: 0,
     nextId: 1,
@@ -71,7 +77,16 @@ export type State = ReturnType<typeof newGame>;
 const TAU = Math.PI * 2;
 const pick = <T>(a: T[]) => a[Math.floor(Math.random() * a.length)];
 export const visible = (s: State, e: Enemy) => e.locked || e.seenUntil > s.t;
-export const phaseName = (s: State) => PHASES[Math.min(PHASES.length - 1, Math.floor(s.t / PHASE_LEN))].name;
+const NO_MOD: Mod = { name: '', desc: '' };
+// Scripted phases first, then COMBINED RAID's mix under a looping condition.
+export function phase(s: State) {
+  const i = Math.floor(s.t / PHASE_LEN);
+  if (i < PHASES.length) return { ...PHASES[i], mod: NO_MOD };
+  const mod = MODS[(i - PHASES.length) % MODS.length], w = { ...PHASES[PHASES.length - 1].w };
+  for (const [k, v] of Object.entries(mod.w ?? {}) as [EnemyKind, number][]) w[k] = (w[k] ?? 0) + v;
+  return { name: mod.name, w, mod };
+}
+export const phaseName = (s: State) => phase(s).name;
 export const emitting = (s: State) => !s.emcon && s.t >= s.radarDownUntil;
 // What the operator sees: an unclassified decoy passes for a Shahed.
 export const shownKind = (e: Enemy): EnemyKind => e.kind === 'decoy' && !e.ided ? 'drone' : e.kind;
@@ -183,20 +198,21 @@ export function update(s: State, dt: number) {
 
 export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2) {
   const T = ENEMIES[kind], d = difficulty(s.t);
-  const hp = T.hp * d.hp, speed = T.speed * d.speed * (0.9 + Math.random() * 0.2);
+  const hp = T.hp * d.hp * (phase(s).mod.hp ?? 1), speed = T.speed * d.speed * (0.9 + Math.random() * 0.2);
   const x = Math.cos(a) * r, z = Math.sin(a) * r;
   s.enemies.push({
     id: s.nextId++, kind, x, z, vx: -Math.cos(a) * speed, vz: -Math.sin(a) * speed,
     hp, maxHp: hp, speed, dmg: T.dmg * d.dmg,
     reward: T.reward, size: T.size, seenUntil: -1, locked: false, incoming: 0, wob: Math.random() * TAU,
-    born: s.t, cd: 3, aim: NaN, lockT: 0, ided: false, orbit: false,
+    born: s.t, cd: 3, aim: NaN, lockT: 0, ided: false, orbit: false, raid: 0,
   });
   if (kind === 'arm') s.events.push({ k: 'arm', x, z }); // ESM hears the launch, radar or not
+  return s.enemies[s.enemies.length - 1];
 }
 
 function spawn(s: State, dt: number) {
-  s.spawnAcc += difficulty(s.t).spawnRate * dt;
-  const w = PHASES[Math.min(PHASES.length - 1, Math.floor(s.t / PHASE_LEN))].w;
+  const { w, mod } = phase(s);
+  s.spawnAcc += difficulty(s.t).spawnRate * (mod.spawn ?? 1) * dt;
   const total = KINDS.reduce((a, k) => a + (w[k] ?? 0), 0);
   while (s.spawnAcc >= 1) {
     s.spawnAcc--;
@@ -210,6 +226,24 @@ function spawn(s: State, dt: number) {
     const a = Math.random() * TAU, n = 1 + Math.floor(s.t / 300);
     for (let i = 0; i < n; i++) spawnEnemy(s, 'elite', a + (i - n / 2) * 0.08, ARENA_R + 4 + i * 3);
     s.events.push({ k: 'warning' });
+  }
+  if (!s.raid && s.t >= s.nextRaid - RAID_WARN) {
+    const r = pick(RAIDS.filter(r => s.t >= r.from)), a = Math.random() * TAU;
+    s.raid = { name: r.name, a, at: s.nextRaid, g: r.g };
+    s.nextRaid += RAID_EVERY;
+    s.events.push({ k: 'raid', x: Math.cos(a) * ARENA_R, z: Math.sin(a) * ARENA_R, name: r.name });
+  }
+  if (s.raid && s.t >= s.raid.at) {
+    const { a, g } = s.raid, scale = 1 + s.t / 400;
+    s.raid = null;
+    s.raidId++; s.raidLeft = 0; s.raidClean = true; s.raidReward = 0;
+    let row = 0;
+    for (const [kind, n] of Object.entries(g) as [EnemyKind, number][]) {
+      for (let i = 0; i < Math.round(n * scale); i++, row++) for (let j = 0; j < ENEMIES[kind].pack; j++) {
+        const e = spawnEnemy(s, kind, a + (Math.random() - 0.5) * 0.35, ARENA_R + 2 + row * 1.5 + Math.random() * 2);
+        e.raid = s.raidId; s.raidLeft++; s.raidReward += e.reward;
+      }
+    }
   }
 }
 
@@ -246,6 +280,7 @@ function moveEnemies(s: State, dt: number) {
     }
     e.x += e.vx * dt; e.z += e.vz * dt;
     if (d < BASE_R + e.size * 0.5) {
+      if (e.raid === s.raidId && (e.dmg > 0 || e.kind === 'arm')) s.raidClean = false;
       if (e.kind === 'arm') {
         s.radarDownUntil = Math.min(Math.max(s.radarDownUntil, s.t) + ARM_STUN, s.t + 2 * ARM_STUN);
         s.events.push({ k: 'radarDown' });
@@ -316,6 +351,12 @@ function removeAt(s: State, i: number) {
   if (s.marked === e.id) s.marked = 0;
   s.enemies[i] = s.enemies[s.enemies.length - 1];
   s.enemies.pop();
+  if (e.raid && e.raid === s.raidId && --s.raidLeft === 0) {
+    if (!s.raidClean) { s.events.push({ k: 'raidLeak', n: 0 }); return; }
+    const n = Math.round(s.raidReward * RAID_BONUS * s.st.credits) + 25;
+    s.credits += n; s.earned += n;
+    s.events.push({ k: 'raidClear', n });
+  }
 }
 
 function powerAndAmmo(s: State, dt: number) {
@@ -336,15 +377,15 @@ function radar(s: State, dt: number) {
   if (!emitting(s)) return;
   const a0 = s.sweepA, da = s.sweepSpeed * dt;
   s.sweepA = (a0 + da) % TAU;
-  const r2 = s.st.radarRange ** 2;
+  const r2 = s.st.radarRange ** 2, { mod } = phase(s);
   let newly = 0;
   for (const e of s.enemies) {
     if (e.x * e.x + e.z * e.z > r2) continue;
     const rel = ((Math.atan2(e.z, e.x) - a0) % TAU + TAU) % TAU;
     if (rel > da) continue;
-    if (Math.random() < ENEMIES[e.kind].sig * s.st.res * jamFactor(s, e)) {
+    if (Math.random() < ENEMIES[e.kind].sig * s.st.res * jamFactor(s, e) * (mod.sig ?? 1)) {
       if (e.seenUntil < s.t) newly++;
-      e.seenUntil = s.t + s.st.persist;
+      e.seenUntil = s.t + s.st.persist * (mod.persist ?? 1);
     }
   }
   if (newly) s.events.push({ k: 'detect', x: 0, z: 0, n: newly });

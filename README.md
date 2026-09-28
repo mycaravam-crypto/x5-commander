@@ -72,7 +72,9 @@ Your generator fills a power pool. The radar drains power continuously, and so d
 Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits. There are 19 upgrades in 6 groups: BATTERY, POWER, SENSORS, FIRE CONTROL, WEAPONS and MAGAZINE. Each upgrade costs more with every level. Buying upgrades raises your **base level**, which adds visible structures to the base and offers a **perk draft: pick 1 of 3**. Every perk has a tradeoff, for example *GLASS CANNON*: +100% damage, −40% max HP.
 
 ### Enemies and phases
-A new phase starts every 75 seconds and changes the enemy mix: **PROBING → SATURATION → ROTARY STRIKE → AIR STRIKE → SEAD → COMBINED RAID**. Every 150 seconds, a *STRIKE AIRCRAFT* warning appears. Spawn rate, HP, speed and damage all increase steadily over time.
+A new phase starts every 75 seconds and changes the enemy mix: **PROBING → SATURATION → ROTARY STRIKE → AIR STRIKE → SEAD → COMBINED RAID**. After COMBINED RAID, every phase adds a **condition** on top of that mix, looping in this order: **NIGHT RAID** (contacts fade twice as fast), **GROUND CLUTTER** (−30% detection), **LULL** (a breather to rebuild), **JAMMING STORM** (more jammer helicopters), **SWARM TIDE** (many more, weaker enemies) and **SEAD WAVE** (strike aircraft and ARMs). Every 150 seconds, a *STRIKE AIRCRAFT* warning appears.
+
+**Raids:** from 1:50, a named raid arrives every 80 seconds, all from one bearing. It's announced 6 seconds ahead, with chevrons at the rim and a countdown in the side panel. Raids include SHAHED WAVE, LANCET PACK, FPV SWARM, DECOY SCREEN, HELO ASSAULT and SEAD STRIKE. Destroy the whole raid before anything hits the battery or the radar for a **clean-raid bonus**. Spawn rate, HP, speed and damage all increase steadily over time.
 
 | Threat                      | Notes                                     |
 |-----------------------------|-------------------------------------------|

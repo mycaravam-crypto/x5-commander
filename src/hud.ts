@@ -1,5 +1,5 @@
 import { ARENA_R, BASE_R, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
-import { cost, emitting, lockReason, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
+import { cost, emitting, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const $ = (id: string) => document.getElementById(id)!;
 const fmt = (n: number) => Math.floor(n).toLocaleString('en-US');
@@ -118,6 +118,14 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       g.fillRect(x - r / 2, y - r / 2, r, r);
       if (e.locked) { g.strokeStyle = rgba(e.id === s.marked ? PAL.hot : PAL.mid); g.strokeRect(x - r, y - r, r * 2, r * 2); }
     }
+    if (s.raid && Math.sin(s.t * 12) > 0) { // incoming raid: blinking chevron at the rim
+      const R = ARENA_R + 2, c = Math.cos(s.raid.a), sn = Math.sin(s.raid.a), tx = -sn * 4, tz = c * 4;
+      g.strokeStyle = rgba(PAL.alert); g.lineWidth = 2; g.beginPath();
+      g.moveTo(px(c * (R + 4) + tx, sn * (R + 4) + tz), py(c * (R + 4) + tx, sn * (R + 4) + tz));
+      g.lineTo(px(c * R, sn * R), py(c * R, sn * R));
+      g.lineTo(px(c * (R + 4) - tx, sn * (R + 4) - tz), py(c * (R + 4) - tx, sn * (R + 4) - tz));
+      g.stroke(); g.lineWidth = 1;
+    }
     g.fillStyle = rgba(on ? PAL.hot : PAL.alert); g.fillRect(C - 3, C - 3, 6, 6);
   }
 
@@ -175,6 +183,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     $('info').innerHTML = [
       ['TRACKS', contacts], ['ENGAGED', `${locks} / ${st.slots}`], ['MODE [T]', MODES[s.mode]],
       ['RANGE', `${Math.round(st.radarRange)}m`], ['PERIMETER', `${s.perim.length} / ${perimSlots(s.level)} pads`], ['RADAR [F]', radar],
+      ...s.raid ? [['RAID', `<span class="alert">BRG ${pad3(bearing(Math.cos(s.raid.a), Math.sin(s.raid.a)))} · T-${Math.max(0, s.raid.at - s.t).toFixed(0)}s</span>`]]
+        : s.raidLeft ? [['RAID', `${s.raidLeft} left${s.raidClean ? ' · CLEAN' : ''}`]] : [],
     ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
     document.body.classList.toggle('crit', s.phase === 'play' && s.hp / st.maxHp < 0.3);
     const m = s.marked ? s.enemies.find(e => e.id === s.marked) : undefined;
@@ -209,11 +219,18 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         else if (e.k === 'emcon') log(s.emcon ? 'EMCON · RADAR SILENT' : 'RADIATING', s.emcon ? 'alert' : '');
         else if (e.k === 'jam') log(`JAMMING BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
         else if (e.k === 'ident') log('DECOY CLASSIFIED · TRACK RELEASED');
+        else if (e.k === 'raid') { say(`⚠ ${e.name} · BRG ${pad3(bearing(e.x, e.z))}`, 'warn'); log(`${e.name} · BRG ${pad3(bearing(e.x, e.z))}`, 'alert'); }
+        else if (e.k === 'raidClear') { say(`RAID DEFEATED · +${fmt(e.n)}`, 'info'); log(`RAID CLEAN · +${fmt(e.n)}`); }
+        else if (e.k === 'raidLeak') log('RAID LEAKED · NO BONUS', 'alert');
         else if (e.k === 'level') log(`BATTERY LV ${s.level} · LAUNCHER EMPLACED · ${perimSlots(s.level)} PERIMETER PADS`);
         else if (e.k === 'buy') { acc = 1; }
       }
       const pn = phaseName(s);
-      if (s.phase === 'play' && pn !== lastPhase) { if (lastPhase) say(`PHASE · ${pn}`, 'info'); lastPhase = pn; }
+      if (s.phase === 'play' && pn !== lastPhase) {
+        const { mod } = phase(s);
+        if (lastPhase) { say(`PHASE · ${pn}`, mod.name ? 'warn' : 'info'); if (mod.desc) log(mod.desc.toUpperCase(), 'alert'); }
+        lastPhase = pn;
+      }
       if (s.phase === 'start') { lastPhase = ''; armSaid = -99; }
       drawRadar(s, yaw, dt);
       placeLabels(s, project);

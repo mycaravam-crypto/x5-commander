@@ -47,6 +47,31 @@ export const PHASES: { name: string; w: Partial<Record<EnemyKind, number>> }[] =
   { name: 'COMBINED RAID', w: { scout: 2, drone: 3, swarm: 2, tank: 1.5, elite: 0.3, decoy: 1.5, arm: 0.2, ew: 0.1 } },
 ];
 
+// After the last phase, each PHASE_LEN brings a new condition on top of COMBINED RAID's mix, looping in order.
+// sig/persist: detection chance / contact memory multipliers; spawn/hp: on top of difficulty(); w: extra spawn weights.
+export interface Mod { name: string; desc: string; sig?: number; persist?: number; spawn?: number; hp?: number; dark?: boolean; w?: Partial<Record<EnemyKind, number>> }
+export const MODS: Mod[] = [
+  { name: 'NIGHT RAID', desc: 'contacts fade twice as fast', persist: 0.5, dark: true },
+  { name: 'GROUND CLUTTER', desc: '-30% detection chance', sig: 0.7 },
+  { name: 'LULL', desc: 'fewer raiders, clear skies · rebuild', spawn: 0.6, sig: 1.2 },
+  { name: 'JAMMING STORM', desc: 'EW helicopters inbound', w: { ew: 0.8 } },
+  { name: 'SWARM TIDE', desc: 'many more, much weaker', spawn: 1.5, hp: 0.6, w: { swarm: 4, decoy: 2 } },
+  { name: 'SEAD WAVE', desc: 'strike aircraft and ARMs', w: { arm: 0.8, elite: 0.3 } },
+];
+
+// Raids: a named group from one bearing, announced RAID_WARN s ahead. Counts are packs, scaled up over time.
+// Kill the whole raid without a hit on the battery (or the radar) for a bonus.
+export const RAID_FIRST = 110, RAID_EVERY = 80, RAID_WARN = 6; // s
+export const RAID_BONUS = 0.5; // share of the raid's total reward, + 25 flat
+export const RAIDS: { name: string; from: number; g: Partial<Record<EnemyKind, number>> }[] = [
+  { name: 'SHAHED WAVE', from: 0, g: { drone: 6 } },
+  { name: 'LANCET PACK', from: 0, g: { scout: 7 } },
+  { name: 'FPV SWARM', from: 0, g: { swarm: 3 } },
+  { name: 'DECOY SCREEN', from: 150, g: { decoy: 2, drone: 4 } },
+  { name: 'HELO ASSAULT', from: 200, g: { tank: 3, scout: 3 } },
+  { name: 'SEAD STRIKE', from: 280, g: { arm: 2, decoy: 2, drone: 3 } },
+];
+
 // Radar threats. ARMs home on the radar while it radiates, and a hit takes it offline. EMCON [F] silences it:
 // no sweep, no locks, no radar power drain, and ARMs lose the emitter and veer off course.
 export const ARM_STUN = 6; // s offline per ARM hit (stacks up to 2x)

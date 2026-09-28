@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, buy, cost, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, emitting, jamFactor, type State } from './sim.ts';
-import { baseLevel, UPGRADES, EW_ORBIT } from './config.ts';
+import { newGame, update, buy, cost, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, emitting, jamFactor, phase, type State } from './sim.ts';
+import { baseLevel, UPGRADES, EW_ORBIT, MODS, PHASES, PHASE_LEN, RAID_WARN } from './config.ts';
 
 const ok = (c: unknown, msg: string) => { if (!c) throw new Error('FAIL: ' + msg); };
 const run = (s: State, secs: number, each?: () => void) => {
@@ -72,7 +72,7 @@ const v = s.enemies.find(e => visible(s, e));
 if (v) { markAt(s, v.x, v.z); ok(s.marked === v.id, 'markAt'); }
 
 // Radar threats, one at a time: no random spawns, no strike packages.
-const quiet = () => { const g = newGame(); g.phase = 'play'; g.spawnAcc = -1e9; g.nextElite = 1e9; return g; };
+const quiet = () => { const g = newGame(); g.phase = 'play'; g.spawnAcc = -1e9; g.nextElite = 1e9; g.nextRaid = 1e9; return g; };
 
 // ARM vs a radiating radar: it connects and the radar goes dark.
 s = quiet(); s.st.slots = 0; spawnEnemy(s, 'arm', 0, 40);
@@ -108,5 +108,23 @@ run(s, 15);
 const j = s.enemies[0], ja = Math.atan2(j.z, j.x);
 ok(j.orbit && Math.abs(Math.hypot(j.x, j.z) - EW_ORBIT) < 3, `jammer on station (r=${Math.hypot(j.x, j.z).toFixed(1)})`);
 ok(jamFactor(s, { x: Math.cos(ja) * 20, z: Math.sin(ja) * 20 }) < 1 && jamFactor(s, { x: -Math.cos(ja) * 20, z: -Math.sin(ja) * 20 }) === 1 && jamFactor(s, j) === 1, 'jam sector');
+
+// Raids: announced ahead from one bearing, then arrive together. Clean kill pays a bonus; a leaker doesn't.
+const raidRun = (slots: number) => {
+  const g = quiet(); g.nextRaid = RAID_WARN; g.st.slots = slots;
+  const seen: string[] = [];
+  run(g, 1 / 60, () => { if (g.raid) g.raid.g = { drone: 1 }; });
+  ok(g.raid && g.enemies.length === 0, 'raid announced before it arrives');
+  run(g, 40, () => { for (const e of g.events) seen.push(e.k); });
+  return seen;
+};
+ok(raidRun(2).includes('raidClear'), 'clean raid pays');
+ok(raidRun(0).includes('raidLeak'), 'leaked raid does not');
+
+// Conditions: after the scripted phases, MODS loop.
+s = newGame(); s.t = PHASE_LEN * PHASES.length + 1;
+ok(phase(s).name === MODS[0].name, 'first condition');
+s.t += PHASE_LEN * MODS.length;
+ok(phase(s).name === MODS[0].name, 'conditions loop');
 
 console.log(`ok · idle ${idle.t.toFixed(0)}s/${idle.kills} kills · bot ${b.t.toFixed(0)}s/${b.kills} kills lv${b.level} [${b.perks.join(',')}]`);
