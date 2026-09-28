@@ -305,6 +305,18 @@ ok(raidRun(0).includes('raidLeak'), 'leaked raid does not');
   ok(swarm.length && swarm.every(e => jamFactor(q, e) < 1 || Math.hypot(e.x, e.z) < 5), 'package flies inside its escort\'s jammed sector');
 }
 
+// Difficulty curve: each phase introduces its problem; nothing turns up before its phase.
+{
+  const first = (k: string) => PHASES.findIndex(p => (p.w as Record<string, number>)[k]);
+  ok(first('decoy') === 2 && first('ew') === 2 && first('elite') === 3 && first('arm') === 3 && first('tbm') === 4, 'phase order: EW screen, then SEAD, then coordinated');
+  for (const p of PACKAGES) ok(p.from >= PHASE_LEN * 2, `${p.name} waits for the EW screen`);
+  const g = newGame(); g.t = PHASE_LEN * (PHASES.length + 3);
+  ok(phase(g).pk! > PHASES[PHASES.length - 1].pk!, 'packages get likelier past the scripted phases');
+  const h = newGame(2); h.phase = 'play'; h.st.maxHp = h.hp = 1e9; let early = false;
+  run(h, PHASE_LEN * 3 - 1, () => { early ||= h.enemies.some(e => e.kind === 'elite' || e.kind === 'arm' || e.kind === 'tbm'); });
+  ok(!early, 'no Su-34s, ARMs or Iskanders before the SEAD phase');
+}
+
 // Conditions: after the scripted phases, MODS loop.
 s = newGame(); s.t = PHASE_LEN * PHASES.length + 1;
 ok(phase(s).name === MODS[0].name, 'first condition');
