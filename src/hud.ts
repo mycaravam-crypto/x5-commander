@@ -1,4 +1,4 @@
-import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, DROP_LIFE, MILESTONE, OVERDRIVE, rank } from './config.ts';
+import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, DROP_LIFE, MILESTONE, OVERDRIVE, rank } from './config.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import { mapSeed } from './terrain.ts';
 import type { Records } from './config.ts';
@@ -78,17 +78,20 @@ const LESSONS: Record<keyof typeof ENEMIES, string> = {
   atgm: 'kill the Mi-28 while it hovers: its missiles come 4 s apart, and guns can shoot them down.',
   kab: 'glide bombs are slow but heavy: kill the Su-34 first, or keep guns on the front to shoot the bombs.',
 };
+const PERIM_NAMES = { mg: 'AA MG', mantis: 'MANTIS', stinger: 'STINGER', iris: 'IRIS-T SLM', jammer: 'JAMMER', observer: 'OBSERVER', ammo: 'AMMO' };
 function debrief(s: State) {
   const S = s.stats, total = Object.values(S.dmg).reduce((a, b) => a + b, 0) || 1;
   const kills = (Object.entries(S.kills) as [keyof typeof ENEMIES, number][]).sort((a, b) => b[1] - a[1])
     .map(([k, n]) => `<dt>${ENEMIES[k].code}</dt><dd>${fmt(n)}</dd>`).join('');
   const dmg = Object.entries(S.dmg).sort((a, b) => b[1] - a[1])
     .map(([k, n]) => `<dt>${k}</dt><dd>${Math.round(n / total * 100)}%</dd>`).join('');
+  const perim = (Object.entries(S.perim) as [keyof typeof PERIM_NAMES, number][]).sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `<dt>${PERIM_NAMES[k]}</dt><dd>${fmt(n)}</dd>`).join('');
   // What hurt the battery, and a line on the worst of it.
   const hurt = (Object.entries(S.taken) as [keyof typeof ENEMIES, number][]).sort((a, b) => b[1] - a[1]);
   const taken = hurt.slice(0, 6).map(([k, n]) => `<dt>${ENEMIES[k].code}</dt><dd>${fmt(Math.round(n))}</dd>`).join('');
   const lesson = hurt.length ? `<p class="lesson"><span class="alert">MOST DAMAGE · ${ENEMIES[hurt[0][0]].code}</span> · ${LESSONS[hurt[0][0]]}</p>` : '';
-  return `${lesson}<div class="debrief"><div><small>KILLS</small><dl>${kills || '<dt>none</dt>'}</dl></div><div><small>DAMAGE DEALT</small><dl>${dmg || '<dt>none</dt>'}</dl></div>
+  return `${lesson}<div class="debrief"><div><small>KILLS</small><dl>${kills || '<dt>none</dt>'}</dl></div>${perim ? `<div><small>PERIMETER KILLS</small><dl>${perim}</dl></div>` : ''}<div><small>DAMAGE DEALT</small><dl>${dmg || '<dt>none</dt>'}</dl></div>
     <div><small>HP LOST TO</small><dl>${taken || '<dt>nothing</dt>'}</dl></div>
     <div><small>OPS</small><dl><dt>RAIDS CLEAN</dt><dd>${S.clean} / ${S.raids}</dd><dt>ARMS EVADED</dt><dd>${S.armsEvaded}</dd><dt>RADAR HITS</dt><dd>${S.radarHits}</dd><dt>SALVAGE</dt><dd>${S.recovered} / ${S.drops}</dd></dl></div></div>`;
 }
@@ -567,6 +570,11 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   const BELTS = { fwd: 'FORWARD LINE', main: 'MAIN LINE', inner: 'INNER RING' };
   const SITES: Record<string, string> = { high: 'HIGH GROUND: +20% RANGE, EXPOSED', treeline: 'TREELINE: HIDDEN, -15% RANGE', road: 'ROAD: QUICK RELOADS' };
   const SUPPORT: Record<string, string> = { observer: `SEES ${OBSERVER_EYES}m ROUND ITSELF`, ammo: `GUNS WITHIN ${AMMO_R}m: +25% RATE, 2× RELOAD`, jammer: `SLOWS CONTACTS WITHIN ${PERIM.jammer.range}m` };
+  // Kills and veterancy rank, with the kills to the next one.
+  const vetLine = (kills: number) => {
+    const r = vetRank(kills), next = VETERANCY[r + 1];
+    return `KILLS ${fmt(kills)} · ${r ? `<span class="hot">★ ${VETERANCY[r].name}</span>` : VETERANCY[r].name}${next ? ` <small class="dim">${next.kills - kills} TO ${next.name}</small>` : ''}<br>`;
+  };
   function padCard(s: State) {
     const p = selectedPad(s);
     let h = '';
@@ -574,7 +582,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       const w = padStats(s, p), up = padUpgradeCost(p), fan = FANS[p.k] >= Math.PI ? 360 : Math.round(FANS[p.k] * 360 / Math.PI);
       h = `<b>${padName(p)}</b> · ${BELTS[beltOf(p)]}${p.site ? ` · <span class="hot">${SITES[p.site]}</span>` : ''}<br>`
         + (GUNS.includes(p.k) ? `${Math.round(w.range)}m · ${(w.dmg * w.rate).toFixed(1)} DMG/s · ${fan}° FIELD OF FIRE<br>` : `${SUPPORT[p.k]}<br>`)
-        + `HP ${Math.ceil(p.hp)} / ${PAD_HP}${p.down ? ' <span class="alert">DOWN</span>' : ''}<b class="seg" style="--r:${p.hp / PAD_HP}"></b>`
+        + (GUNS.includes(p.k) ? vetLine(p.kills) : '') + `HP ${Math.ceil(p.hp)} / ${PAD_HP}${p.down ? ' <span class="alert">DOWN</span>' : ''}<b class="seg" style="--r:${p.hp / PAD_HP}"></b>`
         + (up < Infinity ? `<button data-act="upgrade"${s.credits < up ? ' disabled' : ''}>[U] ${MG_TIERS[p.tier + 1].name} ${up}CR</button>` : '')
         + `<button data-act="move"${s.relocating ? ' class="on"' : ''}>[B] MOVE</button><button data-act="sell">[DEL] SELL +${fmt(sellValue(s, p))}</button><br>`
         + `<small class="dim">${s.relocating ? 'CLICK OPEN GROUND TO MOVE IT' : 'B OR RIGHT-CLICK GROUND: MOVE'}${building(s) ? ' · FREE NOW' : ` · ${MOVE_TIME}s OFFLINE`}</small>`;
@@ -664,6 +672,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         else if (e.k === 'build') { say(`LEVEL ${s.stage + 1} COMPLETE · BUILD ${e.n}s`, 'info'); log(`LEVEL ${s.stage + 1} COMPLETE · BUILD WINDOW ${e.n}s · NO NEW CONTACTS`); }
         else if (e.k === 'padDown') { say('⚠ EMPLACEMENT DOWN', 'warn'); log(`${e.kind.toUpperCase()} DOWN BRG ${pad3(bearing(e.x, e.z))} · REPAIRING`, 'alert'); }
         else if (e.k === 'padUp') { if (e.n) { const n = MG_TIERS[e.n].name; say(n, 'info'); log(`UPGRADED · ${n}`); } else log(`${e.kind.toUpperCase()} BACK IN ACTION BRG ${pad3(bearing(e.x, e.z))}`); }
+        else if (e.k === 'padRank') { const v = VETERANCY[e.n]; pop(project, e.x, e.z, `★ ${v.name}`, 'up star'); log(`${e.kind.toUpperCase()} BRG ${pad3(bearing(e.x, e.z))} · ${v.name} · +${Math.round((v.dmg - 1) * 100)}% DMG`); }
         else if (e.k === 'padSold') log(`${e.kind.toUpperCase()} SOLD · +${fmt(e.n)} CR`);
         else if (e.k === 'padMoved') log(`${e.kind.toUpperCase()} MOVED${e.n ? ` · OFFLINE ${e.n}s` : ''}`);
         else if (e.k === 'radarOnline') { say('RADAR ONLINE', 'info'); log('AN/MPQ-65 ONLINE · SEARCH + FIRE CONTROL'); }

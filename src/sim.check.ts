@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
 import { newGame, update, buy, skipBuild, cruiseTarget, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive, noAmmo } from './sim.ts';
-import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, TERRAIN, AMMO_RELOAD, GUNS, HELO, LANCET, MILESTONE, DROP_LIFE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE } from './config.ts';
+import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, TERRAIN, AMMO_RELOAD, GUNS, HELO, LANCET, MILESTONE, DROP_LIFE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE, VETERANCY } from './config.ts';
 import { site, PONDS, ROCKS, FARMS, mapSeed, openShare, OPEN_MIN, ground, riverZ, RIVER_W } from './terrain.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
@@ -354,6 +354,16 @@ const addPad = (g: State, k: string, slot: number) => { g.credits += 1e6; ok(buy
   const e = spawnEnemy(g, 'drone', FRONT, 40);
   run(g, 15);
   ok(!g.enemies.includes(e) && g.kills === 1 && g.hp === g.st.maxHp, 'the MG alone stops a Shahed from the front');
+  ok(g.perim[0].kills === 1 && g.stats.perim.mg === 1, 'the MG is credited with its kill');
+  // Veterancy: kills make the unit better, and the step to a new rank is announced.
+  const mg = g.perim[0], green = padStats(g, mg);
+  mg.kills = VETERANCY[1].kills - 1; let ranked = false;
+  const d = spawnEnemy(g, 'drone', FRONT, 30); run(g, 15, () => { ranked ||= g.events.some(e => e.k === 'padRank' && e.n === 1); });
+  ok(!g.enemies.includes(d) && mg.kills === VETERANCY[1].kills && ranked, 'a gun ranks up on its kills');
+  const vet = padStats(g, mg);
+  ok(vet.dmg > green.dmg && vet.rate > green.rate, 'a ranked gun hits harder and fires faster');
+  mg.kills = VETERANCY[VETERANCY.length - 1].kills; ok(padStats(g, mg).range > green.range, 'an ace reaches further');
+  mg.kills = VETERANCY[1].kills;
   const arm = spawnEnemy(g, 'arm', FRONT, 30);
   run(g, 8);
   ok(!g.enemies.includes(arm) && g.radarDownUntil === 0 && g.stats.radarHits === 0, 'an ARM has no radar to knock out');
