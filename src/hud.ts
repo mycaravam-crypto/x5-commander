@@ -1,4 +1,4 @@
-import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, altitude, buildR, DROPS, DROP_LIFE, MILESTONE, OVERDRIVE, rank } from './config.ts';
+import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, DROP_LIFE, MILESTONE, OVERDRIVE, rank } from './config.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import type { Records } from './config.ts';
 import { beltOf, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
@@ -317,7 +317,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     let n = 0;
     for (const e of s.enemies) {
       if (!e.locked || n >= labels.length) continue;
-      const el = labels[n++], [x, y] = project(e.x, e.z, altitude(e.kind, e.x, e.z) + e.size * 1.6 * 0.6);
+      const el = labels[n++], [x, y] = project(e.x, e.z, flightAlt(e) + e.size * 1.6 * 0.6);
       const t = `${tag(e)} · ${pad3(Math.hypot(e.x, e.z))}m`;
       if (el.textContent !== t) el.textContent = t;
       el.style.transform = `translate(${Math.round(x + 12 + e.size * 10)}px, ${Math.round(y - 14)}px)`;
