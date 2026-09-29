@@ -726,6 +726,7 @@ export function createRenderer() {
           break;
         }
         case 'baseHit': { const y = groundY(e.x, e.z) + 0.8; boom(e.x * 0.5, y, e.z * 0.5, 2.5, 18); puffs(e.x * 0.5, y, e.z * 0.5, 6, 2.5, 3, 0.2); groundFlash = 1; break; }
+        case 'dud': puffs(e.x * 0.5, groundY(e.x, e.z) + 0.8, e.z * 0.5, 3, 1.2, 2, 0.2); break; // a foam decoy: a puff, no blast
         case 'padHit': shards(e.x, e.z, 4, C.fire, 6, 0.6, groundY(e.x, e.z) + 0.8, 1.5); break;
         case 'padDown': { const y = groundY(e.x, e.z) + 0.6; boom(e.x, y, e.z, 1.6, 14); puffs(e.x, y, e.z, 5, 1.8, 4, 0.15); break; }
         case 'gun': { // MG / MANTIS: the pad's turret swings onto the target, muzzle flash at the barrel tip

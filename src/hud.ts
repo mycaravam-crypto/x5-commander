@@ -45,6 +45,7 @@ const TIPS: Record<string, string> = {
   radarMode: 'Radar mode [V]: ACTIVE all round · FOCUSED searches the bearing you click, further and faster, but draws ARMs · LPI is hard for ARMs to find but sees less.',
   tbm: 'Ballistic missile: only PAC-3 can hit it. Keep interceptors in stock and a lock slot free.',
   jam: 'Jammer on station: detection drops in the amber sector. The Mi-8 itself shows clearly, so click it and kill it.',
+  dud: 'That "Shahed" was a Gerbera decoy: it hit the battery and did nothing. Decoys look like Shaheds until locked for a moment; don\'t waste missiles on them.',
   ident: 'Decoy classified and released. Decoys look like Shaheds until locked for a moment. GaN T/R Modules classify faster.',
   package: 'Attack package: several types covering each other. The log says which element to kill first; mark it.',
   placing: 'Click open ground inside the dashed build zone to build it (not on water, rock or woods): the green ghost shows its field of fire, the pulsing ring covers the most open sky. Guns shoot inside their field of fire (drawn on the ground), and a target inside two of them takes +20% crossfire damage. Ground matters: high ground by a rock outcrop reaches 20% further but draws drones and cruise missiles, the treeline hides a unit from both (-15% range), and MGs on a road reload fast. Click your units to upgrade, sell or move them [B]. O maps what your guns cover. WASD / arrows or middle-drag pan the camera.',
@@ -647,6 +648,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         else if (e.k === 'emcon') log(s.emcon ? 'EMCON · RADAR SILENT' : 'RADIATING', s.emcon ? 'alert' : '');
         else if (e.k === 'jam') log(`JAMMING BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
         else if (e.k === 'ident') log('DECOY CLASSIFIED · TRACK RELEASED');
+        else if (e.k === 'dud') log('DECOY IMPACT · NO DAMAGE');
         else if (e.k === 'placing') { if (s.placing) say(`BUILD ${s.placing.k.toUpperCase()}: CLICK OPEN GROUND`, 'info'); }
         else if (e.k === 'raid') { say(`⚠ ${e.name} · BRG ${pad3(bearing(e.x, e.z))}`, 'warn'); log(`${e.name} · BRG ${pad3(bearing(e.x, e.z))}`, 'alert'); }
         else if (e.k === 'package') {

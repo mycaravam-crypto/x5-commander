@@ -527,6 +527,11 @@ let ided = false, relocked = false;
 run(s, 15, () => { for (const e of s.enemies) { ided ||= e.ided; relocked ||= e.ided && e.locked; } });
 ok(ided && !relocked, 'decoy classified and released');
 ok(s.enemies.length === 0 && s.hp === s.st.maxHp, 'decoy does no damage');
+// An unclassified decoy landing on the battery says it was a dud, rather than vanishing like a Shahed that did nothing.
+s = quiet(); s.st.radar = false; spawnEnemy(s, 'decoy', 0, 12);
+let dud = false;
+run(s, 10, () => { dud ||= s.events.some(e => e.k === 'dud'); });
+ok(dud && s.enemies.length === 0 && s.hp === s.st.maxHp, 'a decoy on the battery is reported as a dud');
 
 // Mi-8 jammer stands off on its bearing and blanks only its own sector.
 s = quiet(); spawnEnemy(s, 'ew', 0, 45); s.enemies[0].hp = 1e9;
