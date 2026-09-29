@@ -303,6 +303,8 @@ export function padStats(s: State, p: Pad) {
   const w = p.k === 'mg' ? MG_TIERS[p.tier] : PERIM[p.k];
   return { ...w, dmg: w.dmg * s.st.padDmg, rate: w.rate * s.st.padRate * (nearAmmo(s, p) ? AMMO_RATE : 1) * (overdrive(s) ? OVERDRIVE.rate : 1) };
 }
+// A gun that's up but can't fire: the interceptor pool is short of a round for it (MGs feed from their belts).
+export const noAmmo = (s: State, p: Pad) => GUNS.includes(p.k) && up(p) && s.ammo < padStats(s, p).ammo;
 // A cruise missile goes for the unit you've sunk the most into (the nearest of equals), or the base if there's none.
 export function cruiseTarget(s: State, e: { x: number; z: number }) {
   let best: Pad | undefined, bv = -Infinity;
