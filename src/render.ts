@@ -4,7 +4,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { ARENA_R, BASE_R, ENEMIES, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, SLOTS, slotXZ, FANS, GUNS, type EnemyKind } from './config.ts';
+import { ARENA_R, BASE_R, DROP_MAX, ENEMIES, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, SLOTS, slotXZ, FANS, GUNS, type EnemyKind } from './config.ts';
 import { emitting, focusBearing, flankArc, radarRange, radarSector, freeSlots, bestSlot, coverage, padStats, phase, shownKind, visible, type Shot, type State } from './sim.ts';
 
 const MAX_ENEMIES = 2000, MAX_LOCKS = 64, MAX_SHOTS = 600, MAX_SHARDS = 2500, MAX_WAVES = 64, MAX_BEAMS = 3000, MAX_FRONTS = 48, MAX_BLIPS = 1024;
@@ -401,6 +401,11 @@ export function createRenderer() {
   // Jammed sector: a faint amber wedge from the battery out along each Mi-8's bearing.
   const jamMesh = instanced(new THREE.RingGeometry(0.08, 1, 12, 1, -EW_ARC, EW_ARC * 2).rotateX(-Math.PI / 2), additive(), 16);
   scene.add(shells, tracers, missiles, shardMesh, waveMesh, beamMesh, frontMesh, blipMesh, jamMesh);
+  // Salvage: a spinning wire crate over a ground ring, with a light column so it's easy to spot. Blinks before it's lost.
+  const dropMesh = instanced(edges(new THREE.OctahedronGeometry(0.9)), wire, DROP_MAX);
+  const dropRing = instanced(segs(ringPts(20, 2)), additive(0xffffff, true), DROP_MAX);
+  const dropBeam = instanced(new THREE.BoxGeometry(0.12, 1, 0.12).translate(0, 0.5, 0), additive(), DROP_MAX);
+  scene.add(dropMesh, dropRing, dropBeam);
   // Incoming raid: three amber chevrons at the rim, pointing in along its bearing.
   const chevPts: number[] = [];
   for (let i = 0; i < 3; i++) chevPts.push(0.6 - i, 0, -0.8, -i, 0, 0, -i, 0, 0, 0.6 - i, 0, 0.8);
@@ -539,11 +544,22 @@ export function createRenderer() {
         case 'raidStart': wave(e.x, e.z, 20, ALERT, 1.5, 1.5); wave(0, 0, ARENA_R, ALERT, 1.2); break;
         case 'raidLeak': wave(0, 0, 18, ALERT, 1, 1.5); gridFlash = 0.8; break;
         case 'raidClear': wave(0, 0, 30, HOT, 1, 1.5); shards(0, 0, 30, HOT, 18, 1, 3); break;
+        case 'upgrade': // the battery answers every purchase; a new rank lights it up
+          wave(0, 0, e.star ? 18 : 7, HOT, e.star ? 0.9 : 0.4, e.star ? 1.5 : 0.8);
+          shards(0, 0, e.star ? 24 : 6, e.star ? HOT : BRIGHT, e.star ? 16 : 8, 0.8, 2.5);
+          if (e.star) gridFlash = 0.4;
+          break;
+        case 'drop': wave(e.x, e.z, 4, HOT, 0.6, 1.2); shards(e.x, e.z, 8, HOT, 6, 0.6, 1.5); break;
+        case 'pickup': // recovered: burst, and a streak back to the battery
+          wave(e.x, e.z, 7, HOT, 0.5, 1.5); shards(e.x, e.z, e.drop === 'tech' ? 30 : 14, HOT, 12, 0.9, 1.5, 1.3);
+          beam(e.x, 1.2, e.z, 0, 1.5, 0, 0.25, HOT, 0.35, 1.2);
+          if (e.drop === 'tech') { wave(0, 0, 14, HOT, 0.8, 1.5); gridFlash = 0.5; }
+          break;
       }
     }
   }
 
-  const pools = [...Object.values(enemyFills), ...Object.values(enemyEdges), brackets, hpBars, shells, tracers, missiles, shardMesh, waveMesh, beamMesh, frontMesh, blipMesh, jamMesh, padMarks, dwellMesh];
+  const pools = [...Object.values(enemyFills), ...Object.values(enemyEdges), brackets, hpBars, shells, tracers, missiles, dropMesh, dropRing, dropBeam, shardMesh, waveMesh, beamMesh, frontMesh, blipMesh, jamMesh, padMarks, dwellMesh];
   const sent = new Map<THREE.InstancedMesh, number>();
   const dummy = new THREE.Object3D();
   const camRight = new THREE.Vector3();
@@ -736,6 +752,19 @@ export function createRenderer() {
       dummy.scale.setScalar(stinger ? 0.7 : 1);
       dummy.updateMatrix(); m.setMatrixAt(m.count, dummy.matrix);
       m.setColorAt(m.count++, tracer ? tmpC.setHex(0xffffff) : tmpC.setHex(p.kind === 'shell' ? HOT : BRIGHT));
+    }
+
+    // salvage
+    dropMesh.count = dropRing.count = dropBeam.count = 0;
+    for (const d of s.drops) {
+      const left = d.until - s.t, blink = left < 3 && Math.sin(clock * 18) < 0 ? 0.25 : 1, tech = d.k === 'tech';
+      const b = blink * (tech ? 1.2 + 0.5 * Math.sin(clock * 10) : 1), col = tech ? 0xffffff : d.k === 'cache' ? HOT : BRIGHT, i = dropMesh.count++;
+      dummy.position.set(d.x, 1.3 + 0.3 * Math.sin(clock * 3 + d.id), d.z); dummy.rotation.set(0.4, clock * 2 + d.id, 0); dummy.scale.setScalar(tech ? 1.3 : 1);
+      dummy.updateMatrix(); dropMesh.setMatrixAt(i, dummy.matrix); dropMesh.setColorAt(i, tmpC.setHex(col).multiplyScalar(b));
+      dummy.position.set(d.x, 0.12, d.z); dummy.rotation.set(0, -clock, 0); dummy.scale.setScalar(1.6 + 0.3 * Math.sin(clock * 5 + d.id));
+      dummy.updateMatrix(); dropRing.setMatrixAt(i, dummy.matrix); dropRing.setColorAt(i, tmpC.setHex(col).multiplyScalar(0.7 * b));
+      dummy.position.set(d.x, 0, d.z); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 7, 1);
+      dummy.updateMatrix(); dropBeam.setMatrixAt(i, dummy.matrix); dropBeam.setColorAt(i, tmpC.setHex(col).multiplyScalar(0.35 * b));
     }
 
     // particles

@@ -1,4 +1,4 @@
-import { newGame, dailySeed, update, buy, pickPerk, markAt, placePad, movePad, selectPad, upgradePad, sellPad, cycleMode, cycleDiscipline, cycleRadarMode, aimFocus, emergencyIntercept, toggleEmcon, type State } from './sim.ts';
+import { newGame, dailySeed, update, buy, collectDrop, pickPerk, markAt, placePad, movePad, selectPad, upgradePad, sellPad, cycleMode, cycleDiscipline, cycleRadarMode, aimFocus, emergencyIntercept, toggleEmcon, type State } from './sim.ts';
 import { createRenderer } from './render.ts';
 import { createHud, loadBest } from './hud.ts';
 import { DOCTRINES } from './config.ts';
@@ -36,8 +36,8 @@ const canvas = document.querySelector('canvas')!;
 let dragX: number | null = null;
 const tap = (cx: number, cy: number) => {
   const p = view.pick(cx, cy);
-  // Place a bought pad, else move the picked unit to a free slot, else pick a unit, else mark a contact.
-  if (!p || s.phase !== 'play' || placePad(s, p.x, p.z) || movePad(s, p.x, p.z) || selectPad(s, p.x, p.z)) return;
+  // Place a bought pad, else recover salvage, else move the picked unit to a free slot, else pick a unit, else mark a contact.
+  if (!p || s.phase !== 'play' || placePad(s, p.x, p.z) || collectDrop(s, p.x, p.z) || movePad(s, p.x, p.z) || selectPad(s, p.x, p.z)) return;
   markAt(s, p.x, p.z); aimFocus(s, p.x, p.z);
 };
 canvas.addEventListener('mousedown', e => { if (e.button === 2) dragX = e.clientX; else tap(e.clientX, e.clientY); });
@@ -136,7 +136,7 @@ function frame(now: number) {
   const sweep0 = s.sweepA;
   for (let i = 0; i < speed; i++) update(s, dt);
   if (s.sweepA < sweep0) sfx.play('ping'); // sweep completed a revolution
-  for (const e of s.events) sfx.play(e.k);
+  for (const e of s.events) sfx.play(e.k, e as { n?: number; star?: boolean; drop?: string });
   view.inset(...hud.insets());
   view.render(s, dt);
   hud.update(s, dt, view.cameraYaw(), view.project, speed);
