@@ -1,6 +1,6 @@
 // `npm run balance` — headless bots over many seeds. Median survival (and level reached) per doctrine, and per perk when the bot
 // always takes that perk if offered. A perk far above the rest is a balance problem.
-import { newGame, update, buy, cost, pickPerk, toggleEmcon, emitting, rand, padUpgradeCost, upgradePad, type State, type Pad } from './sim.ts';
+import { newGame, update, buy, collectDrop, cost, pickPerk, toggleEmcon, emitting, rand, padUpgradeCost, upgradePad, type State, type Pad } from './sim.ts';
 import { DOCTRINES, PERKS, UPGRADES } from './config.ts';
 
 declare const process: { argv: string[] }; // node, without pulling in @types/node
@@ -21,6 +21,7 @@ function play(seed: number, doctrine: string, perk = '') {
     // Upgrading a gun in place competes with the shop on price.
     const pad = s.perim.reduce<Pad | undefined>((a, p) => padUpgradeCost(p) < (a ? padUpgradeCost(a) : Infinity) ? p : a, undefined);
     if (!goal && pad && padUpgradeCost(pad) < cost(s, pick)) { s.selected = pad.slot; upgradePad(s); } else buy(s, pick);
+    for (const d of [...s.drops]) collectDrop(s, d.x, d.z); // an attentive player recovers every drop
     const arm = s.enemies.some(e => e.kind === 'arm' && e.x * e.x + e.z * e.z < 30 * 30);
     if (arm === emitting(s) && (arm || s.emcon)) toggleEmcon(s);
     update(s, 1 / 20);

@@ -34,29 +34,48 @@ export interface EnemyType {
   flank?: boolean; // long-range: may come round the flanks (see FRONT)
   pacOnly?: boolean; // only PAC-3 hit-to-kill can stop it
   low?: boolean; // hugs the ground: radar only sees it inside CRUISE_LOW of its range (eyes as usual)
+  drop: number; // chance a kill leaves salvage behind (see DROPS)
 }
 
 export const ENEMIES: Record<EnemyKind, EnemyType> = {
-  scout: { name: 'Lancet-3 loitering munition', code: 'LANCET', hp: 3, speed: 7, dmg: 3, reward: 6, size: 0.8, sig: 0.6, glow: 1, pack: 1, wobble: 3 },
-  drone: { name: 'Shahed-136 one-way attack drone', code: 'SHAHED', hp: 8, speed: 4, dmg: 6, reward: 10, size: 1.1, sig: 0.9, glow: 0.8, pack: 1, wobble: 0.6, flank: true },
-  swarm: { name: 'FPV strike swarm', code: 'FPV', hp: 2, speed: 5.5, dmg: 2, reward: 3, size: 0.5, sig: 0.45, glow: 0.6, pack: 6, wobble: 1.5 },
-  tank: { name: 'Mi-28NM attack helicopter', code: 'MI-28', hp: 45, speed: 1.8, dmg: 20, reward: 50, size: 2, sig: 1.4, glow: 1, pack: 1, wobble: 0 },
-  elite: { name: 'Su-34 strike fighter', code: 'SU-34', hp: 160, speed: 3.5, dmg: 40, reward: 200, size: 2.4, sig: 1.2, glow: 1.5, pack: 1, wobble: 1 },
+  scout: { name: 'Lancet-3 loitering munition', code: 'LANCET', hp: 3, speed: 7, dmg: 3, reward: 6, size: 0.8, sig: 0.6, glow: 1, pack: 1, wobble: 3, drop: 0.02 },
+  drone: { name: 'Shahed-136 one-way attack drone', code: 'SHAHED', hp: 8, speed: 4, dmg: 6, reward: 10, size: 1.1, sig: 0.9, glow: 0.8, pack: 1, wobble: 0.6, flank: true, drop: 0.03 },
+  swarm: { name: 'FPV strike swarm', code: 'FPV', hp: 2, speed: 5.5, dmg: 2, reward: 3, size: 0.5, sig: 0.45, glow: 0.6, pack: 6, wobble: 1.5, drop: 0.008 },
+  tank: { name: 'Mi-28NM attack helicopter', code: 'MI-28', hp: 45, speed: 1.8, dmg: 20, reward: 50, size: 2, sig: 1.4, glow: 1, pack: 1, wobble: 0, drop: 0.12 },
+  elite: { name: 'Su-34 strike fighter', code: 'SU-34', hp: 160, speed: 3.5, dmg: 40, reward: 200, size: 2.4, sig: 1.2, glow: 1.5, pack: 1, wobble: 1, drop: 0.4 },
   // Looks exactly like a Shahed (bigger radar return, even) until the ECS classifies it. Harmless, worthless.
-  decoy: { name: 'Gerbera decoy drone', code: 'DECOY', hp: 5, speed: 3.8, dmg: 0, reward: 0, size: 1.1, sig: 1.1, glow: 0.8, pack: 3, wobble: 0.6, flank: true }, // flies with the Shaheds, so it can't give them away
-  arm: { name: 'Kh-31P anti-radiation missile', code: 'KH-31P', hp: 4, speed: 10, dmg: 5, reward: 15, size: 0.8, sig: 0.55, glow: 1.2, pack: 2, wobble: 0 },
+  decoy: { name: 'Gerbera decoy drone', code: 'DECOY', hp: 5, speed: 3.8, dmg: 0, reward: 0, size: 1.1, sig: 1.1, glow: 0.8, pack: 3, wobble: 0.6, flank: true, drop: 0 }, // flies with the Shaheds, so it can't give them away
+  arm: { name: 'Kh-31P anti-radiation missile', code: 'KH-31P', hp: 4, speed: 10, dmg: 5, reward: 15, size: 0.8, sig: 0.55, glow: 1.2, pack: 2, wobble: 0, drop: 0.03 },
   // Big radar return, very fast, hits hard. Nothing but PAC-3 touches it.
-  tbm: { name: 'Iskander-M ballistic missile', code: 'ISKANDER', hp: 5, speed: 12, dmg: 25, reward: 60, size: 1, sig: 1.6, glow: 1.3, pack: 1, wobble: 0, pacOnly: true, flank: true },
+  tbm: { name: 'Iskander-M ballistic missile', code: 'ISKANDER', hp: 5, speed: 12, dmg: 25, reward: 60, size: 1, sig: 1.6, glow: 1.3, pack: 1, wobble: 0, pacOnly: true, flank: true, drop: 0.1 },
   // Low, fast and weaving, and it goes for your most valuable unit instead of the base (see sim.cruiseTarget).
-  cruise: { name: 'Kh-101 cruise missile', code: 'KH-101', hp: 6, speed: 8, dmg: 15, reward: 40, size: 1, sig: 0.35, glow: 1.1, pack: 1, wobble: 2, flank: true, low: true },
-  ew: { name: 'Mi-8MTPR-1 EW helicopter', code: 'MI-8PR', hp: 60, speed: 2.5, dmg: 0, reward: 80, size: 1.8, sig: 1.6, glow: 1, pack: 1, wobble: 0 },
+  cruise: { name: 'Kh-101 cruise missile', code: 'KH-101', hp: 6, speed: 8, dmg: 15, reward: 40, size: 1, sig: 0.35, glow: 1.1, pack: 1, wobble: 2, flank: true, low: true, drop: 0.08 },
+  ew: { name: 'Mi-8MTPR-1 EW helicopter', code: 'MI-8PR', hp: 60, speed: 2.5, dmg: 0, reward: 80, size: 1.8, sig: 1.6, glow: 1, pack: 1, wobble: 0, drop: 0.3 },
   // Launched by other enemies, never spawned on their own: the Mi-28's anti-tank missiles, the Su-34's glide bomb.
-  atgm: { name: '9M120 Ataka anti-tank missile', code: 'ATAKA', hp: 3, speed: 9, dmg: 6, reward: 4, size: 0.6, sig: 0.4, glow: 1.2, pack: 1, wobble: 0 },
-  kab: { name: 'KAB-500 glide bomb (UMPK kit)', code: 'KAB', hp: 35, speed: 4.5, dmg: 40, reward: 20, size: 1, sig: 0.9, glow: 1, pack: 1, wobble: 0 },
+  atgm: { name: '9M120 Ataka anti-tank missile', code: 'ATAKA', hp: 3, speed: 9, dmg: 6, reward: 4, size: 0.6, sig: 0.4, glow: 1.2, pack: 1, wobble: 0, drop: 0 },
+  kab: { name: 'KAB-500 glide bomb (UMPK kit)', code: 'KAB', hp: 35, speed: 4.5, dmg: 40, reward: 20, size: 1, sig: 0.9, glow: 1, pack: 1, wobble: 0, drop: 0 },
 };
 // Munitions heading for the battery: drawn amber, their launches and intercepts logged.
 export const MUNITIONS: EnemyKind[] = ['arm', 'tbm', 'cruise', 'atgm', 'kab'];
 export const KINDS = Object.keys(ENEMIES) as EnemyKind[];
+
+// Rare drops: a kill sometimes leaves salvage on the ground (chance per kind: ENEMIES.drop). Click it within
+// DROP_LIFE s to recover it; unclaimed salvage is lost. Heavy kills (reward >= DROP_HEAVY) roll TECH more often.
+// Rolled with Math.random, so drops never touch the daily op's seeded schedule.
+export type DropKind = 'cache' | 'ammo' | 'power' | 'repair' | 'overdrive' | 'tech';
+export const DROPS: Record<DropKind, { name: string; desc: string; w: number; heavy: number }> = {
+  cache: { name: 'SUPPLY CACHE', desc: 'credits', w: 40, heavy: 1 },
+  ammo: { name: 'MUNITIONS', desc: 'interceptors full', w: 18, heavy: 1 },
+  power: { name: 'POWER CELL', desc: 'power full', w: 18, heavy: 1 },
+  repair: { name: 'REPAIR KIT', desc: '+30% battery HP, every unit repaired', w: 14, heavy: 1 },
+  overdrive: { name: 'OVERDRIVE', desc: '+50% fire rate for 12s', w: 8, heavy: 2 },
+  tech: { name: 'SALVAGED TECH', desc: 'a free upgrade level', w: 2, heavy: 6 },
+};
+export const DROP_KINDS = Object.keys(DROPS) as DropKind[];
+export const DROP_LIFE = 12, DROP_GRAB = 4.5, DROP_MAX = 12, DROP_HEAVY = 50; // s on the ground, m click reach, most at once, reward
+export const CACHE = { reward: 6, flat: 40 }; // credits: 6x the kill's reward + 40
+export const REPAIR_DROP = 0.3; // share of max HP a repair kit restores
+export const OVERDRIVE = { time: 12, rate: 1.5 };
 export const CRUISE_LOW = 0.6; // share of radar range a low flyer is seen at (the radar horizon)
 // How each type flies (sim.moveEnemies). Speeds are x the type's own.
 export const DIVE_SPEED = 1.7; // terminal dive: Shaheds (and the Gerberas copying them), Lancets
@@ -376,8 +395,14 @@ export const BASE_LEVELS: { name: string; desc: string }[] = [
 export const baseLevelInfo = (level: number) => BASE_LEVELS[Math.min(level, BASE_LEVELS.length) - 1];
 export const BACKUP_RADAR = 0.5; // TRML-4D range and detection chance while the MPQ-65 is down
 
+// Milestones: every MILESTONE-th level of an open-ended upgrade is a new rank, worth one extra level for free.
+export const MILESTONE = 5;
+export const rank = (n: number) => Math.floor(n / MILESTONE);
+// Levels that count in deriveStats: what you bought, plus a level per rank on the open-ended upgrades.
+const ranked = (id: string, n: number) => n + (UPGRADES.find(u => u.id === id)?.max === Infinity ? rank(n) : 0);
+
 export function deriveStats(lv: Record<string, number>, perks: string[], level = 1) {
-  const L = (id: string) => lv[id] ?? 0;
+  const L = (id: string) => ranked(id, lv[id] ?? 0);
   const p = { dmg: 1, rate: 1, gen: 1, range: 1, sweep: 1, aprod: 1, credits: 1, hp: 1, persist: 1, drain: 1, trange: 1, addSlots: 0, addArmor: 0, addChain: 0,
     addFusion: 0, addLpi: 0, addArc: 0, addScav: 0, addFrag: 0, markDmg: 1,
     addBlackout: 0, addCounterSead: 0, addKillChain: 0, addOverkill: 0, addLastStand: 0 };
