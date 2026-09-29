@@ -38,7 +38,7 @@ const TIPS: Record<string, string> = {
   jam: 'Jammer on station: detection drops in the amber sector. The Mi-8 itself shows clearly, so click it and kill it.',
   ident: 'Decoy classified and released. Decoys look like Shaheds until locked for a moment. GaN T/R Modules classify faster.',
   package: 'Attack package: several types covering each other. The log says which element to kill first; mark it.',
-  placing: 'Click a slot to place it: the pulsing one covers the most open sky. Guns shoot inside their field of fire (drawn on the ground), and a target inside two of them takes +20% crossfire damage. Click your units to upgrade, sell or move them.',
+  placing: 'Click a slot to place it: the pulsing one covers the most open sky. Guns shoot inside their field of fire (drawn on the ground), and a target inside two of them takes +20% crossfire damage. Click your units to upgrade, sell or move them. O maps what your guns cover.',
   padDown: 'FPVs and Lancets dive on units they fly close to, the forward line most of all. A unit that is down repairs to half before it fights again; the build window repairs everything.',
   level: 'Base level up: every level builds something that changes what the battery can do, plus a launcher and 2 perimeter pads. Pads fire on their own, without lock slots.',
 };
@@ -533,6 +533,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     },
     flash(id: string) { const b = rows.get(id)!; b.classList.remove('pop'); void b.offsetWidth; b.classList.add('pop'); },
     toggleShop: () => shop.classList.toggle('hidden'),
+    coverage: (on: boolean) => document.body.classList.toggle('cov', on),
     share,
   };
 }

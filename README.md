@@ -46,6 +46,7 @@ The game runs entirely in the browser, with no backend and no asset files. `dist
 | 1 / 2 / 3              | Pick a perk when the base levels up       |
 | 1 – 4 (start screen)   | Pick a doctrine                           |
 | P / Esc                | Pause                                     |
+| O                      | Coverage map: gaps, single cover and crossfire on the ground (toggle) |
 | X                      | 2× speed (toggle)                         |
 | M                      | Mute                                      |
 | C                      | Copy your result line after game over     |
@@ -120,7 +121,7 @@ Perimeter pads (units): **12.7 mm AA MGs** (from the start), **MANTIS 35mm C-RAM
 | Main line    | 17 m     | balanced                                                                                    |
 | Inner ring   | 11 m, all round | safe, covers the flanks, engages late                                                 |
 
-**Fields of fire.** A gun covers a fan pointing away from the base, drawn on the ground: MGs 120°, Stingers 180°, MANTIS all round. It can't shoot what has flown past it. A target inside two guns' fields of fire takes **+20% crossfire damage** from both. Amber ticks on the mini radar rim mark bearings in the threat arc that no working gun covers.
+**Fields of fire.** A gun covers a fan pointing away from the base, drawn on the ground: MGs 120°, Stingers 180°, MANTIS all round. It can't shoot what has flown past it. A target inside two guns' fields of fire takes **+20% crossfire damage** from both. Amber ticks on the mini radar rim mark bearings in the threat arc that no working gun covers. Press `O` (or the half-circle button on phones) for the coverage map: amber ground in the threat arc that nothing covers, dim green where one gun does, bright green where guns cross their fire.
 
 **Placing.** After buying a unit, **click the map** to put it on the nearest free slot. The pulsing slot is the one that covers the most open sky (or, for support units, serves the most guns); if you don't click within 8 seconds, the unit goes there.
 

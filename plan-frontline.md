@@ -46,7 +46,7 @@ The ring of pads becomes a **front-facing layout**, with emplacement slots in th
 |---------------|--------------------|-----------------------------------|
 | Forward line  | 25–35 m            | guns, spotters, jammers           |
 | Main line     | 12–20 m            | guns, MANPADS, SHORAD             |
-| Inner / point | 5–8 m, all round   | C-RAM, point defense for flanks   |
+| Inner / point | 11 m, all round    | C-RAM, point defense for flanks   |
 
 Every slot is fixed, so placement stays a click and it's still deterministic for the daily op. The forward line sees and kills earlier but is **exposed**: flanking missiles can target emplacements, not just the base (from about L5).
 
@@ -66,51 +66,59 @@ Every slot is fixed, so placement stays a click and it's still deterministic for
 - The ECS/lock and power systems only switch on once the radar is built. Before that, the HUD shows just what's relevant (HP, ammo, visual contacts), which also makes onboarding easier.
 
 ## 3b. Placement: making the slots a base-building decision
-*Mostly done (step 4).* In: belts and slots (`SLOTS`), fields of fire (`FANS`), crossfire, `bestSlot()` for auto-place and the bots, gap ticks on the mini radar, the observer post and ammo point, unit HP with forward-line dives and repairs, MG → twin MG → ZU-23 in place, and selling and moving. Not yet: the tier-3 branch choice, terrain tags, the coverage overlay key, and the power node. Changes from the text below:
-- **Level 1's two slots** are a main-line and an inner slot on the front axis. With both on the main line, a front-facing MG only engages from 32 m to 17 m out (it can't shoot what has flown past), and the bots died before they could afford the radar. In depth, the two fields of fire overlap, so level 1 teaches crossfire.
-- **Dives only hit the forward line.** Lancets are most of level 1, and diving on the starting MG knocked out the whole defense.
-- **`bestSlot()` scores bearings, not area:** a bearing of the threat arc it newly covers is worth 1, crossfire on a covered one 0.3. Area scoring picked slots next to the existing guns instead of the open flank.
+*Mostly done (step 4).* This section describes what's built. **Still open:** the tier-3 branch choice and terrain tags (see the end of this section). The power node moved to step 7+, with the laser and HPM it serves.
+
 Placement has to be a real choice with a cost: where you put a unit decides what it covers, what it risks and what it boosts. It must also stay readable and deterministic.
 
-**Fields of fire.** Each unit covers a fan from its slot, not a circle. A gun fan is 120°, MANPADS 180°, and C-RAM and SAMs cover all round. It points away from the base by default. Placement is about **overlap**:
-- **Crossfire:** a target inside two or more fans takes +20% damage from all of them. A line of guns covering each other beats the same guns spread out.
-- **Gaps:** bearings nothing covers show as amber gaps on the mini radar rim. From level 4 the flank arc turns gaps into the thing to fix.
+**Slots and belts.** 16 fixed slots (`SLOTS`) on three belts, each opening at a base level. Placing stays a click and the daily op stays deterministic.
 
-**Support units** do no damage themselves but boost the units around them. This is what makes a layout into a base:
+| Belt          | Radius | Slots                            |
+|---------------|--------|----------------------------------|
+| Forward line  | 30 m   | 0°, ±15°, ±30° off the front     |
+| Main line     | 17 m   | 0°, ±25°, ±50°                   |
+| Inner ring    | 11 m   | 0°, ±90°, ±150°, 180° (all round) |
 
-| Support       | Effect on units within ~10 m                                  | Why you place it carefully                    |
-|---------------|---------------------------------------------------------------|-----------------------------------------------|
-| Observer post | +40% spotting range before the radar; +detection chance after | forward = sees sooner, but exposed            |
-| Ammo point    | +50% reload / belt refill                                     | forward units starve without one nearby       |
-| Power node    | laser and HPM draw power only in its reach (step 7+)          | decides where the energy weapons can go       |
+| Level | Opens                                                        |
+|-------|--------------------------------------------------------------|
+| 1     | main 0° and inner 0°: a line in depth on the front axis, so the two MGs' fields of fire overlap and level 1 teaches crossfire. (Two main-line slots were tried: a front-facing MG there only engages from 32 m to 17 m out, and the bots died before they could afford the radar.) |
+| 2     | main ±25°, forward 0°                                        |
+| 3     | forward ±15°                                                 |
+| 4     | inner ±90°, ±150° (the flanks open up)                       |
+| 5–9   | one per level: main −50°, inner 180°, forward −30°, forward 30°, main 50° |
 
-**Depth trade-off.** Each belt gives something and costs something:
-- **Forward line:** engages earliest and gets crossfire on the front axis. Resupply is slow unless an ammo point is near. FPVs and Lancets that pass within 3 m of a unit dive on it instead of the base.
+There is no separate support slot: observer posts and ammo points take the same slots as guns, so every support unit is a gun you didn't place. That's the tall-or-wide trade-off on the support side.
+
+**Fields of fire.** Each gun covers a fan from its slot, pointing away from the base (`FANS`, half-widths): MG 120°, Stinger 180°, MANTIS all round. A gun only shoots inside its fan and range (`covers()`). Fans are drawn on the ground, dim, and bright for the unit you picked.
+- **Crossfire:** a target inside another working gun's fan too takes +20% damage (`CROSSFIRE`). A line of guns covering each other beats the same guns spread out.
+- **Gaps:** bearings of the current threat arc that no working gun covers 22 m out show as amber ticks on the mini radar rim.
+- **Coverage overlay (`O`):** toggles a map of all fans on the ground. Ground no gun covers inside the threat arc is shaded amber, ground one gun covers is dim green, and crossfire ground is bright green.
+
+**Support units** don't shoot; they boost the guns around them, which is what makes a layout into a base:
+
+| Support       | Effect                                                          | Why you place it carefully                 |
+|---------------|-----------------------------------------------------------------|--------------------------------------------|
+| Observer post | sees 28 m round itself (`OBSERVER_EYES`), for every gun; a gun's own eyes reach 15 m | forward = sees sooner, but exposed |
+| Ammo point    | guns within 10 m: +25% fire rate, belts reload twice as fast    | forward guns reload 50% slower without one |
+
+**Depth trade-off.**
+- **Forward line:** engages earliest and gets crossfire on the front axis. Belts reload 50% slower unless an ammo point is within reach. FPVs and Lancets that pass within 3 m of a forward unit dive on it instead of the base.
 - **Main line:** balanced, and the natural spot for ammo points.
-- **Inner ring:** safest and covers all round. It engages late, which is what you want against flank missiles.
+- **Inner ring:** safest and covers all round. It engages late, which is what you want against flank missiles. Dives only hit the forward line: Lancets are most of level 1, and diving on the starting MG knocked out the whole defense.
 
-**Unit HP and repair.** Units have HP. At 0 they're *disabled* (not destroyed) until repaired: slowly during combat, instantly in the build window. From L5, cruise missiles pick the unit with the highest value instead of the base, so a strong forward line needs point defense behind it.
+**Unit HP and repair.** Units have 30 HP. At 0 they're *down* (no fire, eyes or support, not destroyed) until repaired to half, at 0.5 HP/s in combat and at once in the build window. *Step 5:* cruise missiles pick the unit with the highest value instead of the base, so a strong forward line needs point defense behind it.
 
-**Tall or wide.** Every unit can be upgraded in its slot, e.g. **MG → twin MG → ZU-23 → MANTIS** (tier 3 picks a branch such as *AP rounds* against Mi-28s or *high rate* against swarms). You choose between upgrading what you have and filling more slots, and one upgraded unit is better than two weak ones only where fans overlap.
+**Tall or wide.** The MG upgrades in its slot: **12.7 mm MG → twin 12.7 mm (110) → ZU-23-2 (240)**, and each tier counts toward base level. MANTIS is its own unit, not an MG tier. You choose between upgrading what you have and filling more slots.
 
-**Terrain tags (optional).** A few slots per map have a fixed tag. **Ridge:** +20% range, but drones go for it first. **Treeline:** never targeted, −15% range. **Road:** half the build cost and fast resupply. These give each layout a character without new systems.
-
-**Moving units.** In the build window, move and sell (full refund) freely. In combat, selling refunds 50%, and moving takes the unit offline for 5 s while it relocates.
+**Moving and selling.** Click a unit to pick it. In the build window, selling refunds in full and moving is free. In combat, selling refunds 50% and moving takes the unit offline for 5 s while it relocates.
 
 **Placement UX.**
-- While placing, each free slot previews the fan it would add and how much uncovered threat arc it closes. The best slot pulses.
-- Auto-place (after 8 s) and the balance bot both pick that best slot with the same function (`bestSlot(s, kind)`), so the bots test real layouts.
-- A coverage overlay (`O`) shows all fans, overlaps and gaps.
+- While placing, the free slots are marked and the best one pulses. Auto-place (after 8 s) and the balance bot pick it with the same function, `bestSlot(s, kind)`, so the bots test real layouts.
+- `bestSlot()` scores **bearings, not area**: a bearing of the threat arc it newly covers is worth 1, crossfire on a covered one 0.3. (Area scoring picked slots next to the existing guns instead of the open flank.) Support units score by the guns they'd serve.
 
-**Slot unlocks by level:**
-
-| Level | Opens                                              |
-|-------|----------------------------------------------------|
-| 1     | 2 main-line slots (one holds the MG)               |
-| 2     | +1 main, 2 forward                                 |
-| 3     | +1 forward, 1 support slot                         |
-| 4     | 4 inner-ring slots (the flanks open up)            |
-| 5+    | +1 per level, alternating forward and inner, up to 16 |
+**Still open.**
+- **Tier-3 branch.** At ZU-23, pick a branch: *AP rounds* (more damage, for Mi-28s) or *high rate* (for swarms). Only worth it once the Mi-28 and swarm levels play differently enough to make the choice real.
+- **Terrain tags (optional).** A few slots per map get a fixed tag. **Ridge:** +20% range, but drones go for it first. **Treeline:** never targeted, −15% range. **Road:** half the build cost and fast resupply. These add a lot of balance surface, so they wait until after step 6.
+- **Power node** (moved to step 7+): the laser and HPM draw power only within its reach, which decides where the energy weapons can go.
 
 ## 4. Threats per level
 Replaces the time-based `PHASES`. Each level sets the spawn weights, the exposure arc and the raid pool.
@@ -157,7 +165,7 @@ Keep the game runnable after each step.
 1. ~~`FRONT` + `flank` + `spawnBearing()`, with the flank arc widening by phase.~~ **Done.** Also: jammers hold the front, the front is drawn on the ground and the mini radar rim, and there's a front/flank spawn check in `npm test`.
 2. ~~The `LEVELS` table replacing `PHASES`, with widening exposure arcs.~~ **Done.** Each level is `LEVEL_LEN` (60 s) of waves, then its raid, then a build window with no spawns (20 s held / 8 s lost, which replaces the old recovery lull and "next raid sooner"). Strike packages come once per level from SEAD on. Packages and raids unlock by level, and raid size goes by level (`raidScale`). The wave stream is reseeded per level, so each level of a daily op sends the same things however long earlier levels took. The balance script reports the level reached. Still to do in step 6: the level card and the slow-motion build state.
 3. ~~The AA MG and visual spotting, with the radar and Patriot moved to the unlock ladder.~~ **Done.** See sections 2 and 3. Balance (`npm run balance -- 12 900`): STANDARD median 5:02, reaching level 4 (it was 4:06 / L3 after step 2); FORTRESS (−15% fire rate) comes out weak with gun-heavy starts.
-4. ~~Belt slots replacing the ring (section 3b), in this order: slots + fans + crossfire + `bestSlot()`, then support units, then unit HP, then tier upgrades in place. After that, the new emplacements (ZU-23, IRIS-T SLM).~~ **Done**, except the IRIS-T SLM (moved to step 5, with the cruise missile it answers) and the 3b extras listed there. The ZU-23 is the MG's top tier. Balance: STANDARD median 4:52, reaching level 4 (5:02 before).
+4. ~~Belt slots replacing the ring (section 3b), in this order: slots + fans + crossfire + `bestSlot()`, then support units, then unit HP, then tier upgrades in place. After that, the new emplacements (ZU-23, IRIS-T SLM).~~ **Done**, except the IRIS-T SLM (moved to step 5, with the cruise missile it answers) and the open items at the end of 3b. The coverage overlay (`O`) came after. The ZU-23 is the MG's top tier. Balance: STANDARD median 4:52, reaching level 4 (5:02 before).
 5. The cruise missile and missiles that target emplacements.
 6. Map, mini radar, level card and build window. Then rebalance with `npm run balance`.
 

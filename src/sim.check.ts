@@ -1,5 +1,5 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSlot, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State } from './sim.ts';
+import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSlot, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State } from './sim.ts';
 import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, SLOTS, slotXZ, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC } from './config.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
@@ -140,6 +140,10 @@ const addPad = (g: State, k: string, slot: number) => { g.credits += 1e6; ok(buy
   let dmg = 0;
   run(g, 0.5, () => { for (const sh of g.shots) if (sh.src === 'MG' && sh.target === ahead.id) dmg = Math.max(dmg, sh.dmg); });
   ok(Math.abs(dmg - MG_TIERS[0].dmg * g.st.padDmg * (1 + CROSSFIRE)) < 1e-9, `crossfire: +${CROSSFIRE * 100}% inside two fields of fire`);
+  // The coverage map [O] agrees: crossfire ahead, a gap behind both guns, and a gun that's down covers nothing.
+  const at = (r: number) => coverage(g)(Math.cos(FRONT) * r, Math.sin(FRONT) * r);
+  ok(at(26) === 2 && at(8) === 0, `coverage: 2 guns ahead, none behind (${at(26)}/${at(8)})`);
+  g.perim[0].down = true; ok(at(26) === 1, 'coverage skips a unit that is down'); g.perim[0].down = false;
 }
 {
   // Auto-place goes where it adds the most: with the front covered and the flanks open, an inner flank slot.

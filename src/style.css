@@ -188,6 +188,10 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #tip { bottom: 34px; left: 50%; transform: translateX(-50%); max-width: 460px; padding: 8px 12px; font-size: 12px;
   text-transform: none; --c: var(--hot); opacity: 0; transition: opacity 0.4s; }
 #tip.on { opacity: 1; }
+#covkey { top: 64px; left: 50%; transform: translateX(-50%); padding: 4px 10px; font-size: 10px; letter-spacing: 0.1em; white-space: nowrap; display: none; }
+body.cov #covkey { display: block; }
+#covkey i { font-style: normal; margin-left: 8px; }
+#covkey .k0 { color: var(--alert); } #covkey .k1 { color: var(--mid); } #covkey .k2 { color: var(--bright); }
 
 /* Desktop: the view toggles and touch buttons are phone-only. */
 #views, #touch { display: none; }
@@ -214,7 +218,8 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   #views { display: flex; gap: 4px; margin-top: 5px; }
   #views button { all: unset; flex: 1; display: grid; place-items: center; height: 30px; border: 1px solid var(--line); color: var(--mid); }
   #views button svg { width: 18px; height: 18px; }
-  #views button.on, body.ui-map #views [data-k=UiMap], body.ui-info #views [data-k=UiInfo] { color: var(--hot); border-color: var(--mid);
+  #covkey { top: auto; bottom: calc(max(6px, env(safe-area-inset-bottom)) + 64px); font-size: 9px; }
+  #views button.on, body.ui-map #views [data-k=UiMap], body.ui-info #views [data-k=UiInfo], body.cov #views [data-k=KeyO] { color: var(--hot); border-color: var(--mid);
     background: color-mix(in srgb, var(--bright) 12%, transparent); }
   #info { display: none; margin: 6px 0 0; font-size: 10px; gap: 1px 6px; }
   #info dt { font-size: 9px; }
