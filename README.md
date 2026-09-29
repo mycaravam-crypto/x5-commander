@@ -1,6 +1,6 @@
 # X5 Commander
 
-A minimal browser tower defense game made from simple 3D shapes. You command a Patriot air-defense battery against an endless, escalating raid of drones, helicopters and strike jets. You can only engage what your radar has found.
+A minimal browser tower defense game made from simple 3D shapes. You start with a single anti-aircraft machine gun and build it up into a Patriot air-defense battery against an endless, escalating raid of drones, helicopters and strike jets. You can only engage what you can see: by eye at first, by radar once you've built one.
 
 System and threat names are real or announced systems, used for flavor only; the numbers are game balance, not real performance.
 
@@ -35,7 +35,7 @@ The game runs entirely in the browser, with no backend and no asset files. `dist
 | Space (in play)        | Emergency intercept                       |
 | G                      | Cycle fire discipline: CONSERVE / BALANCED / MAXIMUM |
 | D                      | Start today's daily op                    |
-| Left click             | Mark a contact as the priority target, or place a bought pad |
+| Left click             | Mark a contact as the priority target (needs the radar), or place a bought pad |
 | Mouse wheel            | Zoom                                      |
 | Right-drag / Q / E     | Rotate camera                             |
 | Tab                    | Show / hide the upgrade shop              |
@@ -63,8 +63,16 @@ The first time you meet each threat or mechanic, a short tip explains it. Tips d
 - **Threat board (top right):** what's on the scope by type, and the 4 most urgent contacts (damage they'd do over time to impact). Amber means dangerous now; ◆ means locked.
 - **Shop:** the row marked ◆ in amber is the suggested buy for the current bottleneck: interceptors when the magazine runs low, generator when power starves the radar, hull when HP is low, ECS channels when contacts wait for a lock.
 
+### Starting out: one gun and your eyes
+A run starts with a command post and one **12.7 mm AA machine gun**, dug in on the front. There is no radar and no Patriot yet:
+- **Eyesight:** anything within 18 m of the base, or 15 m of an emplacement, is seen, radar or not. NIGHT RAID cuts that to 60%. Guns placed further out see further.
+- **The MG** fires by itself at whatever it can see within 15 m. It feeds from its own 40-round belt, not the interceptor stock, and takes 3 s to reload when the belt runs dry.
+- **What's off without a radar:** locks, the priority target, radar modes, EMCON and the emergency intercept. ARMs have nothing to home on.
+- **The shop** only offers what helps before the radar: guns and pads, hull, damage and fire rate. Power, sensors and fire control need the radar; the magazine needs the Patriot.
+- **Milestones:** from base level 3 you can buy the **AN/MPQ-65 radar** (search and fire control), then the **PAC-3 MSE battery** (the Patriot, which needs the radar). Radar and Patriot perks only turn up in drafts once you have them.
+
 ### Radar decides everything
-A rotating radar sweep reveals enemies within its range (until you buy the AESA, below). Each time the sweep passes over an enemy, there's a chance it gets detected. The chance depends on the enemy's signature and your radar resolution. **Undetected enemies are invisible and can't be shot.** A detected contact fades again after the radar's *persistence* time runs out.
+Once it's built, a rotating radar sweep reveals enemies within its range (until you buy the AESA, below). Each time the sweep passes over an enemy, there's a chance it gets detected. The chance depends on the enemy's signature and your radar resolution. **Undetected enemies are invisible and can't be shot.** A detected contact fades again after the radar's *persistence* time runs out.
 
 ### LTAMDS AESA
 A rotating radar can take at most 8 levels of *Scan Rate*. From base level 4 you can buy **LTAMDS AESA**, a staring array that covers all directions at once. It gives every contact the same number of looks a sweep would, at random moments. This adds +25% scan rate and removes the Scan Rate cap. The spinning sweep is replaced by faint beam flashes and a blip each time a contact is detected again, so the screen stays readable however fast you scan.
@@ -94,13 +102,14 @@ Detected enemies are locked, up to your number of **lock slots**. A lock holds a
 ### Weapons
 | Weapon                   | Uses         | Notes                                                   |
 |--------------------------|--------------|---------------------------------------------------------|
-| PAC-3 MSE (Patriot)      | Interceptors | Hit-to-kill, leads moving targets; you start with it    |
+| 12.7 mm AA MG            | Its own belt | Fires at what it can see, no lock; you start with one (it's a perimeter pad) |
+| PAC-3 MSE (Patriot)      | Interceptors | Hit-to-kill, leads moving targets; bought from base level 3, needs the radar |
 | HEL 50 kW laser          | Power        | Instant, rapid beam                                     |
 | IRIS-T SLX               | Interceptors | Homing, blast-frag splash; one extra launcher per level |
 | Leonidas HPM (microwave) | Power        | Huge hit, affects everything along the line             |
 
 ### Perimeter defenses
-From base level 2 you can buy perimeter pads: **MANTIS 35mm C-RAM** (fast gun, short range), **Stinger teams** (homing, mid range) and **EW jammers** (slow nearby contacts, drain power). Each base level opens 2 more pads, up to 8. Pads engage any radar contact in their own range without using a lock slot. After buying a pad, **click the map** to put it on the nearest free spot on the ring. If you don't click within 8 seconds, it places itself toward the nearest contact, or the front if there is none.
+Perimeter pads: **12.7 mm AA MGs** (from the start), **MANTIS 35mm C-RAM** (base level 2, fast gun, short range), **Stinger teams** (level 3, homing, mid range) and **EW jammers** (level 4, slow nearby contacts, drain power). Base level 1 has 2 pads, one of them the starting MG, and each level opens 2 more, up to 8. Pads engage any contact in their own range that can be seen, by eye or radar, without using a lock slot. After buying a pad, **click the map** to put it on the nearest free spot on the ring. If you don't click within 8 seconds, it places itself toward the nearest contact, or the front if there is none.
 
 ### Power and ammo
 Your generator fills a power pool, and everything draws on it in this order:
@@ -111,7 +120,7 @@ Your generator fills a power pool, and everything draws on it in this order:
 Laser and HPM shots cost power as well. The power and interceptor bars show the net flow per second, so you can see which way the budget is going. Balancing seeing, shooting and building is the core tension of the game.
 
 ### Credits, upgrades and base levels
-Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits. There are 23 upgrades in 7 groups: BATTERY, POWER, SENSORS, FIRE CONTROL, WEAPONS, MAGAZINE and PERIMETER. Each upgrade costs more with every level. There is **no max level**, except for *Threat Evaluation* and *LTAMDS AESA*, which are on/off, and Scan Rate before the AESA. Earth Revetments have diminishing returns, up to 85% less damage taken. Buying upgrades raises your **base level**, which adds visible structures to the base and offers a **perk draft: pick 1 of 3**. Every perk has a tradeoff, for example *GLASS CANNON*: +100% damage, −40% max HP. From base level 3, every draft also offers one **rule perk** (marked ★ NEW RULE) that changes how the battery plays, until you've taken them all. From level 3: *BLACKOUT PROTOCOL* (tracks coast twice as long when the radar goes dark, −30% memory while radiating), *COUNTER-SEAD* (each ARM shot down restores 20% power), *KILL CHAIN* (every 5 kills: +1 lock slot for 8 s), *OVERKILL* (damage past a kill jumps to the nearest contact within 8 m) and *LAST STAND* (below 25% HP: +50% fire rate, −40% power gen). From level 5: *TRACK FUSION* (locks hold while the radar is dark), *LPI WAVEFORM* (LPI mode keeps full detection), *OVERWATCH* (your marked target takes double damage), *ARC LASER* (laser jumps to 2 more targets; needs the laser), *SCAVENGER* (kills refund interceptors) and *FRAG WARHEADS* (PAC-3 hits splash).
+Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits. There are 26 upgrades in 7 groups: BATTERY, POWER, SENSORS, FIRE CONTROL, WEAPONS, MAGAZINE and PERIMETER. Each upgrade costs more with every level. There is **no max level**, except for *Threat Evaluation*, the *radar*, the *PAC-3 battery* and *LTAMDS AESA*, which are on/off, and Scan Rate before the AESA. Earth Revetments have diminishing returns, up to 85% less damage taken. Buying upgrades raises your **base level**, which adds visible structures to the base and offers a **perk draft: pick 1 of 3**. Every perk has a tradeoff, for example *GLASS CANNON*: +100% damage, −40% max HP. From base level 3, every draft also offers one **rule perk** (marked ★ NEW RULE) that changes how the battery plays, until you've taken them all. From level 3: *BLACKOUT PROTOCOL* (tracks coast twice as long when the radar goes dark, −30% memory while radiating), *COUNTER-SEAD* (each ARM shot down restores 20% power), *KILL CHAIN* (every 5 kills: +1 lock slot for 8 s), *OVERKILL* (damage past a kill jumps to the nearest contact within 8 m) and *LAST STAND* (below 25% HP: +50% fire rate, −40% power gen). From level 5: *TRACK FUSION* (locks hold while the radar is dark), *LPI WAVEFORM* (LPI mode keeps full detection), *OVERWATCH* (your marked target takes double damage), *ARC LASER* (laser jumps to 2 more targets; needs the laser), *SCAVENGER* (kills refund interceptors) and *FRAG WARHEADS* (PAC-3 hits splash).
 
 ### The front
 Enemies attack from one direction: the **front**, a 50° sector at the top of the default view, marked on the ground and on the mini radar rim. Aircraft and short-range drones (Lancet, FPV, Mi-28, Su-34, Mi-8 and their ARMs) always come from the front. Long-range threats (Shaheds, the decoys that fly with them, and Iskanders) come from the front too at first. From the SEAD level they can come from up to 60° either side of it, from COORDINATED RAID up to 120°, and after that from any direction. The mini radar shades the arc they can currently come from. A raid or package comes off the front only when everything in it is a long-range threat.
@@ -161,11 +170,11 @@ Spawn rate, HP and damage grow **logarithmically** with play time, and raid size
 | Iskander-M ballistic missile | Very fast, big radar return, hits hard. **Only PAC-3 can hit it** |
 
 ### The battery
-The base is laid out like a Patriot site. Every base level builds something that changes what it can do, plus an M903 launcher (up to 8) and 2 more perimeter pads:
+The base is laid out like a Patriot site. Every base level builds something that changes what it can do, plus an M903 launcher once you have the Patriot (up to 8), and 2 more perimeter pads:
 
 | Level | Builds                         | Capability                                                          |
 |-------|--------------------------------|---------------------------------------------------------------------|
-| 1     | AN/MPQ-65 radar + ECS          | the battery                                                         |
+| 1     | command post + 12.7 mm AA MG   | the starting kit; the AN/MPQ-65 radar and ECS replace the command post once bought |
 | 2     | EPP-III power plant            | +2 power/s                                                          |
 | 3     | OE-349 antenna mast            | datalink: raids announced 5 s earlier, +1 s contact memory          |
 | 4     | TRML-4D surveillance radar     | keeps searching at half range while an ARM has the MPQ-65 down (no locks, but pads keep firing) |
@@ -175,7 +184,7 @@ The base is laid out like a Patriot site. Every base level builds something that
 
 The level-up card names what was built. The LTAMDS AESA upgrade adds rear arrays to the radar, and buying laser, IRIS-T SLX or HPM adds their vehicles.
 
-**Doctrines:** before a normal run, pick a starting loadout of free upgrade levels (they don't count toward base level). **STANDARD** is always available. The others unlock from your all-time records: **SENSOR NET** (survive 5:00), **LOGISTICS** (earn 5,000 credits in a run) and **FORWARD STRIKE** (reach base level 6). Daily ops always fly STANDARD.
+**Doctrines:** before a normal run, pick a starting loadout of free upgrade levels (they don't count toward base level). **STANDARD** is always available. The others unlock from your all-time records: **SENSOR NET** (survive 5:00; the classic battery, with the radar and the Patriot from the start), **LOGISTICS** (earn 5,000 credits in a run) and **FORWARD STRIKE** (reach base level 6). Daily ops always fly STANDARD.
 
 **Progression layers.** There are three, and they stay separate:
 - **Run:** kills → credits → upgrades → base level → perks → more complex threats. All of it resets every run.

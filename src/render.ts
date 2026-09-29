@@ -4,7 +4,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { ARENA_R, ENEMIES, EW_ARC, FRONT, FRONT_ARC, KINDS, PAL, PAD_SLOTS, PERIM_R, type EnemyKind } from './config.ts';
+import { ARENA_R, ENEMIES, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, PAD_SLOTS, PERIM_R, type EnemyKind } from './config.ts';
 import { emitting, focusBearing, radarRange, radarSector, freeSlots, padAngle, phase, shownKind, visible, type Shot, type State } from './sim.ts';
 
 const MAX_ENEMIES = 2000, MAX_LOCKS = 64, MAX_SHOTS = 600, MAX_SHARDS = 2500, MAX_WAVES = 64, MAX_BEAMS = 3000, MAX_FRONTS = 48, MAX_BLIPS = 1024;
@@ -206,8 +206,14 @@ export function createRenderer() {
     base = new THREE.Group(); aimers.length = sweepers.length = 0; pacPts = []; irisPts = [];
     const L = s.level, W = s.st.weapons, R1 = 3.6, R2 = 6.4, R3 = 9;
 
+    // Before the radar is bought: a dug-in command post with a field mast, center.
+    if (!s.st.radar) {
+      solid(box(2.2, 0.9, 1.8), MID, 0, 0.45, 0, base);
+      solid(box(1.2, 0.5, 1), BRIGHT, 0.2, 1.15, 0, base);
+      solid(new THREE.CylinderGeometry(0.04, 0.06, 2.6, 5), MID, -0.7, 2.2, 0.5, base);
+    }
     // AN/MPQ-65 phased-array radar on its trailer, center. With the AESA upgrade it becomes LTAMDS: extra rear arrays for 360° cover.
-    const radar = group(base); aimers.push([radar, 0, 'pac']);
+    const radar = group(base); aimers.push([radar, 0, 'pac']); radar.visible = s.st.radar;
     solid(box(2.4, 0.3, 1.4), MID, -0.3, 0.6, 0, radar);
     for (const x of [-1.1, -0.4]) for (const z of [-0.6, 0.6]) solid(new THREE.CylinderGeometry(0.3, 0.3, 0.2, 8).rotateX(Math.PI / 2), MID, x, 0.3, z, radar);
     solid(box(1.4, 0.9, 1.3), MID, -0.6, 1.2, 0, radar); // electronics shelter
@@ -221,9 +227,11 @@ export function createRenderer() {
     }
 
     // Inner ring: support vehicles, then the add-on effectors.
-    const ecsA = slot(0, 6, 0.3), ecs = vehicle(R1, ecsA, 2.2, tangent(ecsA)); // Engagement Control Station
-    solid(box(1.8, 1.1, 1.2), BRIGHT, 0.1, 1.3, 0, ecs);
-    for (const z of [-0.4, 0.4]) solid(box(0.04, 1.6, 0.04), MID, -0.6, 2.6, z, ecs);
+    if (s.st.radar) { // Engagement Control Station: comes with the radar
+      const ecsA = slot(0, 6, 0.3), ecs = vehicle(R1, ecsA, 2.2, tangent(ecsA));
+      solid(box(1.8, 1.1, 1.2), BRIGHT, 0.1, 1.3, 0, ecs);
+      for (const z of [-0.4, 0.4]) solid(box(0.04, 1.6, 0.04), MID, -0.6, 2.6, z, ecs);
+    }
     if (L >= 2) { // EPP-III electric power plant: twin generator sets
       const a = slot(1, 6, 0.3), g = vehicle(R1, a, 2.4, tangent(a));
       for (const x of [-0.55, 0.55]) solid(box(0.95, 0.8, 1.1), MID, x, 1.15, 0, g);
@@ -234,7 +242,7 @@ export function createRenderer() {
       solid(new THREE.CylinderGeometry(0.05, 0.08, 3.4, 5), BRIGHT, 0.4, 3, 0, g);
       for (const z of [-0.35, 0.35]) solid(new THREE.ConeGeometry(0.35, 0.25, 8, 1, true).rotateZ(Math.PI / 2), HOT, 0.4, 4.6, z, g);
     }
-    if (L >= 4) { // Hensoldt TRML-4D: rotating 360° surveillance radar, turns with the sweep
+    if (L >= 4 && s.st.radar) { // Hensoldt TRML-4D: rotating 360° surveillance radar, turns with the sweep
       const a = slot(3, 6, 0.3), ry = tangent(a), g = vehicle(R1, a, 2.4, ry);
       solid(box(1.2, 0.7, 1.1), MID, -0.3, 1.1, 0, g);
       solid(new THREE.CylinderGeometry(0.08, 0.1, 1.4, 5), MID, 0.6, 1.4, 0, g);
@@ -261,7 +269,7 @@ export function createRenderer() {
     }
 
     // Level 6: a second fire control shelter (ICC) with whip antennas, out between the IRIS-T slots.
-    if (L >= 6) {
+    if (L >= 6 && s.st.radar) {
       const a = TAU / 8, g = vehicle(R3, a, 2.2, tangent(a));
       solid(box(1.7, 1.1, 1.2), BRIGHT, 0.1, 1.3, 0, g);
       for (const x of [-0.5, 0.6]) solid(box(0.04, 1.8, 0.04), MID, x, 2.7, 0.45, g);
@@ -276,7 +284,7 @@ export function createRenderer() {
 
     // Outer ring: M903 launching stations, one more per base level (a real battery fields up to 8).
     // Four PAC-3 MSE canisters each, raised to 38° and traversing toward the target.
-    for (let i = 0; i < Math.min(8, L + 1); i++) {
+    for (let i = 0; i < (W.cannon ? Math.min(8, L + 1) : 0); i++) {
       const a = slot(i, 8, TAU / 16), ry = radial(a), g = vehicle(R2, a, 2.8, ry, false);
       aimers.push([canisters(g, 2, 2, 2.6, 0.5, 0.66, 0.1), ry, 'pac']);
       pacPts.push([Math.cos(a) * R2, 2.4, Math.sin(a) * R2]);
@@ -288,11 +296,16 @@ export function createRenderer() {
       aimers.push([canisters(g, 2, 4, 2.2, 0.32, 1.05, 0.2), ry, 'pac']);
       irisPts.push([Math.cos(a) * R3, 2.7, Math.sin(a) * R3]);
     }
-    // Perimeter pads: MANTIS gun turret, Stinger team, EW jammer mast.
+    // Perimeter pads: 12.7mm MG in a sandbag ring, MANTIS gun turret, Stinger team, EW jammer mast.
     for (const p of s.perim) {
       const a = Math.atan2(p.z, p.x), ry = radial(a), g = group(base, p.x, 0, p.z, ry);
       solid(box(1.6, 0.3, 1.6), MID, 0, 0.15, 0, g);
-      if (p.k === 'mantis') {
+      if (p.k === 'mg') {
+        solid(new THREE.CylinderGeometry(0.75, 0.8, 0.35, 8), MID, 0, 0.45, 0, g); // sandbags
+        const t = group(g, 0, 0.6, 0); aimers.push([t, ry, `pad${p.slot}`]);
+        solid(box(0.35, 0.3, 0.3), BRIGHT, 0, 0.2, 0, t);
+        solid(new THREE.CylinderGeometry(0.035, 0.035, 1.1, 4).rotateZ(Math.PI / 2), HOT, 0.6, 0.25, 0, t);
+      } else if (p.k === 'mantis') {
         const t = group(g, 0, 0.3, 0); aimers.push([t, ry, `pad${p.slot}`]);
         solid(box(0.9, 0.7, 0.9), BRIGHT, 0, 0.35, 0, t);
         solid(new THREE.CylinderGeometry(0.06, 0.06, 1.6, 5).rotateZ(Math.PI / 2), HOT, 1.1, 0.5, 0, t);
@@ -435,10 +448,11 @@ export function createRenderer() {
         }
         case 'hit': e.n ? (wave(e.x, e.z, e.n, HOT, 0.35), shards(e.x, e.z, 6, BRIGHT, 10)) : shards(e.x, e.z, 2, HOT, 6, 0.5); break;
         case 'baseHit': wave(0, 0, 9, ALERT, 0.5, 1.5); shards(e.x, e.z, 10, ALERT, 12, 1.2); gridFlash = 1; break;
-        case 'gun': { // MANTIS: the pad's turret swings onto the target, muzzle flash at the barrel tip
+        case 'gun': { // MG / MANTIS: the pad's turret swings onto the target, muzzle flash at the barrel tip
           const a = Math.atan2(e.z2 - e.z, e.x2 - e.x), p = s.perim.find(p => Math.abs(p.x - e.x) + Math.abs(p.z - e.z) < 0.01);
           if (p) aimT.set(`pad${p.slot}`, a);
-          shards(e.x + Math.cos(a) * 1.9, e.z + Math.sin(a) * 1.9, 2, 0xffffff, 3, 0.4, 0.8);
+          const tip = p?.k === 'mg' ? 1.15 : 1.9;
+          shards(e.x + Math.cos(a) * tip, e.z + Math.sin(a) * tip, 2, 0xffffff, 3, 0.4, 0.8);
           break;
         }
         case 'beam': // from the HEL (sim fires from the centre), or a hop between contacts (ARC LASER, OVERKILL)
@@ -486,7 +500,7 @@ export function createRenderer() {
   function render(s: State, dt: number) {
     clock += dt;
     consume(s);
-    const key = `${s.level}${s.st.aesa}${!!s.st.weapons.pulse}${s.lv.missile ?? 0}${!!s.st.weapons.rail}${s.perim.length}`;
+    const key = `${s.level}${s.st.radar}${!!s.st.weapons.cannon}${s.st.aesa}${!!s.st.weapons.pulse}${s.lv.missile ?? 0}${!!s.st.weapons.rail}${s.perim.length}`;
     if (key !== baseKey) { baseKey = key; buildBase(s); }
 
     // camera
@@ -497,9 +511,9 @@ export function createRenderer() {
     camera.zoom = zoom; camera.updateProjectionMatrix();
     camRight.setFromMatrixColumn(camera.matrixWorld, 0);
 
-    // radar + base
+    // radar (or eyesight) + base
     const on = emitting(s);
-    const rr = radarRange(s), sector = radarSector(s);
+    const rr = s.st.radar ? radarRange(s) : VISUAL_R, sector = radarSector(s); // no radar: the ring shows eyesight
     sweep.rotation.y = -s.sweepA; sweep.scale.setScalar(rr); sweep.visible = on && !s.st.aesa && !sector;
     radarRing.scale.setScalar(rr);
     focusMesh.visible = on && sector > 0;

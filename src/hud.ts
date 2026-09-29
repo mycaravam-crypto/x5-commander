@@ -1,4 +1,4 @@
-import { ARENA_R, BASE_R, FRONT, FRONT_ARC, PLACE_TIME, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
+import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
 import type { Records } from './config.ts';
 import { cost, emitting, flankArc, building, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
@@ -25,7 +25,9 @@ function loadDaily(date: string): Daily {
 
 // One-time tips, shown the first time each thing happens (remembered across runs).
 const TIPS: Record<string, string> = {
-  start: 'Click a contact to make it the priority target: engaged first, +25% damage, costs power while held. Spend credits in the shop [Tab].',
+  startMg: `You start with one 12.7mm AA machine gun and your own eyes: the gun fires by itself at whatever gets close enough to see. Buy more guns in the shop [Tab]. The search radar and the Patriot open up at base level ${RADAR_REQ}.`,
+  radarOnline: 'Radar online: contacts far beyond sight, and fire control locks them for the Patriot. Click a contact to make it the priority target: engaged first, +25% damage, costs power while held.',
+  pac3: 'Patriot online: PAC-3 interceptors fire at every lock. They use the interceptor stock, the only weapon that can hit a ballistic missile.',
   discipline: 'Fire discipline [G]: CONSERVE saves interceptors and fires late, MAXIMUM fires fast and overkills.',
   intercept: 'Emergency intercept: every weapon on one threat for a few seconds. Long cooldown, costs power.',
   raid: 'Raid inbound: you have a few seconds to prepare. Set radar, fire discipline and priority before it arrives. The raid ends the level. Hold the objective for the bonus and a full build window; lose it and the build window is short.',
@@ -109,7 +111,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       <button class="btn" data-a="start">DEPLOY [SPACE]</button> <button class="btn" data-a="daily">DAILY OP [D]</button>
       <p class="dim">Daily op: same raid for everyone today. ${(d => d.time ? `Your best today · ${clock(d.time)} · ${fmt(d.kills)} kills` : 'Not flown yet today.')(loadDaily(new Date().toISOString().slice(0, 10)))}</p></div></div>`;
     else if (s.phase === 'pause') html = `<div class="card"><h2>PAUSED</h2><p class="dim">[P] resume</p></div>`;
-    else if (s.phase === 'perk') html = `<div class="card"><h2>BATTERY LEVEL ${s.level} · ${baseLevelInfo(s.level).name}</h2><p class="hot">${baseLevelInfo(s.level).desc}</p>${s.level > 1 ? `<p class="dim">+1 M903 LAUNCHER · ${perimSlots(s.level)} PERIMETER PADS</p>` : ''}<h2>CHOOSE A PERK</h2><div class="perks">${
+    else if (s.phase === 'perk') html = `<div class="card"><h2>BATTERY LEVEL ${s.level} · ${baseLevelInfo(s.level).name}</h2><p class="hot">${baseLevelInfo(s.level).desc}</p>${s.level > 1 ? `<p class="dim">${s.st.weapons.cannon ? '+1 M903 LAUNCHER · ' : ''}${perimSlots(s.level)} PERIMETER PADS</p>` : ''}<h2>CHOOSE A PERK</h2><div class="perks">${
       s.perkChoices.map((id, i) => { const p = PERKS.find(p => p.id === id)!; return `<button class="perk frame${p.rule ? ' rule' : ''}" data-a="perk${i}">${p.rule ? '<i>★ NEW RULE</i>' : ''}<b>${p.name}</b><span>${p.desc}</span><kbd>[${i + 1}]</kbd></button>`; }).join('')
     }</div></div>`;
     else if (s.phase === 'over') {
@@ -185,7 +187,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     };
     if (flankArc(s.stage) > FRONT_ARC) rim(Math.min(Math.PI, flankArc(s.stage)), PAL.dim, 3);
     rim(FRONT_ARC, PAL.mid, 3);
-    const rr = radarRange(s) * K, a = s.sweepA + Math.PI / 2 - yaw, sector = radarSector(s);
+    const rr = (s.st.radar ? radarRange(s) : VISUAL_R) * K, a = s.sweepA + Math.PI / 2 - yaw, sector = radarSector(s);
     g.strokeStyle = rgba(PAL.mid, 0.8); g.beginPath(); g.arc(C, C, rr, 0, 7); g.stroke();
     // Unlocked contacts are painted only as the sweep passes them, so they jump like real radar returns.
     const TAU = Math.PI * 2, a0 = lastSweep, swept = ((s.sweepA - a0) % TAU + TAU) % TAU;
@@ -225,7 +227,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       for (let i = 0; i < 60; i++) { g.fillStyle = rgba(PAL.crit, Math.random() * 0.5); g.fillRect(Math.random() * cv.width, Math.random() * cv.height, 2, 1 + Math.random() * 2); }
       g.fillStyle = rgba(PAL.crit); g.font = 'bold 16px monospace'; g.textAlign = 'center'; g.fillText('NO RADAR', C, C - 12);
     }
-    g.fillStyle = rgba(on ? PAL.hot : s.t < s.radarDownUntil ? PAL.crit : PAL.alert); g.fillRect(C - 3, C - 3, 6, 6);
+    g.fillStyle = rgba(on || !s.st.radar ? PAL.hot : s.t < s.radarDownUntil ? PAL.crit : PAL.alert); // amber only for a radar you silenced g.fillRect(C - 3, C - 3, 6, 6);
   }
 
   // ---- system log + lock labels ----
@@ -302,6 +304,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   function suggest(s: State) {
     const st = s.st;
     if (s.phase !== 'play') return '';
+    for (const id of ['radar', 'pac3']) if (!s.lv[id] && !lockReason(s, id)) return id; // the milestones, once open
+    if (!st.radar) return s.hp < st.maxHp * 0.5 ? cheaper(s, 'hp', 'repair') : cheaper(s, 'mg', 'dmg');
     if (s.ammo < st.ammoCap * 0.25) return cheaper(s, 'aprod', 'acap');
     if (s.power < st.powerCap * 0.25 || s.sweepSpeed < st.sweep * 0.99 && emitting(s)) return 'gen';
     if (s.hp < st.maxHp * 0.5) return cheaper(s, 'hp', 'repair');
@@ -334,14 +338,15 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const radar = s.t < s.radarDownUntil ? `<span class="red">DOWN ${(s.radarDownUntil - s.t).toFixed(1)}s${st.backupRadar && !s.emcon ? ' · TRML' : ''}</span>`
       : s.emcon ? '<span class="alert">EMCON · SILENT</span>'
       : sweepPct < 100 ? `<span class="alert">${sweepPct}% LOW PWR</span>` : 'RADIATING';
-    const M = radarMode(s), scan = s.radarMode === 0 ? M.name : `<span class="hot">${M.name}${radarSector(s) ? ` ${pad3(bearing(Math.cos(focusBearing(s)), Math.sin(focusBearing(s))))}°` : ''}</span>`;
+    const noRadar = '<span class="dim">NONE</span>';
+    const M = radarMode(s), scan = !st.radar ? 'VISUAL' : s.radarMode === 0 ? M.name : `<span class="hot">${M.name}${radarSector(s) ? ` ${pad3(bearing(Math.cos(focusBearing(s)), Math.sin(focusBearing(s))))}°` : ''}</span>`;
     // Grouped by what you're deciding: what the radar sees, what fire control does, the battery's state.
     const lockBar = `<b class="seg lk" style="--r:${slots(s) ? Math.min(1, locks / slots(s)) : 0}"></b>`;
     const html = [
       ['// SENSORS', ''],
-      ['SCAN <kbd>[V]</kbd>', scan], ['RADAR <kbd>[F]</kbd>', radar], ['RANGE', `${Math.round(radarRange(s))}m`], ['TRACKS', contacts],
+      ['SCAN <kbd>[V]</kbd>', scan], ['RADAR <kbd>[F]</kbd>', st.radar ? radar : noRadar], ['RANGE', `${Math.round(st.radar ? radarRange(s) : VISUAL_R)}m`], ['TRACKS', contacts],
       ['// FIRE CONTROL', ''],
-      ['ENGAGED', `${locks} / ${slots(s)}${s.t < s.chainUntil ? ' <span class="hot">+CHAIN</span>' : ''}${lockBar}`],
+      ['ENGAGED', !st.radar ? '<span class="dim">NO FIRE CONTROL</span>' : `${locks} / ${slots(s)}${s.t < s.chainUntil ? ' <span class="hot">+CHAIN</span>' : ''}${lockBar}`],
       ['FIRE <kbd>[G]</kbd>', s.discipline === 1 ? DISCIPLINES[1].name : `<span class="hot">${DISCIPLINES[s.discipline].name}</span>`],
       ['MODE <kbd>[T]</kbd>', MODES[s.mode]],
       ['INTERCEPT <kbd>[SPC]</kbd>', interceptActive(s) ? '<span class="hot">ENGAGING</span>' : (w => w ? `<span class="${w.endsWith('s') ? 'dim' : 'alert'}">${w}</span>` : '<span class="hot">READY</span>')(interceptBlock(s))],
@@ -425,7 +430,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   return {
     update(s: State, dt: number, yaw: number, project: Project, speed = 1) {
       lastState = s; ffSpeed = speed;
-      if (s.phase === 'play' && s.t > 2) tip('start', s.t);
+      if (s.phase === 'play' && s.t > 2) tip('startMg', s.t);
       for (const e of s.events) tip(e.k, s.t);
       if (tipEl.classList.contains('on') && (s.t > tipUntil || s.t < tipUntil - 9 || s.phase === 'start')) tipEl.classList.remove('on');
       for (const e of s.events) {
@@ -464,6 +469,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         else if (e.k === 'raidLeak') { say('OBJECTIVE LOST', 'warn'); log(`OBJECTIVE LOST · BUILD WINDOW CUT TO ${BUILD_LOST}s`, 'alert'); }
         else if (e.k === 'raidEnd') log('RAID OVER · NO BONUS', 'alert');
         else if (e.k === 'build') { say(`LEVEL ${s.stage + 1} COMPLETE · BUILD ${e.n}s`, 'info'); log(`LEVEL ${s.stage + 1} COMPLETE · BUILD WINDOW ${e.n}s · NO NEW CONTACTS`); }
+        else if (e.k === 'radarOnline') { say('RADAR ONLINE', 'info'); log('AN/MPQ-65 ONLINE · SEARCH + FIRE CONTROL'); }
+        else if (e.k === 'pac3') { say('PATRIOT ONLINE', 'info'); log('PAC-3 MSE ONLINE · ENGAGING LOCKS'); }
         else if (e.k === 'aesa') { say('LTAMDS ONLINE · 360° STARE', 'info'); log('AESA ONLINE · SWEEP RETIRED'); }
         else if (e.k === 'level') { const b = baseLevelInfo(s.level); say(`LV ${s.level} · ${b.name}`, 'info'); log(`BATTERY LV ${s.level} · ${b.name} · ${b.desc}`); }
         else if (e.k === 'buy' || e.k === 'discipline') { acc = 1; if (e.k === 'discipline') log(`FIRE DISCIPLINE · ${DISCIPLINES[s.discipline].name}`); }

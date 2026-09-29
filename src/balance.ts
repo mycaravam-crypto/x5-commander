@@ -8,7 +8,7 @@ const SEEDS = +(process.argv[2] ?? 12), LIMIT = +(process.argv[3] ?? 3600); // r
 const rng = { seed: 1 };
 Math.random = () => rand(rng);
 
-// Buys the cheapest of a sensible core, uses EMCON against ARMs, prefers `perk` in drafts.
+// Saves for the radar and Patriot once they open up, otherwise buys the cheapest of a sensible core; uses EMCON against ARMs, prefers `perk` in drafts.
 const CORE = UPGRADES.map(u => u.id).filter(id => !['cap', 'modes', 'trange', 'jammer'].includes(id));
 function play(seed: number, doctrine: string, perk = '') {
   rng.seed = seed;
@@ -16,7 +16,8 @@ function play(seed: number, doctrine: string, perk = '') {
   s.phase = 'play' as State['phase']; // cast: keep TS from narrowing it to 'play' for the loop below
   for (let i = 0; i < LIMIT * 20 && s.phase !== 'over'; i++) {
     if (s.phase === 'perk') pickPerk(s, Math.max(0, s.perkChoices.indexOf(perk)));
-    buy(s, CORE.reduce((a, b) => cost(s, b) < cost(s, a) ? b : a));
+    const goal = ['radar', 'pac3'].find(id => cost(s, id) < Infinity); // the milestones first: once one opens up, save for it
+    buy(s, goal ?? CORE.reduce((a, b) => cost(s, b) < cost(s, a) ? b : a));
     const arm = s.enemies.some(e => e.kind === 'arm' && e.x * e.x + e.z * e.z < 30 * 30);
     if (arm === emitting(s) && (arm || s.emcon)) toggleEmcon(s);
     update(s, 1 / 20);
