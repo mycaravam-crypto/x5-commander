@@ -114,10 +114,13 @@ export function createRenderer() {
   const crt = new ShaderPass(CRT);
   composer.addPass(crt);
   let yaw = Math.PI / 2, zoom = 1.5;
+  // Screen px covered by HUD at the top / bottom (phone portrait): the base centres in the band between them.
+  let inTop = 0, inBot = 0, shift = 0, upp = 1;
   const resize = () => {
     renderer.setSize(innerWidth, innerHeight);
     composer.setSize(innerWidth, innerHeight);
-    const h = 95, w = h * innerWidth / innerHeight;
+    upp = Math.max(95 / innerHeight, 70 / innerWidth); // world units per px: 95 tall, but at least 70 wide in portrait
+    const h = upp * innerHeight, w = upp * innerWidth;
     Object.assign(camera, { left: -w / 2, right: w / 2, top: h / 2, bottom: -h / 2 });
     camera.updateProjectionMatrix();
   };
@@ -561,6 +564,9 @@ export function createRenderer() {
     const sx = (Math.random() - 0.5) * s.shake * 1.6, sz = (Math.random() - 0.5) * s.shake * 1.6;
     camera.position.set(Math.cos(yaw) * Math.cos(pitch) * d + sx, Math.sin(pitch) * d, Math.sin(yaw) * Math.cos(pitch) * d + sz);
     camera.lookAt(sx, 0, sz);
+    shift += ((inTop - inBot) / 2 - shift) * Math.min(1, dt * 8); // eased, so opening the shop slides the view
+    const h = upp * innerHeight, cy = shift * upp / zoom;
+    camera.top = h / 2 + cy; camera.bottom = -h / 2 + cy;
     camera.zoom = zoom; camera.updateProjectionMatrix();
     camRight.setFromMatrixColumn(camera.matrixWorld, 0);
 
@@ -820,6 +826,7 @@ export function createRenderer() {
   return {
     render,
     rotate: (d: number) => { yaw += d; },
+    inset: (top: number, bottom: number) => { inTop = top; inBot = bottom; },
     zoomBy: (f: number) => { zoom = Math.min(3, Math.max(0.6, zoom * f)); },
     toggleCoverage: () => (showCov = !showCov),
     pick(cx: number, cy: number) {

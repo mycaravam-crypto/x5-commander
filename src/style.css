@@ -205,9 +205,12 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   #help { display: none; }
   small[data-s], .bar i[data-s] { font-size: 0; letter-spacing: 0; }
   small[data-s]::before, .bar i[data-s]::before { content: attr(data-s); font-size: 9px; letter-spacing: 0.08em; }
-  #top { top: max(6px, env(safe-area-inset-top)); gap: 12px; padding: 4px 10px; }
+  #top { top: max(6px, env(safe-area-inset-top)); gap: 12px; padding: 4px 10px; width: max-content; max-width: calc(100% - 12px); }
+  /* Values never wrap and digits are all one width, so the bar doesn't jump as numbers tick. */
   .stat { min-width: 0; }
-  .stat b { font-size: 13px; }
+  .stat b { font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  #touch button.buy { border-color: var(--hot); }
+  #touch button.buy span { color: var(--hot); }
   #combo { font-size: 12px; margin-top: 2px; }
 
   #left { top: calc(max(6px, env(safe-area-inset-top)) + 42px); left: max(6px, env(safe-area-inset-left)); width: 150px; padding: 6px 7px;
@@ -253,6 +256,47 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   #banner { font-size: 18px; white-space: normal; width: 90%; }
   .perks { flex-wrap: wrap; }
   .card h1 { font-size: 32px; }
+}
+/* Phone portrait: stats and vitals are two thin strips across the top, the shop is a sheet over the bottom third,
+   and the view centres the base in the space between (hud.ts insets(), same media query). */
+@media (orientation: portrait) and (max-width: 760px) {
+  #top { left: max(6px, env(safe-area-inset-left)); right: max(6px, env(safe-area-inset-right)); transform: none; width: auto; max-width: none;
+    display: grid; grid-template-columns: 7ch minmax(0, 1fr) 5ch 5ch 3ch; gap: 8px; }
+  .stat:nth-child(2) b { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  #top .stat:nth-child(2) small { display: none; }
+
+  #left { top: calc(max(6px, env(safe-area-inset-top)) + 40px); left: max(6px, env(safe-area-inset-left)); right: max(6px, env(safe-area-inset-right));
+    width: auto; max-height: none; overflow: visible; padding: 4px 7px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: 8px; align-items: center; }
+  .bar { margin: 0; }
+  .bar small { white-space: nowrap; }
+  .bar i[data-i]::before { content: attr(data-i); }
+  #views { margin: 0; gap: 3px; }
+  #views button { flex: none; width: 26px; height: 24px; }
+  #views button svg { width: 15px; height: 15px; }
+  /* Coverage legend: under the strip on the right, clear of the mini radar, the tips and the shop sheet. */
+  #covkey { top: calc(max(6px, env(safe-area-inset-top)) + 86px); bottom: auto; left: auto; right: max(6px, env(safe-area-inset-right)); transform: none; }
+  /* Mini radar and details hang under the strip (left / right) instead of stretching it. */
+  #radar { position: absolute; top: calc(100% + 4px); left: -1px; width: 100px; height: 100px; margin: 0; border: 1px solid var(--line); background: var(--panel); }
+  #info { position: absolute; top: calc(100% + 4px); right: -1px; width: 190px; margin: 0; padding: 5px 7px; border: 1px solid var(--line); background: var(--panel); }
+
+  #shop { top: auto; left: max(6px, env(safe-area-inset-left)); right: max(6px, env(safe-area-inset-right)); width: auto;
+    bottom: calc(max(6px, env(safe-area-inset-bottom)) + 58px); height: 36%; padding: 4px;
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; align-content: start; }
+  #shop.hidden { display: none; }
+  #shop h4 { display: none; }
+  /* One-line tiles: name, level, cost. What you can't buy yet sinks to the end. */
+  #shop button { grid-template-columns: minmax(0, 1fr) auto auto; gap: 5px; padding: 7px 5px; font-size: 10px; border: 1px solid var(--line); border-left-width: 2px; }
+  #shop button > span { white-space: nowrap; }
+  #shop button > span:first-child { overflow: hidden; text-overflow: ellipsis; }
+  #shop button .c { min-width: 0; }
+  #shop button.locked, #shop button.max { order: 1; }
+  #shop button:hover .d { display: none; }
+
+  /* Raid card and tips stay at the bottom, lifted over the shop sheet while it's open. */
+  body.shop-open #raidcard { bottom: calc(max(6px, env(safe-area-inset-bottom)) + 64px + 36%); }
+  body.shop-open #tip { bottom: calc(max(6px, env(safe-area-inset-bottom)) + 64px + 36%); }
+  body.shop-open.raid #tip { bottom: calc(max(6px, env(safe-area-inset-bottom)) + 118px + 36%); }
+  #banner { top: 30%; }
 }
 /* Short landscape: the action bar sits clear of the strip, so the strip can run the full height. */
 @media (max-height: 500px) and (orientation: landscape) {

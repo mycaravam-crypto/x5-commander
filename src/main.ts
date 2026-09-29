@@ -137,6 +137,7 @@ function frame(now: number) {
   for (let i = 0; i < speed; i++) update(s, dt);
   if (s.sweepA < sweep0) sfx.play('ping'); // sweep completed a revolution
   for (const e of s.events) sfx.play(e.k);
+  view.inset(...hud.insets());
   view.render(s, dt);
   hud.update(s, dt, view.cameraYaw(), view.project, speed);
   s.events.length = 0;

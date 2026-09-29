@@ -78,6 +78,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   }
 
   if (matchMedia('(pointer: coarse)').matches) shop.classList.add('hidden'); // phones: map first, shop on demand
+  document.body.classList.toggle('shop-open', !shop.classList.contains('hidden'));
+  const portrait = matchMedia('(orientation: portrait) and (max-width: 760px)'); // keep in step with style.css
 
   // ---- overlay ----
   const overlay = $('overlay');
@@ -290,6 +292,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     }
   };
 
+  const shopBtn = document.querySelector<HTMLElement>('#touch [data-k=Tab]')!;
+  let buyable = 0; // shop rows you can afford right now: counted on the SHOP button so the shop can stay closed
   const flow = { t: 0, p: 0, a: 0, dp: 0, da: 0 };
   const infoEl = $('info');
   let infoHtml = '';
@@ -383,7 +387,9 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     touch('KeyV', M.name, s.radarMode !== 0);
     touch('KeyF', s.emcon ? 'SILENT' : 'EMCON', s.emcon);
     touch('KeyT', MODES[s.mode]);
-    touch('Tab', 'SHOP', !shop.classList.contains('hidden'));
+    const open = !shop.classList.contains('hidden');
+    touch('Tab', open ? 'CLOSE' : buyable ? `SHOP ·${buyable}` : 'SHOP', open);
+    shopBtn.classList.toggle('buy', !open && buyable > 0);
     touch('KeyX', '', ffSpeed > 1); touch('KeyP', '', s.phase === 'pause');
     raidCard(s);
     padCard(s);
@@ -397,6 +403,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const d = m ? Math.hypot(m.x, m.z) : 0;
     $('target').innerHTML = m ? `<b>${tag(m)}</b><br>${ENEMIES[shownKind(m)].name}<br>BRG ${pad3(bearing(m.x, m.z))} · RNG ${pad3(d)}m · ETA ${Math.max(0, (d - BASE_R) / m.speed).toFixed(1)}s<br>HP ${fmt(Math.max(0, m.hp))} / ${fmt(m.maxHp)}<b class="seg" style="--r:${Math.max(0, m.hp / m.maxHp)}"></b>` : '';
     const hint = suggest(s);
+    buyable = 0;
     for (const [id, b] of rows) {
       const c = cost(s, id), lv = s.lv[id] ?? 0;
       b.classList.toggle('hint', id === hint);
@@ -404,6 +411,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       if (b.children[1].textContent !== lvT) b.children[1].textContent = lvT; // write only on change: no DOM churn at 10 Hz
       if (b.children[2].textContent !== cT) b.children[2].textContent = cT;
       b.classList.toggle('can', s.credits >= c);
+      if (s.credits >= c && !why) buyable++;
       b.classList.toggle('max', c === Infinity && !why);
       b.classList.toggle('locked', !!why);
     }
@@ -538,8 +546,14 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       if ((acc += dt) >= 0.1) { acc = 0; text(s); }
     },
     flash(id: string) { const b = rows.get(id)!; b.classList.remove('pop'); void b.offsetWidth; b.classList.add('pop'); },
-    toggleShop: () => shop.classList.toggle('hidden'),
+    toggleShop: () => document.body.classList.toggle('shop-open', !shop.classList.toggle('hidden')),
     coverage: (on: boolean) => document.body.classList.toggle('cov', on),
+    // Phone portrait: px of screen the HUD covers at the top and bottom, so the view can centre the base in what's left.
+    insets(): [number, number] {
+      if (!portrait.matches) return [0, 0];
+      const bottom = (shop.classList.contains('hidden') ? $('touch') : shop).getBoundingClientRect().top;
+      return [$('left').getBoundingClientRect().bottom, innerHeight - bottom];
+    },
     share,
   };
 }
