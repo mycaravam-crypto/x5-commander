@@ -71,6 +71,11 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #raidarrow.on { display: block; }
 
 #left { top: 12px; left: 12px; width: 240px; padding: 10px; }
+/* Name badge heading the vitals panel. */
+#brand { display: flex; align-items: baseline; justify-content: space-between; margin: -2px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+#brand b { color: var(--hot); font-size: 15px; font-weight: 800; letter-spacing: 0.14em; white-space: nowrap; }
+#brand i { font-style: normal; font-size: 1.25em; }
+#brand small { font-size: 9px; letter-spacing: 0.3em; }
 .bar { margin-bottom: 6px; }
 .bar small { display: flex; justify-content: space-between; }
 /* 20-segment bar: --r fills it, the mask cuts the gaps. */
@@ -247,6 +252,9 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 
   #left { top: calc(max(6px, env(safe-area-inset-top)) + 42px); left: max(6px, env(safe-area-inset-left)); width: 150px; padding: 6px 7px;
     max-height: calc(100% - 140px); overflow-y: auto; scrollbar-width: none; pointer-events: auto; }
+  #brand { margin: 0 0 5px; padding-bottom: 4px; }
+  #brand b { font-size: 11px; letter-spacing: 0.08em; }
+  #brand small { display: none; }
   .bar { margin-bottom: 3px; }
   .bar small { font-size: 9px; }
   .seg { height: 5px; margin-top: 1px; }
@@ -301,6 +309,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 
   #left { top: calc(max(6px, env(safe-area-inset-top)) + 40px); left: max(6px, env(safe-area-inset-left)); right: max(6px, env(safe-area-inset-right));
     width: auto; max-height: none; overflow: visible; padding: 4px 7px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: 8px; align-items: center; }
+  #brand { display: none; }
   .bar { margin: 0; }
   .bar small { white-space: nowrap; }
   .bar i[data-i]::before { content: attr(data-i); }
