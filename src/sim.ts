@@ -304,6 +304,8 @@ export function padStats(s: State, p: Pad) {
   const w = p.k === 'mg' ? MG_TIERS[p.tier] : PERIM[p.k];
   return { ...w, dmg: w.dmg * s.st.padDmg, rate: w.rate * s.st.padRate * (nearAmmo(s, p) ? AMMO_RATE : 1) * (overdrive(s) ? OVERDRIVE.rate : 1) };
 }
+// A gun that's up but can't fire: the interceptor pool is short of a round for it (MGs feed from their belts).
+export const noAmmo = (s: State, p: Pad) => GUNS.includes(p.k) && up(p) && s.ammo < padStats(s, p).ammo;
 // A cruise missile goes for the unit you've sunk the most into (the nearest of equals), or the base if there's none.
 export function cruiseTarget(s: State, e: { x: number; z: number }) {
   let best: Pad | undefined, bv = -Infinity;
@@ -737,18 +739,16 @@ function moveEnemies(s: State, dt: number) {
       e.cd = ARM_EVERY * radarMode(s).armEvery;
       launch(s, e, 'arm', d);
     }
-    // Cruise missile: weaves in on its unit (a new one if that's down or gone), and knocks it out.
+    // Cruise missile: weaves in on its unit (a new one if that's down or gone), and knocks it out. No unit up: the base.
     if (e.kind === 'cruise') {
       let p = s.perim.find(q => q.slot === e.tgt && !q.down);
       if (!p && e.tgt >= 0) { p = cruiseTarget(s, e); e.tgt = p?.slot ?? -1; }
       if (!Number.isNaN(e.wx) && (e.wx - e.x) ** 2 + (e.wz - e.z) ** 2 < 9) e.wx = e.wz = NaN; // past the dogleg
-      const wp = Number.isNaN(e.wx) ? p : { x: e.wx, z: e.wz };
-      if (wp) {
-        const dx = wp.x - e.x, dz = wp.z - e.z, dd = Math.hypot(dx, dz) || 1;
-        if (wp === p && dd < 1.2) { hitPad(s, p, PAD_HP); removeAt(s, i); continue; } // one hit takes a unit down
-        const w = Math.sin(s.t * 2 + e.wob) * ENEMIES.cruise.wobble * Math.min(1, dd / 20);
-        e.vx = dx / dd * e.speed - dz / dd * w; e.vz = dz / dd * e.speed + dx / dd * w;
-      }
+      const wp = Number.isNaN(e.wx) ? p ?? { x: 0, z: 0 } : { x: e.wx, z: e.wz };
+      const dx = wp.x - e.x, dz = wp.z - e.z, dd = Math.hypot(dx, dz) || 1;
+      if (p && wp === p && dd < 1.2) { hitPad(s, p, PAD_HP); removeAt(s, i); continue; } // one hit takes a unit down
+      const w = Math.sin(s.t * 2 + e.wob) * ENEMIES.cruise.wobble * Math.min(1, dd / 20);
+      e.vx = dx / dd * e.speed - dz / dd * w; e.vz = dz / dd * e.speed + dx / dd * w;
     }
     // FPVs that pass close to a unit on the forward line dive on it instead of the base. Lancets hunt: they dive,
     // fast, on any unit they spot within LANCET.seek, whatever its belt.

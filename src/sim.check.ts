@@ -1,5 +1,5 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive } from './sim.ts';
+import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive, noAmmo } from './sim.ts';
 import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, HELO, LANCET, MILESTONE, DROP_LIFE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE } from './config.ts';
 import { PONDS, ROCKS, FARMS, mapSeed, openShare, OPEN_MIN, ground, riverZ, RIVER_W } from './terrain.ts';
 
@@ -296,6 +296,14 @@ const addPad = (g: State, k: string, slot: number) => { g.credits += 1e6; ok(buy
   fwd.hp = 1e9; run(g, MG_BELT.rounds / 6 + 0.5);
   ok(g.perim[0].cd > 1, 'MG reloads when the belt runs out');
   const pre = g.ammo; run(g, 1); ok(g.ammo >= pre, 'MG ammo is its own, not the interceptor pool');
+}
+{
+  // NO AMMO: a gun that draws on the interceptor pool flags when the pool can't feed it; the MG never does.
+  const g = quiet(); g.level = 9;
+  const mg = addPad(g, 'mg', 1), sam = addPad(g, 'iris', 0);
+  g.ammo = g.st.ammoCap; ok(!noAmmo(g, sam) && !noAmmo(g, mg), 'no NO AMMO with a full pool');
+  g.ammo = 1; ok(noAmmo(g, sam) && !noAmmo(g, mg), 'NO AMMO on the SAM with the pool short of a round, not on the MG');
+  sam.down = true; ok(!noAmmo(g, sam), 'a unit that is down shows as down, not NO AMMO');
 }
 {
   const g = newGame(); g.phase = 'play'; g.spawnAcc = -1e9; g.nextRaid = g.nextElite = 1e9; g.st.maxHp = g.hp = 1e9;

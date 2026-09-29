@@ -2,7 +2,7 @@ import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUN
 import { paintTerrain } from './terrainPaint.ts';
 import { mapSeed } from './terrain.ts';
 import type { Records } from './config.ts';
-import { beltOf, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
+import { beltOf, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, noAmmo, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const $ = (id: string) => document.getElementById(id)!;
 const fmt = (n: number) => Math.floor(n).toLocaleString('en-US');
@@ -376,7 +376,17 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       el.className = e.id === s.marked ? 'on mk' : 'on';
     }
     for (let i = n; i < labels.length; i++) if (labels[i].className) labels[i].className = '';
+    // Guns the interceptor pool can't feed right now.
+    let m = 0;
+    if (s.phase === 'play') for (const p of s.perim) {
+      if (!noAmmo(s, p) || m >= padLabels.length) continue;
+      const el = padLabels[m++], [x, y] = project(p.x, p.z, 3);
+      el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, -100%)`;
+      el.className = 'on na';
+    }
+    for (let i = m; i < padLabels.length; i++) if (padLabels[i].className) padLabels[i].className = '';
   }
+  const padLabels = Array.from({ length: 16 }, () => { const el = $('labels').appendChild(document.createElement('div')); el.textContent = 'NO AMMO'; return el; });
 
   // ---- text (throttled) ----
   let ffSpeed = 1, acc = 1, lastPhase = '', armSaid = -99, tbmSaid = -99, cruiseSaid = -99;
