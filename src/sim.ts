@@ -1,6 +1,6 @@
 import {
-  ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, LEVEL_LEN, BUILD_TIME, BUILD_LOST, ELITE_FROM, PK_GROW, PK_MAX,
-  ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, SLOTS, slotXZ, FANS, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty, BACKUP_RADAR,
+  LOOP_PRESS, ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, LEVEL_LEN, BUILD_TIME, BUILD_LOST, ELITE_FROM, PK_GROW, PK_MAX,
+  ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, SLOTS, TERRAIN, slotXZ, FANS, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty, BACKUP_RADAR,
   RADAR_MODES, CRUISE_LOW, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   type EnemyKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
 } from './config.ts';
@@ -32,7 +32,7 @@ export type Ev =
   | { k: 'raidClear' | 'raidLeak' | 'raidEnd' | 'build'; n: number }
   | { k: 'stage'; name: string }
   | { k: 'intercept'; x: number; z: number }
-  | { k: 'padHit' | 'padDown' | 'padUp' | 'padSold' | 'padMoved'; x: number; z: number; n: number; kind: PerimKind }
+  | { k: 'padHit' | 'padDown' | 'padUp' | 'padSold' | 'padMoved' | 'padRoad'; x: number; z: number; n: number; kind: PerimKind }
   | { k: 'level' | 'warning' | 'buy' | 'placing' | 'lock' | 'over' | 'emcon' | 'radarDown' | 'aesa' | 'radarOnline' | 'pac3' | 'discipline' | 'radarMode' | 'killChain' | 'counterSead' | 'lastStand' };
 
 export type Phase = 'start' | 'play' | 'pause' | 'perk' | 'over';
@@ -131,14 +131,15 @@ const AESA_SPIN = 1.2; // rad/s, cosmetic
 const pick = <T>(r: { seed: number }, a: T[]) => a[Math.floor(rand(r) * a.length)];
 export const visible = (s: State, e: Enemy) => e.locked || e.seenUntil > s.t;
 const NO_MOD: Mod = { name: '', desc: '' };
-// Scripted levels first, then COORDINATED RAID's mix under a looping condition, with flank threats from every direction.
+// Scripted levels first, then SEAD's mix under a looping condition, with flank threats from every direction.
 export const phase = (s: State) => stageInfo(s.stage);
 export function stageInfo(i: number) {
   if (i < LEVELS.length) return { ...LEVELS[i], mod: NO_MOD };
   const last = LEVELS[LEVELS.length - 1], mod = MODS[(i - LEVELS.length) % MODS.length], w = { ...last.w };
   for (const [k, v] of Object.entries(mod.w ?? {}) as [EnemyKind, number][]) w[k] = (w[k] ?? 0) + v;
   const loop = i - LEVELS.length; // packages get likelier every level past the scripted ones
-  return { name: mod.name, w, mod, pk: Math.min(PK_MAX, (last.pk ?? 0) + PK_GROW * (loop + 1)), arc: Math.PI };
+  const press = 1 + LOOP_PRESS * (loop + 1);
+  return { name: mod.name, desc: mod.desc, w, mod, pk: Math.min(PK_MAX, (last.pk ?? 0) + PK_GROW * (loop + 1)), arc: Math.PI, rate: press, hp: press };
 }
 // Half-width around FRONT that flank threats can come from in level i.
 export const flankArc = (i: number) => Math.max(FRONT_ARC, stageInfo(i).arc ?? 0);
@@ -241,6 +242,8 @@ function putPad(s: State, k: PerimKind, slot: number, paid: number) {
   s.perim.push({ k, x, z, a: Math.atan2(z, x), slot, cd: 0, belt: MG_BELT.rounds, hp: PAD_HP, tier: 0, paid, down: false });
 }
 const up = (p: Pad) => !p.down;
+export const terrain = (p: { slot: number }) => SLOTS[p.slot].terrain;
+const terrainRange = (slot: number) => { const t = SLOTS[slot].terrain; return t === 'ridge' ? TERRAIN.ridge.range : t === 'woods' ? TERRAIN.woods.range : 1; };
 // Inside the unit's range and field of fire.
 export const covers = (p: { x: number; z: number; a: number; k: PerimKind }, x: number, z: number, range: number) =>
   (x - p.x) ** 2 + (z - p.z) ** 2 <= range * range && Math.abs(angDiff(Math.atan2(z - p.z, x - p.x), p.a)) <= FANS[p.k];
@@ -248,14 +251,15 @@ const nearAmmo = (s: State, p: Pad) => s.perim.some(q => q.k === 'ammo' && up(q)
 // What a unit fires with right now: its tier, the battery's weapon upgrades and perks, an ammo point in reach.
 export function padStats(s: State, p: Pad) {
   const w = p.k === 'mg' ? MG_TIERS[p.tier] : PERIM[p.k];
-  return { ...w, dmg: w.dmg * s.st.padDmg, rate: w.rate * s.st.padRate * (nearAmmo(s, p) ? AMMO_RATE : 1) };
+  return { ...w, range: w.range * terrainRange(p.slot), dmg: w.dmg * s.st.padDmg, rate: w.rate * s.st.padRate * (nearAmmo(s, p) ? AMMO_RATE : 1) };
 }
-// A cruise missile goes for the unit you've sunk the most into (the nearest of equals), or the base if there's none.
+// A cruise missile goes for the unit you've sunk the most into (the nearest of equals; one on the ridge stands out,
+// one in the woods it can't find), or the base if there's none.
 export function cruiseTarget(s: State, e: { x: number; z: number }) {
   let best: Pad | undefined, bv = -Infinity;
   for (const p of s.perim) {
-    if (p.down) continue;
-    const v = p.paid * 1000 - Math.hypot(p.x - e.x, p.z - e.z);
+    if (p.down || terrain(p) === 'woods') continue;
+    const v = (p.paid + (terrain(p) === 'ridge' ? TERRAIN.ridge.value : 0)) * 1000 - Math.hypot(p.x - e.x, p.z - e.z);
     if (v > bv) { bv = v; best = p; }
   }
   return best;
@@ -277,7 +281,7 @@ export function slotScore(s: State, k: PerimKind, slot: number) {
   if (k === 'ammo') return guns.filter(q => (q.x - x) ** 2 + (q.z - z) ** 2 <= AMMO_R ** 2).length + 0.01 * Math.hypot(x, z);
   if (k === 'observer') return guns.filter(q => (q.x - x) ** 2 + (q.z - z) ** 2 <= OBSERVER_EYES ** 2).length + 0.05 * Math.hypot(x, z);
   // Bearings across the threat arc: one it covers that nothing covers yet is worth 1, crossfire on a covered one 0.3.
-  const range = k === 'mg' ? MG_TIERS[0].range : PERIM[k].range, arc = Math.min(Math.PI, Math.max(FRONT_ARC, flankArc(s.stage)) + 0.2);
+  const range = (k === 'mg' ? MG_TIERS[0].range : PERIM[k].range) * terrainRange(slot), arc = Math.min(Math.PI, Math.max(FRONT_ARC, flankArc(s.stage)) + 0.2);
   const gr = guns.map(q => padStats(s, q).range);
   let score = 0;
   for (let i = 0; i <= 24; i++) {
@@ -300,6 +304,11 @@ export function placePad(s: State, x: number, z: number) {
   const slot = nearestFree(s, x, z, Infinity);
   if (slot === undefined) return false;
   putPad(s, s.placing.k, slot, s.placing.paid);
+  if (SLOTS[slot].terrain === 'road') { // on the supply road: it costs half
+    const p = s.perim[s.perim.length - 1], n = Math.round(p.paid * TERRAIN.road.refund);
+    p.paid -= n; s.credits += n;
+    s.events.push({ k: 'padRoad', x: p.x, z: p.z, n, kind: p.k });
+  }
   s.placing = null;
   s.events.push({ k: 'buy' });
   return true;
@@ -326,6 +335,8 @@ export function movePad(s: State, x: number, z: number) {
   s.events.push({ k: 'padMoved', x: p.x, z: p.z, n: building(s) ? 0 : MOVE_TIME, kind: p.k });
   return true;
 }
+// Done building: start the next level now.
+export function skipBuild(s: State) { if (building(s) && s.phase === 'play') s.buildUntil = s.t; }
 export function upgradePad(s: State) {
   const p = selectedPad(s), c = p ? padUpgradeCost(p) : Infinity;
   if (!p || s.credits < c || s.phase !== 'play') return false;
@@ -457,7 +468,7 @@ export function update(s: State, dt: number) {
 
 export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2, rnd = Math.random) {
   const T = ENEMIES[kind], d = difficulty(s.t);
-  const hp = T.hp * d.hp * (phase(s).mod.hp ?? 1), speed = T.speed * d.speed * (0.9 + rnd() * 0.2);
+  const L = phase(s), hp = T.hp * d.hp * (L.mod.hp ?? 1) * ('hp' in L ? L.hp ?? 1 : 1), speed = T.speed * d.speed * (0.9 + rnd() * 0.2);
   const x = Math.cos(a) * r, z = Math.sin(a) * r;
   s.enemies.push({
     id: s.nextId++, kind, x, z, vx: -Math.cos(a) * speed, vz: -Math.sin(a) * speed,
@@ -605,8 +616,13 @@ function moveEnemies(s: State, dt: number) {
     }
     // FPVs and Lancets that pass close to a unit on the forward line dive on it instead of the base.
     if (e.kind === 'scout' || e.kind === 'swarm') {
-      let tgt: Pad | undefined, bd = DIVE_R * DIVE_R;
-      for (const p of s.perim) { const dd = (p.x - e.x) ** 2 + (p.z - e.z) ** 2; if (!p.down && SLOTS[p.slot].belt === 'fwd' && dd < bd) { bd = dd; tgt = p; } }
+      // On the ridge it's on the skyline (dived on from twice as far); in the woods it isn't seen at all.
+      let tgt: Pad | undefined, bd = Infinity;
+      for (const p of s.perim) {
+        if (p.down || SLOTS[p.slot].belt !== 'fwd' || terrain(p) === 'woods') continue;
+        const dd = (p.x - e.x) ** 2 + (p.z - e.z) ** 2, r = DIVE_R * (terrain(p) === 'ridge' ? TERRAIN.ridge.dive : 1);
+        if (dd < r * r && dd < bd) { bd = dd; tgt = p; }
+      }
       if (tgt && bd < 1) { hitPad(s, tgt, e.dmg); removeAt(s, i); continue; }
       if (tgt) { const dd = Math.sqrt(bd); e.vx = (tgt.x - e.x) / dd * e.speed; e.vz = (tgt.z - e.z) / dd * e.speed; }
     }
@@ -676,10 +692,10 @@ function perimeter(s: State, dt: number) {
     if (!best) return;
     const t = best;
     s.ammo -= w.ammo; p.cd = 1 / w.rate;
-    // Belt empty: reload. Slower out on the forward line, twice as fast with an ammo point in reach.
+    // Belt empty: reload. Slower out on the forward line, twice as fast with an ammo point in reach or on the road.
     if (p.k === 'mg' && --p.belt <= 0) {
       p.belt = MG_BELT.rounds;
-      p.cd = MG_BELT.reload * (nearAmmo(s, p) ? AMMO_RELOAD : SLOTS[p.slot].belt === 'fwd' ? FWD_RELOAD : 1);
+      p.cd = MG_BELT.reload * (nearAmmo(s, p) || terrain(p) === 'road' ? AMMO_RELOAD : SLOTS[p.slot].belt === 'fwd' ? FWD_RELOAD : 1);
     }
     // Crossfire: the target is inside another gun's field of fire as well.
     const dmg = w.dmg * (guns.some((q, qi) => q !== p && covers(q, t.x, t.z, stats[qi].range)) ? 1 + CROSSFIRE : 1);
@@ -757,7 +773,7 @@ function backupRadar(s: State, dt: number) {
 // Eyes: anything close to the base or to an emplacement is seen, radar or not (NIGHT RAID shortens it).
 function spot(s: State) {
   const k = phase(s).mod.dark ? VISUAL_DARK : 1, b2 = (VISUAL_R * k) ** 2;
-  const eyes = s.perim.filter(up).map(p => ({ x: p.x, z: p.z, r2: ((p.k === 'observer' ? OBSERVER_EYES : PAD_EYES) * k) ** 2 }));
+  const eyes = s.perim.filter(up).map(p => ({ x: p.x, z: p.z, r2: ((p.k === 'observer' ? OBSERVER_EYES : PAD_EYES) * (terrain(p) === 'ridge' ? TERRAIN.ridge.range : 1) * k) ** 2 }));
   let newly = 0;
   for (const e of s.enemies) {
     if (e.x * e.x + e.z * e.z > b2 && !eyes.some(p => (e.x - p.x) ** 2 + (e.z - p.z) ** 2 < p.r2)) continue;

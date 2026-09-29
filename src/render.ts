@@ -4,8 +4,8 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { ARENA_R, ENEMIES, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, SLOTS, slotXZ, FANS, GUNS, type EnemyKind } from './config.ts';
-import { emitting, focusBearing, radarRange, radarSector, freeSlots, bestSlot, padStats, phase, shownKind, visible, type Shot, type State } from './sim.ts';
+import { ARENA_R, ENEMIES, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, SLOTS, slotXZ, BELT_R, FANS, GUNS, type EnemyKind } from './config.ts';
+import { emitting, focusBearing, radarRange, radarSector, freeSlots, bestSlot, padStats, building, phase, shownKind, visible, type Shot, type State } from './sim.ts';
 
 const MAX_ENEMIES = 2000, MAX_LOCKS = 64, MAX_SHOTS = 600, MAX_SHARDS = 2500, MAX_WAVES = 64, MAX_BEAMS = 3000, MAX_FRONTS = 48, MAX_BLIPS = 1024;
 const VIS = 1.6; // enemies drawn bigger than their hitbox so they read at a glance
@@ -37,6 +37,66 @@ const edges = (g: THREE.BufferGeometry) => segs(new THREE.EdgesGeometry(g).attri
 const ringPts = (n: number, every = 1) => Array.from({ length: n }, (_, i) => i % every ? [] : [
   Math.cos(i / n * TAU), 0, Math.sin(i / n * TAU), Math.cos((i + 1) / n * TAU), 0, Math.sin((i + 1) / n * TAU)]).flat();
 
+// The battlefield (see SLOTS): no man's land beyond the forward edge, the three belts, and the terrain that gives
+// slots their character: contours on the ridge, the treeline, the supply road. Drawn in world units, once.
+function terrain(g: CanvasRenderingContext2D) {
+  const lbl = (t: string, x: number, z: number) => { g.save(); g.globalAlpha = 0.7; g.translate(x, z); g.rotate(FRONT + Math.PI / 2); g.fillText(t, 0, 0); g.restore(); };
+  const arc = (r: number, a0: number, a1: number) => { g.beginPath(); g.arc(0, 0, r, a0, a1); g.stroke(); };
+  // No man's land: faint wedge past the forward edge of the battle area, which is dashed.
+  const w = FRONT_ARC + 0.35;
+  g.globalAlpha = 0.07; g.beginPath(); g.arc(0, 0, ARENA_R - 5, FRONT - w, FRONT + w); g.arc(0, 0, 40, FRONT + w, FRONT - w, true); g.closePath(); g.fill();
+  g.globalAlpha = 0.45; g.setLineDash([1.2, 1.2]); arc(40, FRONT - w, FRONT + w);
+  lbl('F E B A', Math.cos(FRONT - w + 0.08) * 41.5, Math.sin(FRONT - w + 0.08) * 41.5);
+  // The belts: dashed arcs through their slots.
+  g.globalAlpha = 0.25; g.setLineDash([0.6, 1.4]);
+  for (const b of ['fwd', 'main'] as const) {
+    const as = SLOTS.filter(q => q.belt === b).map(q => q.a);
+    arc(BELT_R[b], Math.min(...as) - 0.12, Math.max(...as) + 0.12);
+  }
+  arc(BELT_R.inner, 0, TAU);
+  g.setLineDash([]);
+  const at = (t: string) => SLOTS.map((q, i) => ({ ...slotXZ(i), t: q.terrain })).filter(q => q.t === t);
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+  // Ridge: wobbly nested contours, long side across the front.
+  const rs = at('ridge'), cx = rs.reduce((a, q) => a + q.x, 0) / rs.length, cz = rs.reduce((a, q) => a + q.z, 0) / rs.length;
+  g.save(); g.translate(cx, cz); g.rotate(Math.atan2(cz, cx) + Math.PI / 2);
+  for (let k = 1; k <= 4; k++) {
+    g.globalAlpha = 0.4 - k * 0.06; g.beginPath();
+    for (let i = 0; i <= 48; i++) {
+      const t = i / 48 * TAU, f = 1 + 0.07 * Math.sin(5 * t + k) + 0.04 * Math.sin(9 * t - k);
+      const x = Math.cos(t) * (4 + k * 3) * f, z = Math.sin(t) * (1.6 + k * 1.3) * f;
+      i ? g.lineTo(x, z) : g.moveTo(x, z);
+    }
+    g.stroke();
+  }
+  g.restore();
+  lbl('R I D G E', cx * 1.28, cz * 1.28);
+  // Woods: tree crowns scattered round the treeline slots (leaving the slot itself clear).
+  g.globalAlpha = 0.35;
+  for (const q of at('woods')) for (let i = 0; i < 26; i++) {
+    const a = rnd() * TAU, r = 2.2 + rnd() * 5.5, x = q.x + Math.cos(a) * r, z = q.z + Math.sin(a) * r, s = 0.5 + rnd() * 0.5;
+    g.beginPath(); g.arc(x, z, s, 0, TAU); g.stroke();
+    g.beginPath(); g.arc(x, z, s * 0.25, 0, TAU); g.fill();
+  }
+  const ws = at('woods'); lbl('W O O D S', ws[0].x * 0.72 + ws[1].x * 0.28 - 4, ws[0].z * 0.72 + ws[1].z * 0.28);
+  // Road: in from the rear edge past the road slots, two verges and a dashed centre line.
+  const rd = at('road').sort((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z)), e = FRONT + 2.3;
+  const pts = [[Math.cos(e) * ARENA_R, Math.sin(e) * ARENA_R], ...rd.map(q => [q.x, q.z])];
+  for (const [off, dash, al] of [[-1.1, [], 0.4], [1.1, [], 0.4], [0, [1, 1], 0.3]] as const) {
+    g.globalAlpha = al; g.setLineDash([...dash]); g.beginPath();
+    pts.forEach(([x, z], i) => {
+      const [nx, nz] = pts[Math.min(i + 1, pts.length - 1)], [px, pz] = pts[Math.max(i - 1, 0)], dx = nx - px, dz = nz - pz, d = Math.hypot(dx, dz) || 1;
+      const ox = -dz / d * off, oz = dx / d * off;
+      i ? g.lineTo(x + ox, z + oz) : g.moveTo(x + ox, z + oz);
+    });
+    g.stroke();
+  }
+  g.setLineDash([]);
+  lbl('R O A D', rd[1].x * 1.2 + 3, rd[1].z * 1.2);
+  g.globalAlpha = 1;
+}
+
 // Polar grid, drawn once: range rings, bearing ticks + labels, faint noise. Canvas (x, y) maps to world (x, z).
 function gridTexture(renderer: THREE.WebGLRenderer, R: number) {
   const N = 2048, k = N / 2 / R, cv = document.createElement('canvas');
@@ -60,6 +120,7 @@ function gridTexture(renderer: THREE.WebGLRenderer, R: number) {
   }
   g.stroke();
   g.globalAlpha = 0.9; g.save(); g.rotate(FRONT); g.translate(ARENA_R - 8, 0); g.rotate(Math.PI / 2); g.fillText('F R O N T', 0, 0); g.restore();
+  terrain(g);
   g.globalAlpha = 0.18; g.beginPath();
   for (let d = 0; d < 360; d += 30) { const a = d / 180 * Math.PI; g.moveTo(Math.cos(a) * 4, Math.sin(a) * 4); g.lineTo(Math.cos(a) * ARENA_R, Math.sin(a) * ARENA_R); }
   g.stroke();
@@ -554,7 +615,7 @@ export function createRenderer() {
     gridMat.color.setScalar((phase(s).mod.dark ? 0.45 : 1) + gridFlash * 4);
     raidMark.visible = !!s.raid || s.raidLeft > 0; // warning: pulsing in; attack: held steady on the raid's bearing
     padMarks.count = 0;
-    if (s.placing || s.selected >= 0) {
+    if (s.placing || s.selected >= 0 || building(s)) { // free slots: to place, to move to, or to build on
       const best = s.placing ? bestSlot(s, s.placing.k) : -1;
       for (const i of freeSlots(s)) {
         const q = slotXZ(i), hot = i === best;

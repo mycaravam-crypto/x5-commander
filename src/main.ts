@@ -1,7 +1,7 @@
-import { newGame, dailySeed, update, buy, pickPerk, markAt, placePad, movePad, selectPad, upgradePad, sellPad, cycleMode, cycleDiscipline, cycleRadarMode, aimFocus, emergencyIntercept, toggleEmcon, type State } from './sim.ts';
+import { newGame, dailySeed, update, buy, pickPerk, markAt, placePad, movePad, selectPad, upgradePad, sellPad, skipBuild, building, cycleMode, cycleDiscipline, cycleRadarMode, aimFocus, emergencyIntercept, toggleEmcon, type State } from './sim.ts';
 import { createRenderer } from './render.ts';
 import { createHud, loadBest } from './hud.ts';
-import { DOCTRINES } from './config.ts';
+import { DOCTRINES, BUILD_SLOW } from './config.ts';
 import * as sfx from './sfx.ts';
 
 // Last doctrine picked, if it's still unlocked.
@@ -89,6 +89,7 @@ function key(code: string) {
     case 'Enter': start(); break;
     case 'KeyG': cycleDiscipline(s); break;
     case 'KeyU': upgradePad(s); break;
+    case 'KeyN': skipBuild(s); break;
     case 'Delete': case 'Backspace': sellPad(s); break;
     case 'KeyD': start(true); break;
     case 'KeyP': case 'Escape': if (s.phase === 'play') s.phase = 'pause'; else if (s.phase === 'pause') s.phase = 'play'; break;
@@ -133,7 +134,8 @@ function frame(now: number) {
   if (held.has('KeyQ')) view.rotate(-dt * 1.5);
   if (held.has('KeyE')) view.rotate(dt * 1.5);
   const sweep0 = s.sweepA;
-  for (let i = 0; i < speed; i++) update(s, dt);
+  // The build window runs slower, so there's time to place things.
+  for (let i = 0; i < speed; i++) update(s, dt * (building(s) ? BUILD_SLOW : 1));
   if (s.sweepA < sweep0) sfx.play('ping'); // sweep completed a revolution
   for (const e of s.events) sfx.play(e.k);
   view.render(s, dt);

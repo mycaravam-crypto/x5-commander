@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSlot, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State } from './sim.ts';
-import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, SLOTS, slotXZ, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC } from './config.ts';
+import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, skipBuild, cruiseTarget, bestSlot, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State } from './sim.ts';
+import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, SLOTS, TERRAIN, slotXZ, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC } from './config.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
 const rng = { seed: 12345 };
@@ -125,6 +125,8 @@ s.st.slots = 0; // no main-battery locks: only the pads can shoot
 run(s, 40);
 ok(s.kills > 0, `pads engage without locks (kills=${s.kills})`);
 
+const SEAD = LEVELS.findIndex(l => l.name === 'SEAD'); // Su-34s, ARMs and Iskanders from here
+
 // Slots and fields of fire. addPad: buy a unit and put it on a given slot.
 const addPad = (g: State, k: string, slot: number) => { g.credits += 1e6; ok(buy(g, k), `buy ${k}`); const q = slotXZ(slot); ok(placePad(g, q.x, q.z) && g.perim.some(p => p.slot === slot), `place ${k} on ${slot}`); return g.perim.find(p => p.slot === slot)!; };
 {
@@ -199,10 +201,35 @@ const addPad = (g: State, k: string, slot: number) => { g.credits += 1e6; ok(buy
   ok(!selectPad(g, 40, 40) && g.selected === -1, 'clicking empty ground picks nothing');
 }
 
+// Terrain: the ridge reaches further but draws fire, the woods hide but reach less, the road is cheap and quick.
+{
+  const slotOf = (t: string) => SLOTS.findIndex(q => q.terrain === t && q.belt === 'fwd');
+  const g = quiet(); g.level = 9; g.st.slots = 0; g.st.maxHp = g.hp = 1e9;
+  const ridge = addPad(g, 'mg', slotOf('ridge')), woods = addPad(g, 'mg', slotOf('woods')), plain = addPad(g, 'mg', 0);
+  ok(Math.abs(padStats(g, ridge).range - MG_TIERS[0].range * TERRAIN.ridge.range) < 1e-9 && Math.abs(padStats(g, woods).range - MG_TIERS[0].range * TERRAIN.woods.range) < 1e-9
+    && padStats(g, plain).range === MG_TIERS[0].range, 'ridge +20% range, woods -15%');
+  for (const p of [ridge, woods, plain]) p.paid = 100; // equal price: only the terrain differs
+  ok(cruiseTarget(g, { x: 0, z: -60 }) === ridge, 'a cruise missile goes for the unit on the ridge first');
+  woods.paid = 1e6; ok(cruiseTarget(g, { x: 0, z: -60 }) !== woods, 'and never finds the one in the woods');
+  // A Lancet flying past 5 m off: dives on the ridge (skyline), not on the woods.
+  const pass = (p: typeof ridge) => { const a = Math.atan2(p.z, p.x), side = a + Math.PI / 2, e = spawnEnemy(g, 'scout', a, Math.hypot(p.x, p.z) + 10);
+    e.x += Math.cos(side) * 5; e.z += Math.sin(side) * 5; e.hp = 1e9; const hp = p.hp; run(g, 4); return p.hp < hp; };
+  ok(pass(ridge) && !pass(woods), 'FPVs and Lancets dive on the ridge from further out, never on the woods');
+  // The road: half the price back when placed there, and quick belt reloads.
+  const road = SLOTS.findIndex(q => q.terrain === 'road'), cr = g.credits, paid = cost(g, 'mg');
+  const r = addPad(g, 'mg', road);
+  ok(r.paid === paid - Math.round(paid * TERRAIN.road.refund) && g.credits === cr + 1e6 - paid + Math.round(paid * TERRAIN.road.refund), 'the road refunds half the price');
+}
+{
+  // The build window can be cut short: the next level starts now.
+  const g = quiet(); run(g, 1); g.buildUntil = g.t + 20; run(g, 0.5); skipBuild(g); run(g, 0.1);
+  ok(!building(g) && g.stage === 1, 'skipping the build window starts the next level');
+}
+
 // Cruise missiles: announced with their target, they go for the unit you've sunk the most into and knock it out.
 {
   const g = quiet(); g.level = 9; g.st.slots = 0; g.st.maxHp = g.hp = 1e9;
-  const cheap = addPad(g, 'observer', 7), dear = addPad(g, 'mantis', 8);
+  const cheap = addPad(g, 'observer', 9), dear = addPad(g, 'mantis', 10); // plain ground (no terrain)
   const e = spawnEnemy(g, 'cruise', FRONT + Math.PI, 40); e.hp = 1e9;
   const ev = g.events.find(v => v.k === 'cruise');
   ok(ev && 'n' in ev && ev.n === dear.slot && e.tgt === dear.slot, 'cruise launch: announced, going for the most valuable unit');
@@ -460,14 +487,14 @@ ok(raidRun(0).includes('raidLeak'), 'leaked raid does not');
   run(g, 1 / 60); g.raid!.g = { arm: 1, drone: 1 }; g.raid!.obj = 'radar';
   run(g, 20);
   ok(!g.raidClean && g.stats.radarHits > 0, 'ARM hit loses PROTECT RADAR');
-  const h = newGame(); h.phase = 'play'; h.spawnAcc = -1e9; h.nextElite = 1e9; h.stage = 3; h.nextRaid = RAID_WARN;
+  const h = newGame(); h.phase = 'play'; h.spawnAcc = -1e9; h.nextElite = 1e9; h.stage = SEAD; h.nextRaid = RAID_WARN;
   for (let i = 0; i < 30 && (!h.raid || h.raid.name !== 'SEAD STRIKE'); i++) { h.raid = null; h.nextRaid = h.t + RAID_WARN; run(h, 1 / 60); }
   ok(h.raid?.name === 'SEAD STRIKE' && h.raid.obj === 'battery', 'no radar yet: SEAD STRIKE is PROTECT BATTERY');
 }
 
 // Attack packages: turn up in normal waves once their level comes, all from one bearing, escort jamming it.
 {
-  const g = newGame(3); g.phase = 'play'; g.stage = 4; g.nextRaid = g.nextElite = 1e9; g.st.maxHp = g.hp = 1e9; // stays on the level
+  const g = newGame(3); g.phase = 'play'; g.stage = SEAD; g.nextRaid = g.nextElite = 1e9; g.st.maxHp = g.hp = 1e9; // stays on the level
   const seen = new Set<string>();
   run(g, 600, () => { for (const e of g.events) if (e.k === 'package') seen.add(e.name); });
   ok(seen.size >= 2, `packages spawn in normal waves (${[...seen]})`);
@@ -504,13 +531,14 @@ ok(raidRun(0).includes('raidLeak'), 'leaked raid does not');
 // Difficulty curve: each level introduces its problem; nothing turns up before its level.
 {
   const first = (k: string) => LEVELS.findIndex(p => (p.w as Record<string, number>)[k]);
-  ok(first('decoy') === 2 && first('ew') === 2 && first('elite') === 3 && first('arm') === 3 && first('tbm') === 4 && first('cruise') === 4, 'level order: EW screen, then SEAD, then coordinated');
+  ok(first('swarm') === 1 && first('tank') === 2 && first('decoy') === 2 && first('cruise') === 4 && first('ew') === 4
+    && first('elite') === SEAD && first('arm') === SEAD && first('tbm') === SEAD && LEVELS[SEAD].name === 'SEAD', 'level order: FPVs, helicopters, flanks, cruise and EW, then SEAD');
   for (const p of PACKAGES) ok(p.from >= 2, `${p.name} waits for the EW screen`);
   const g = newGame(); g.stage = LEVELS.length + 3;
   ok(phase(g).pk! > LEVELS[LEVELS.length - 1].pk!, 'packages get likelier past the scripted levels');
   const h = newGame(2); h.phase = 'play'; h.st.maxHp = h.hp = 1e9; let early = false;
-  for (let i = 0; i < 600 * 20 && h.stage < 3; i++) { update(h, 1 / 20); h.events.length = 0; early ||= h.stage < 3 && h.enemies.some(e => e.kind === 'elite' || e.kind === 'arm' || e.kind === 'tbm'); }
-  ok(h.stage === 3 && !early, 'no Su-34s, ARMs or Iskanders before the SEAD level');
+  for (let i = 0; i < 900 * 20 && h.stage < SEAD; i++) { update(h, 1 / 20); h.events.length = 0; early ||= h.stage < SEAD && h.enemies.some(e => e.kind === 'elite' || e.kind === 'arm' || e.kind === 'tbm'); }
+  ok(h.stage === SEAD && !early, 'no Su-34s, ARMs or Iskanders before the SEAD level');
 }
 
 // Conditions: after the scripted levels, MODS loop.

@@ -23,7 +23,7 @@ Other scripts:
 | `npm test`      | Runs a headless check of the game simulation in Node       |
 | `npm run balance` | Bots play many seeds; survival per doctrine and perk     |
 | `npm run bench` | Times the simulation under a heavy swarm (e.g. `npm run bench -- 2000`) |
-| `npm run balance [seeds] [cap-s]` | Bots play many seeded runs; median survival per doctrine and per perk |
+| `npm run balance [seeds] [cap-s] [naive]` | Bots play many seeded runs; median survival and level reached per doctrine and per perk. `naive`: a bot that never fills open slots with guns |
 
 The game runs entirely in the browser, with no backend and no asset files. `dist/` can be hosted on any static file server.
 
@@ -37,6 +37,7 @@ The game runs entirely in the browser, with no backend and no asset files. `dist
 | D                      | Start today's daily op                    |
 | Left click             | Place a bought pad; pick one of your units (click a free slot to move it); otherwise mark a contact as the priority target (needs the radar) |
 | U / Delete             | Upgrade / sell the unit you picked         |
+| N                      | Start the next level now (in the build window) |
 | Mouse wheel            | Zoom                                      |
 | Right-drag / Q / E     | Rotate camera                             |
 | Tab                    | Show / hide the upgrade shop              |
@@ -81,7 +82,7 @@ A rotating radar can take at most 8 levels of *Scan Rate*. From base level 4 you
 ### Radar threats and EMCON
 The enemy fights your radar, not just your base.
 - **The HUD shows the radar's state.** Knocked out: the whole screen goes to static with rolling bars and drained colour, the frames turn red, the mini radar shows NO RADAR, and a red countdown reads RADAR DOWN, NO FIRE CONTROL. EMCON gets a quieter amber banner. Red is kept for the worst states only: radar knocked out and battery critical.
-- **Anti-radiation missiles (Kh-31P)** home on a radiating radar. Su-34s launch them once they're in range, and from the SEAD level they arrive in salvos. A hit takes the radar **offline for 6 s** (repeated hits stack up to 12 s). You get warning: every launch sounds the radar-warning tone and shows its bearing.
+- **Anti-radiation missiles (Kh-31P)** home on a radiating radar. Su-34s launch them once they're in range, and in the SEAD level they arrive in salvos. A hit takes the radar **offline for 6 s** (repeated hits stack up to 12 s). You get warning: every launch sounds the radar-warning tone and shows its bearing.
 - **EMCON (`F`)** stops the radar transmitting. Inbound ARMs lose the emitter and veer off, the radar stops draining power, but fire control drops every lock and contacts coast on track memory. Go silent early: an ARM that's already close still hits.
 - **Radar modes (`V`)**, each a trade-off. EMCON works on top of any of them.
 
@@ -120,6 +121,16 @@ Perimeter pads (units): **12.7 mm AA MGs** (from the start), **MANTIS 35mm C-RAM
 | Main line    | 17 m     | balanced                                                                                    |
 | Inner ring   | 11 m, all round | safe, covers the flanks, engages late                                                 |
 
+**Terrain.** The map has three kinds of ground, drawn on it, that change what a slot is worth:
+
+| Ground | Where                    | Effect                                                                                           |
+|--------|--------------------------|--------------------------------------------------------------------------------------------------|
+| Ridge  | forward line, front      | +20% range and eyesight, but it's on the skyline: FPVs and Lancets dive on it from twice as far, and a cruise missile picks it first |
+| Woods  | left side                | hidden: never dived on, never a cruise missile's target; −15% range                              |
+| Road   | right side, to the rear  | half the unit's price back when you place it there; its MG reloads twice as fast                 |
+
+The unit card names the ground a unit stands on. No man's land beyond the forward edge (FEBA) is shaded, and the belts are dashed on the ground.
+
 **Fields of fire.** A gun covers a fan pointing away from the base, drawn on the ground: MGs 120°, Stingers 180°, MANTIS all round. It can't shoot what has flown past it. A target inside two guns' fields of fire takes **+20% crossfire damage** from both. Amber ticks on the mini radar rim mark bearings in the threat arc that no working gun covers.
 
 **Placing.** After buying a unit, **click the map** to put it on the nearest free slot. The pulsing slot is the one that covers the most open sky (or, for support units, serves the most guns); if you don't click within 8 seconds, the unit goes there.
@@ -143,25 +154,26 @@ Laser and HPM shots cost power as well. The power and interceptor bars show the 
 Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits. There are 28 upgrades in 7 groups: BATTERY, POWER, SENSORS, FIRE CONTROL, WEAPONS, MAGAZINE and PERIMETER. Each upgrade costs more with every level. There is **no max level**, except for *Threat Evaluation*, the *radar*, the *PAC-3 battery* and *LTAMDS AESA*, which are on/off, and Scan Rate before the AESA. Earth Revetments have diminishing returns, up to 85% less damage taken. Buying upgrades raises your **base level**, which adds visible structures to the base and offers a **perk draft: pick 1 of 3**. Every perk has a tradeoff, for example *GLASS CANNON*: +100% damage, −40% max HP. From base level 3, every draft also offers one **rule perk** (marked ★ NEW RULE) that changes how the battery plays, until you've taken them all. From level 3: *BLACKOUT PROTOCOL* (tracks coast twice as long when the radar goes dark, −30% memory while radiating), *COUNTER-SEAD* (each ARM shot down restores 20% power), *KILL CHAIN* (every 5 kills: +1 lock slot for 8 s), *OVERKILL* (damage past a kill jumps to the nearest contact within 8 m) and *LAST STAND* (below 25% HP: +50% fire rate, −40% power gen). From level 5: *TRACK FUSION* (locks hold while the radar is dark), *LPI WAVEFORM* (LPI mode keeps full detection), *OVERWATCH* (your marked target takes double damage), *ARC LASER* (laser jumps to 2 more targets; needs the laser), *SCAVENGER* (kills refund interceptors) and *FRAG WARHEADS* (PAC-3 hits splash).
 
 ### The front
-Enemies attack from one direction: the **front**, a 50° sector at the top of the default view, marked on the ground and on the mini radar rim. Aircraft and short-range drones (Lancet, FPV, Mi-28, Su-34, Mi-8 and their ARMs) always come from the front. Long-range threats (Shaheds, the decoys that fly with them, and Iskanders) come from the front too at first. From the SEAD level they can come from up to 60° either side of it, from COORDINATED RAID up to 120°, and after that from any direction. The mini radar shades the arc they can currently come from. A raid or package comes off the front only when everything in it is a long-range threat.
+Enemies attack from one direction: the **front**, a 50° sector at the top of the default view, marked on the ground and on the mini radar rim. Aircraft and short-range drones (Lancet, FPV, Mi-28, Su-34, Mi-8 and their ARMs) always come from the front. Long-range threats (Shaheds, the decoys that fly with them, and Iskanders) come from the front too at first. From level 4 (FLANKS) they can come from up to 60° either side of it, from level 5 up to 120°, and after the scripted levels from any direction. The mini radar shades the arc they can currently come from, and flashes an amber tick at the bearing of every missile launch. A raid or package comes off the front only when everything in it is a long-range threat.
 
 ### Levels
-A run is a string of **levels**. Each one is 60 s of waves, then the level's **raid**, then a **build window** with no new contacts, before the next level starts. The build window is 20 s if you held the raid's objective and 8 s if you lost it. Contacts already in the air keep coming, so it isn't a pause, but it's the time to buy and place pads. Each level adds a new kind of problem, rather than just more HP:
-1. **PROBING:** Lancets and Shaheds. Learn the systems.
-2. **MIXED THREATS:** FPV swarms and the first Mi-28s.
-3. **EW SCREEN:** decoys and jammer helicopters, and the first attack packages.
-4. **SEAD:** Su-34s and anti-radiation missiles. From here, every level has a Su-34 strike package halfway through its waves.
-5. **COORDINATED RAID:** heavy mixed raids, Iskanders and cruise missiles.
+A run is a string of **levels**. Each one is 60 s of waves, then the level's **raid**, then a **build window** with no new contacts, before the next level starts. The build window is 20 s if you held the raid's objective and 8 s if you lost it, and the clock runs at 60% during it. A **level card** says how the level went, what the next one brings and whether threats will come from wider angles; the shop opens by itself, and every free slot is marked. Contacts already in the air keep coming, so it isn't a pause. Press `N` to start the next level early. Each level adds a new kind of problem, in step with what the battery can build by then:
+1. **PROBING:** Lancets and Shaheds, straight in from the front. Learn the guns.
+2. **FPV SWARMS:** FPV swarms join them.
+3. **HELICOPTERS:** Mi-28 attack helicopters and decoys.
+4. **FLANKS:** Shaheds from up to 60° either side of the front, and the first attack packages. About when the radar comes.
+5. **EW AND CRUISE:** cruise missiles going for your units, and jammer helicopters. Up to 120° either side.
+6. **SEAD:** Su-34s, anti-radiation missiles and Iskanders: the Patriot's job. From here, every level has a Su-34 strike package halfway through its waves.
 
-After COORDINATED RAID, every level adds a **condition** on top of that mix, and attack packages get more likely each time. The conditions loop in this order: **NIGHT RAID** (contacts fade twice as fast), **GROUND CLUTTER** (−30% detection), **LULL** (a breather to rebuild), **JAMMING STORM** (more jammer helicopters), **SWARM TIDE** (many more, weaker enemies) and **SEAD WAVE** (strike aircraft, ARMs and cruise missiles). Each strike package is announced with a *STRIKE AIRCRAFT* warning.
+After SEAD, every level adds a **condition** on top of that mix, missiles and drones can come from any direction, attack packages get more likely, and each level presses harder: enemy HP and spawn rate go up 50% of the base per level. No battery holds forever. The conditions loop in this order: **NIGHT RAID** (contacts fade twice as fast), **GROUND CLUTTER** (−30% detection), **LULL** (a breather to rebuild), **JAMMING STORM** (more jammer helicopters), **SWARM TIDE** (many more, weaker enemies) and **SEAD WAVE** (strike aircraft, ARMs and cruise missiles). Each strike package is announced with a *STRIKE AIRCRAFT* warning.
 
-**Attack packages:** from the EW SCREEN level on, some spawns are a package instead of a single pack: several types flying in together from one bearing, each covering another's weakness. The log names the element to kill first.
+**Attack packages:** from the FLANKS level on, some spawns are a package instead of a single pack: several types flying in together from one bearing, each covering another's weakness. The log names the element to kill first.
 
 | Package      | From | Composition                              | Kill first | Because                                             |
 |--------------|------|------------------------------------------|------------|-----------------------------------------------------|
-| JAMMED SWARM | L3   | Mi-8 escort, 12 FPV, 2 Shahed            | Mi-8       | the swarm flies inside the jammer's sector          |
-| SEAD PACKAGE | L4   | Su-34, 2 Kh-31P, 3 decoys, Shahed        | Su-34      | decoys soak locks while the Su-34 keeps firing ARMs |
-| SATURATION   | L5   | 6 decoys, Mi-8 escort, 3 Lancets, Mi-28  | Mi-28      | the heavy hides among decoys and fast Lancets       |
+| JAMMED SWARM | L5   | Mi-8 escort, 12 FPV, 2 Shahed            | Mi-8       | the swarm flies inside the jammer's sector          |
+| SEAD PACKAGE | L6   | Su-34, 2 Kh-31P, 3 decoys, Shahed        | Su-34      | decoys soak locks while the Su-34 keeps firing ARMs |
+| SATURATION   | L6   | 6 decoys, Mi-8 escort, 3 Lancets, Mi-28  | Mi-28      | the heavy hides among decoys and fast Lancets       |
 
 An EW helicopter in a package is an **escort**: it goes in first and holds station on the package's bearing, so its jammed sector stays over the package.
 
@@ -175,7 +187,7 @@ An EW helicopter in a package is an **escort**: it goes in first and holds stati
 
 Raids include SHAHED WAVE, LANCET PACK, FPV SWARM, DECOY SCREEN, HELO ASSAULT, ISKANDER SALVO, CRUISE SALVO and the package raids SWARM ASSAULT, SEAD STRIKE (led by a Su-34) and SATURATION STRIKE. An escort jammer flies with its raid but doesn't count toward it; ARMs a raid's Su-34 launches do.
 
-Spawn rate, HP and damage grow **logarithmically** with play time, and raid size with the level: each doubling adds about the same threat. A strong battery can keep going indefinitely.
+Spawn rate, HP and damage also grow **logarithmically** with play time, and raid size with the level.
 
 | Threat                      | Notes                                     |
 |-----------------------------|-------------------------------------------|

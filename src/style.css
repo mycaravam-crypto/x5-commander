@@ -46,6 +46,8 @@ b { font-weight: 600; }
 #raidcard small { color: var(--alert); opacity: 0.8; }
 #raidcard .obj { color: var(--hot); text-shadow: var(--glow); }
 #raidcard.brief { animation: raidpulse 0.8s steps(1) infinite; }
+#raidcard.build { --c: var(--hot); color: var(--bright); }
+#raidcard.build small { color: var(--mid); }
 @keyframes raidpulse { 50% { border-color: var(--alert); } }
 body.raid #top, body.raid #left { --c: var(--alert); border-color: color-mix(in srgb, var(--alert) 35%, transparent); }
 
