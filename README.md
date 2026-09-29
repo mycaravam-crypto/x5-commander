@@ -1,6 +1,6 @@
 # X5 Commander
 
-A browser air-defense RTS made from simple 3D shapes. You start with a single anti-aircraft machine gun on a hill farm behind a river, and build it up into a Patriot air-defense battery against an endless, escalating raid of drones, helicopters and strike jets. You build your defenses anywhere on open ground round the base, among woods, ponds and rock outcrops, on a map generated fresh for every run. You can only engage what you can see: by eye at first, by radar once you've built one.
+A browser air-defense RTS made from simple 3D shapes. You start with a section of two anti-aircraft machine guns on a hill farm behind a river, and build it up into a Patriot air-defense battery against an endless, escalating raid of drones, helicopters and strike jets. You build your defenses anywhere on open ground round the base, among woods, ponds and rock outcrops, on a map generated fresh for every run. You can only engage what you can see: by eye at first, by radar once you've built one.
 
 System and threat names are real or announced systems, used for flavor only; the numbers are game balance, not real performance.
 
@@ -64,7 +64,7 @@ The game pauses by itself when the window loses focus.
 
 The first time you meet each threat or mechanic, a short tip explains it. Tips don't come back once you've seen them, unless you press RESET TIPS (start screen or pause menu).
 
-**Training.** A first-run drill of four short scripted waves on a fixed map, each with its lesson on screen: **eyesight** (guns fire at what they can see; build a second gun), **radar** (the radar and Patriot are handed over: see far, lock, mark a priority target), **ARMs and EMCON** (ARM salvos: go silent with `F`, then radiate again) and **decoys** (Gerberas among Shaheds, classified and greyed out once locked). The battery can't fall in training and no records are kept. The start screen offers it first until you've finished it once; `T` there starts it any time.
+**Training.** A first-run drill of four short scripted waves on a fixed map, each with its lesson on screen: **eyesight** (guns fire at what they can see; build a third gun), **radar** (the radar and Patriot are handed over: see far, lock, mark a priority target), **ARMs and EMCON** (ARM salvos: go silent with `F`, then radiate again) and **decoys** (Gerberas among Shaheds, classified and greyed out once locked). The battery can't fall in training and no records are kept. The start screen offers it first until you've finished it once; `T` there starts it any time.
 
 **Pause menu.** Resume or quit to the menu, SFX and music volumes, the coverage overlay mode, RESET TIPS, and a compact help panel: the key systems in a line each, and every hotkey.
 
@@ -85,7 +85,7 @@ The base sits on a low plateau in farmland. Ahead, toward the front, a cleared f
 ### Starting out: one gun and your eyes
 A run starts with a command post and one **12.7 mm AA machine gun**, dug in on the front. There is no radar and no Patriot yet:
 - **Eyesight:** anything within 18 m of the base, or 15 m of an emplacement, is seen, radar or not. NIGHT RAID cuts that to 60%. Guns placed further out see further.
-- **The MG** fires by itself at whatever it can see within 15 m. It feeds from its own 40-round belt, not the interceptor stock, and takes 3 s to reload when the belt runs dry.
+- **The MGs** fire by themselves at whatever they can see within 10 m (eyes reach further than the guns). The two starting guns stand either side of the front axis so their fields of fire cross on it. It feeds from its own 40-round belt, not the interceptor stock, and takes 3 s to reload when the belt runs dry.
 - **What's off without a radar:** locks, the priority target, radar modes, EMCON and the emergency intercept. ARMs have nothing to home on.
 - **The shop** only offers what helps before the radar: guns and pads, hull, damage and fire rate. Power, sensors and fire control need the radar; the magazine needs the Patriot.
 - **Milestones:** from base level 3 you can buy the **AN/MPQ-65 radar** (search and fire control), then the **PAC-3 MSE battery** (the Patriot, which needs the radar). Radar and Patriot perks only turn up in drafts once you have them.
@@ -119,22 +119,30 @@ Detected enemies are locked, up to your number of **lock slots**. A lock holds a
 - **Emergency intercept (`Space`)**: for 4 s every weapon, and every perimeter pad in reach, fires only at the priority target (or, with none marked, the visible threat nearest impact), 60% faster and past a sure kill. Costs 25 power and needs the radar up; 30 s cooldown.
 
 ### Weapons
-| Weapon                   | Uses         | Notes                                                   |
-|--------------------------|--------------|---------------------------------------------------------|
-| 12.7 mm AA MG            | Its own belt | Fires at what it can see, no lock; you start with one (it's a perimeter pad) |
-| PAC-3 MSE (Patriot)      | Interceptors | Hit-to-kill, leads moving targets; bought from base level 3, needs the radar |
-| HEL 50 kW laser          | Power        | Instant, rapid beam                                     |
-| IRIS-T SLX               | Interceptors | Homing, blast-frag splash; one extra launcher per level |
-| Leonidas HPM (microwave) | Power        | Huge hit, affects everything along the line             |
+The defence is layered like a real one: each layer reaches further than the one inside it, and the radar outranges them all. Real reaches run from about 1 km (HPM) to 100+ km (Patriot); the arena keeps them in order and stretches the gaps as far as a readable map allows. Stand-off threats sit just outside the layer they outrange (see the threat table).
+
+| Layer | System                   | Reach  | Uses         | Notes |
+|-------|--------------------------|--------|--------------|-------|
+| Point defence | Leonidas HPM (microwave) | 7 m | Power | Fries everything in a 100° cone toward the nearest threat. Cues itself: no lock needed |
+| Point defence | 12.7 mm AA MG     | 10 m   | Its own belt | Fires at what it can see, no lock; you start with two (they're perimeter pads). ZU-23-2 tier: 12 m |
+| Point defence | HEL 50 kW laser   | 11 m   | Power        | Instant, very fast, hard-hitting beam on the nearest threat. Cues itself: no lock needed |
+| SHORAD | MANTIS 35 mm (pad) | 15 m  | Interceptors | Fast gun, all round |
+| SHORAD | Stinger team (pad) | 24 m  | Interceptors | Homing MANPADS, IR seeker |
+| Medium SAM | IRIS-T SLM (pad) | 40 m | Interceptors | All round, takes on missiles first, IR seeker |
+| Medium/long SAM | IRIS-T SLX | 50 m | Interceptors | Homing, blast-frag splash, IR seeker; on the locks |
+| Long-range | PAC-3 MSE (Patriot) | 58 m | Interceptors | Hit-to-kill, leads moving targets; on the locks. Bought from base level 3, needs the radar |
+| Sensor | AN/MPQ-65 radar     | 68 m (+7 per LTAMDS level) | Power | Detection; fire control tracks out to 62 m (+6 per Track Range level) |
+
+The laser and HPM are point defence: they only see the last few metres, so they kill leakers, not raids, and they're built to be deadly inside that bubble.
 
 ### Perimeter defenses: building the line
-Perimeter pads (units): **12.7 mm AA MGs** (from the start), **MANTIS 35mm C-RAM** (base level 2, fast gun, short range), **Stinger teams** (level 3, homing, mid range), **EW jammers** (level 4, slow nearby contacts, drain power), the **IRIS-T SLM** (level 5, needs the radar: a medium-range SAM, 30 m all round, that takes on missiles before anything else), and two support units from level 2: the **observer post** (sees 28 m round itself, for every gun) and the **ammo point** (guns within 10 m fire 25% faster and reload their belts twice as fast). Units engage any contact that can be seen, by eye or radar, inside their range and **field of fire**, without using a lock slot.
+Perimeter pads (units): **12.7 mm AA MGs** (from the start), **MANTIS 35mm C-RAM** (base level 2, fast gun, short range), **Stinger teams** (level 3, homing, mid range), **EW jammers** (level 4, slow nearby contacts, drain power), the **IRIS-T SLM** (level 5, needs the radar: a medium-range SAM, 40 m all round, that takes on missiles before anything else), and two support units from level 2: the **observer post** (sees 28 m round itself, for every gun) and the **ammo point** (guns within 10 m fire 25% faster and reload their belts twice as fast). Units engage any contact that can be seen, by eye or radar, inside their range and **field of fire**, without using a lock slot.
 
 **Building.** Units go anywhere on open ground inside the **build zone**, the dashed ring round the base: at least 10.5 m out (clear of the base compound), at least 3.5 m from each other, and not on water, rock or woods. The zone and the number of units grow with the base level:
 
 | Base level | Build zone | Units |
 |------------|------------|-------|
-| 1          | 20 m       | 2 (one is the starting MG) |
+| 1          | 20 m       | 3 (two are the starting MGs) |
 | 2          | 31 m       | 5     |
 | 3          | 34 m       | 7     |
 | 4          | 34 m       | 11    |
@@ -245,24 +253,24 @@ Spawn rate, HP and damage grow **logarithmically** with play time, and raid size
 
 | Threat                      | Notes                                     |
 |-----------------------------|-------------------------------------------|
-| Lancet-3 loitering munition | Fast, low signature, erratic. **Hunts:** dives on any unit it passes within 5 m of; otherwise circles about 26 m out for 3 s, searching, then dives on the battery |
+| Lancet-3 loitering munition | Fast, low signature, erratic. **Hunts:** dives on any unit it passes within 5 m of; otherwise circles about 26 m out (inside the SHORAD layer) for 3 s, searching, then dives on the battery |
 | Shahed-136 attack drone     | Slow and straight, then a fast terminal dive over the last 10 m |
 | FPV strike swarm            | Weak, arrives in packs of 4 to 8 (6 in raids and packages), right on the treetops: tiny radar return, cold (IR seekers struggle), under the radar horizon. **Hunts isolated units:** each FPV dives on the most isolated unit within 8 m of it (one covered by at most one other gun; high ground is seen from twice as far, the treeline hides a unit); units that cover each other are left alone and it goes for the battery |
-| Mi-28NM attack helicopter   | Slow and tough. Never comes in: **hovers about 26 m out** and fires 4 Ataka anti-tank missiles (shootable, 4 s apart), then flies home |
-| Su-34 strike fighter        | Very tough, big reward, launches ARMs. **Releases two KAB glide bombs** about 32 m out (one on the SEAD level, where it's new), then turns for home: kill it before it lets go. The bombs are slow but heavy (35 HP) and hit hard |
+| Mi-28NM attack helicopter   | Slow and tough. Never comes in: **hovers about 34 m out**, beyond Stinger reach from the inner line, and fires 4 Ataka anti-tank missiles (shootable, 4 s apart), then flies home |
+| Su-34 strike fighter        | Very tough, big reward, launches ARMs. **Releases two KAB glide bombs** about 44 m out, beyond IRIS-T SLM reach from the base, (one on the SEAD level, where it's new), then turns for home: kill it before it lets go. The bombs are slow but heavy (35 HP) and hit hard |
 | Gerbera decoy               | Looks like a Shahed and flies the same profile, dive included. Harmless, no reward |
 | Kh-31P anti-radiation missile | Very fast, knocks the radar offline     |
-| Mi-8MTPR-1 EW helicopter    | Stands off and jams a sector              |
-| Iskander-M ballistic missile | Very fast, big radar return, hits hard. Straight in, then **jinks hard over the last 25 m**. **Only PAC-3 can hit it** |
+| Mi-8MTPR-1 EW helicopter    | Stands off about 48 m out (beyond IRIS-T SLM, inside SLX and PAC-3) and jams a sector |
+| Iskander-M ballistic missile | Very fast, big radar return, hits hard. Straight in, then **jinks hard over the last 30 m**. **Only PAC-3 can hit it** |
 | Kh-101 cruise missile       | Fast, low and weaving, can come from the flanks. Flies a dogleg off its launch bearing, so it turns in from somewhere else. **Goes for your most valuable unit** (the one you've spent the most on) and knocks it out in one hit; the base only when no unit is up. Follows the terrain under the radar horizon: radar sees it only within about 64% of its range, less over woods and rock. Over the last 12 m it **jinks hard, speeds up and pops up** to dive on its target. Every launch is announced with its bearing and target |
 | Kh-55 decoy cruise missile  | An old Kh-55 with no warhead. Reads as a Kh-101 on radar and on the warning net, flies the same profile and dives on a unit, and does nothing. Soaks locks and interceptors until fire control classifies it |
-| Orlan-10 recon drone        | High, slow, big on radar, harmless itself. Circles the battery about 38 m out for 40 s, **spotting for its sector** (its own bearing ±29°): impacts there hit 25% harder, and Lancets and FPVs there find your units from 60% further out. Kill it and the sector goes blind |
-| Ka-52 attack helicopter     | Comes round the flanks, **settles** about 30 m out (4 s, in the open: the moment to kill it), then hovers **masked** in the trees, strafing sideways, and pops up every 5 s to fire an Ataka pair at the nearest unit within 32 m (the battery if none). An Ataka hits a unit 2.5× harder than its damage says. 6 missiles, then it goes home |
-| Su-25 ground-attack jet     | Armoured, low-level: under the radar horizon on the way in. About 24 m out it **pops up with flares out** (IR seekers do 60% less for 2.5 s), fires a salvo of 4 S-8 rockets at the nearest unit within 20 m (the battery if none), **breaks away in a banking turn**, comes round about 52 m out and makes a second run, then goes home |
+| Orlan-10 recon drone        | High, slow, big on radar, harmless itself. Circles the battery about 48 m out for 40 s, **spotting for its sector** (its own bearing ±29°): impacts there hit 25% harder, and Lancets and FPVs there find your units from 60% further out. Kill it and the sector goes blind |
+| Ka-52 attack helicopter     | Comes round the flanks, **settles** about 36 m out (4 s, in the open: the moment to kill it), then hovers **masked** in the trees, strafing sideways, and pops up every 5 s to fire an Ataka pair at the nearest unit within 36 m (the battery if none). An Ataka hits a unit 2.5× harder than its damage says. 6 missiles, then it goes home |
+| Su-25 ground-attack jet     | Armoured, low-level: under the radar horizon on the way in. About 24 m out it **pops up with flares out** (IR seekers do 60% less for 2.5 s), fires a salvo of 4 S-8 rockets at the nearest unit within 20 m (the battery if none), **breaks away in a banking turn**, comes round about 64 m out and makes a second run, then goes home |
 | S-8 rocket                  | Fast, unguided, from the Su-25. Hits a unit twice as hard as its damage says. Guns can shoot them down; SAMs don't waste missiles on them |
-| Su-35S SEAD fighter         | Holds station about 42 m out, circling, and fires 4 Kh-58s, one every 7 s while your radar radiates (faster in FOCUSED, slower in LPI). No bombs: it never comes in. Goes home when it's out of missiles or after 45 s |
+| Su-35S SEAD fighter         | Holds station about 56 m out (inside PAC-3 reach, outside IRIS-T SLX), circling, and fires 4 Kh-58s, one every 7 s while your radar radiates (faster in FOCUSED, slower in LPI). No bombs: it never comes in. Goes home when it's out of missiles or after 45 s |
 | Kh-58 anti-radiation missile | Memory seeker: EMCON doesn't make it veer off (see *Radar threats and EMCON*). Knocks the radar out 50% longer than a Kh-31P |
-| Kh-47M2 Kinzhal             | Late war. Like an Iskander, but higher, faster and 40% faster again over the last 30 m. Hits very hard. **Only PAC-3 can hit it** |
+| Kh-47M2 Kinzhal             | Late war. Like an Iskander, but higher, faster and 40% faster again over the last 36 m. Hits very hard. **Only PAC-3 can hit it** |
 
 **Signatures and height.** Each type has a radar cross-section (`sig`), a heat signature (`ir`) and a height (`alt`) in `ENEMIES`. The radar sees anything flying under 3.5 m only closer in, in proportion to its height (**radar horizon**: an FPV inside about 73% of range, a Kh-101 or a masked Ka-52 about 64%), and one under 2 m over woods or a rock outcrop is lost in the clutter (−60% detection chance). The TRML-4D backup radar has the same horizon; eyes don't. IR seekers (Stinger, IRIS-T SLM, IRIS-T SLX) hit hot targets harder and cold ones softer: a Su-34 takes +21% and a helicopter +14%, an electric Lancet or FPV about −20%.
 

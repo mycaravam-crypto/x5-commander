@@ -1331,7 +1331,7 @@ export function createRenderer() {
   }
 
   const ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hit = new THREE.Vector3(), v = new THREE.Vector3(), ndc = new THREE.Vector2();
-  const clampTarget = () => { const r = Math.hypot(tx, tz), max = 45; if (r > max) { tx *= max / r; tz *= max / r; } };
+  const clampTarget = () => { const r = Math.hypot(tx, tz), max = ARENA_R * 0.75; if (r > max) { tx *= max / r; tz *= max / r; } };
   // Screen point → ground: intersect a level plane, then walk it onto the terrain height there.
   function pick(cx: number, cy: number) {
     ndc.set(cx / innerWidth * 2 - 1, -(cy / innerHeight) * 2 + 1);
@@ -1352,7 +1352,7 @@ export function createRenderer() {
     pick, project,
     rotate: (d: number) => { yaw += d; },
     inset: (top: number, bottom: number) => { inTop = top; inBot = bottom; },
-    zoomBy: (f: number) => { dist = Math.min(150, Math.max(28, dist / f)); },
+    zoomBy: (f: number) => { dist = Math.min(ARENA_R * 2.5, Math.max(28, dist / f)); }, // out far enough to see the whole arena
     // Pan by screen pixels (drag) or by world metres along the view (keys): the target slides over the ground.
     // Pixels: the ground follows the pointer (dx right, dy down). Metres: dx right, dy forward.
     pan(dx: number, dy: number, pixels = true) {
