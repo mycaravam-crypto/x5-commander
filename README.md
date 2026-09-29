@@ -21,7 +21,7 @@ Other scripts:
 |-----------------|-----------------------------------------------------------|
 | `npm run build` | Type-checks, then builds a static site into `dist/`        |
 | `npm test`      | Runs a headless check of the game simulation in Node       |
-| `npm run bench` | Times the simulation under a heavy swarm (e.g. `npm run bench -- 2000`) |
+| `npm run bench` | Times the simulation under a heavy swarm: mean, median, p95 and worst ms per tick at 600 and 1000 contacts (e.g. `npm run bench -- 2000,3000 10`) |
 | `npm run balance [seeds] [cap-s]` | Bots play many seeded runs; median survival per doctrine and per perk, and what did the most damage |
 
 The game runs entirely in the browser, with no backend and no asset files. `dist/` can be hosted on any static file server.
@@ -343,6 +343,7 @@ Effects and music run on separate buses with their own volumes (pause menu, reme
 - The daily op must stay deterministic: every spawn source draws from its own seeded stream.
 - Every off-axis attack is telegraphed with a warning and bearing. Players should lose to gaps in their cover, not to surprises.
 - Auto-place and the balance bots use the same `bestSpot()`, so the bots test real layouts. Where you can build comes from `terrain.ts`, which the sim reads too: it stays pure (no Three.js) and the map is a function of the run's seed alone (its own random stream, so it never shifts the enemy schedule).
+- The sim ticks at a fixed step (`PERF.step` in `config.ts`, 1/60 s, as the tests and bots run it) whatever the refresh rate; the render draws contacts and shots along their velocity for the time since the last tick. In a dev build, `x5perf()` in the console gives the ms per frame of sim, render and HUD (`x5perf(true)` logs it every second). The HUD's text panels refresh every `PERF.hudSlow` s; bars and warnings every frame. On a desktop, bloom turns itself off for the session if frames stay slow (`PERF.bloomOff`).
 - Keep the game runnable after every step. `npm test` and `npm run build` stay green, and new mechanics get cases in `sim.check.ts` and `balance.ts`.
 
 ## Project layout

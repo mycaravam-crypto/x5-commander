@@ -93,6 +93,18 @@ export const BIG_KILL_SHAKE = 0.5;
 // speed share while power starves it; waiting: contacts in tracking range waiting for a lock while every slot is
 // taken. A warning stays up `hold` s after its cause clears, so it doesn't flicker at the line.
 export const WARN = { hp: 0.3, power: 0.15, ammo: 0.15, sweep: 0.6, waiting: 2, hold: 1.5 };
+// Frame budget (main.ts, hud.ts, render.ts). step: the sim ticks at this fixed dt (s), as the tests and bots play it,
+// however fast the screen refreshes; slack: share of a step a tick may run early, to ride out frame-time jitter;
+// maxSteps: ticks at most per frame (2× speed after a slow frame), so a stall can't snowball. hudSlow: s between
+// refreshes of the text panels (threat board, details, shop, cards); the bars and warnings update every frame.
+// bloomOff: bloom switches itself off for the session once frames average more than `ms` for `secs` of play.
+// lite: effect pool sizes on phones and small screens (the full ones in render.ts); each is a ring buffer, so a
+// smaller pool only drops the oldest smoke and sparks sooner.
+export const PERF = {
+  step: 1 / 60, slack: 0.25, maxSteps: 6, hudSlow: 0.12,
+  bloomOff: { ms: 26, secs: 3 },
+  lite: { shards: 1000, beams: 1200, puffs: 240, wrecks: 24, fires: 12, blips: 512 },
+};
 // Sound: default volumes (0..1, the player's own are saved) and the music's tempo, calm and in a raid.
 export const AUDIO = { sfx: 0.8, music: 0.35, bpm: 84, raidBpm: 108 };
 // Munitions heading for the battery: drawn amber, their launches and intercepts logged.

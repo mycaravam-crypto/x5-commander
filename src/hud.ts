@@ -1,11 +1,12 @@
-import { KA52, ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, MILESTONE, ARMS, SU25, OVERDRIVE, rank, TRAINING, BIG_KILLS, WARN } from './config.ts';
+import { KA52, ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, MILESTONE, ARMS, SU25, OVERDRIVE, rank, TRAINING, BIG_KILLS, WARN, PERF } from './config.ts';
 import { play as sound } from './sfx.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import { mapSeed } from './terrain.ts';
 import type { Records } from './config.ts';
 import { seedCode, beltOf, stageInfo, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, noAmmo, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
-const $ = (id: string) => document.getElementById(id)!;
+const byId = new Map<string, HTMLElement>(); // the HUD's elements are fixed: look each up once
+const $ = (id: string) => { let el = byId.get(id); if (!el?.isConnected) byId.set(id, el = document.getElementById(id)!); return el; };
 const fmt = (n: number) => Math.floor(n).toLocaleString('en-US');
 const pad3 = (n: number) => String(Math.round(n)).padStart(3, '0');
 // What it's doing, for the threat board and the target card: ETA inbound, or what it's up to instead.
@@ -336,16 +337,20 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   const flash = () => { flashEl.classList.remove('go'); void flashEl.offsetWidth; flashEl.classList.add('go'); };
   const popups = Array.from({ length: 32 }, () => $('popups').appendChild(document.createElement('div')));
   let nextPop = 0;
-  const pop = (project: Project, x: number, z: number, text: string, cls: string) => {
-    const el = popups[nextPop = (nextPop + 1) % popups.length], [px, py] = project(x, z);
-    el.textContent = text; el.style.left = `${px}px`; el.style.top = `${py}px`;
-    el.className = cls; void el.offsetWidth; el.classList.add('go');
-  };
-
+  // A popup's animation restarts on a forced layout. One for all this frame's popups (flushPops, end of update),
+  // not one each: a swarm going down pops dozens at once.
+  const popsDue: HTMLElement[] = [];
   const popAt = (px: number, py: number, text: string, cls: string) => {
     const el = popups[nextPop = (nextPop + 1) % popups.length];
     el.textContent = text; el.style.left = `${px}px`; el.style.top = `${py}px`;
-    el.className = cls; void el.offsetWidth; el.classList.add('go');
+    el.className = cls; popsDue.push(el);
+  };
+  const pop = (project: Project, x: number, z: number, text: string, cls: string) => { const [px, py] = project(x, z); popAt(px, py, text, cls); };
+  const flushPops = () => {
+    if (!popsDue.length) return;
+    void popsDue[0].offsetWidth;
+    for (const el of popsDue) el.classList.add('go');
+    popsDue.length = 0;
   };
   // What a purchase did, floating up off its shop row (or the battery, with the shop closed).
   function upgradePop(project: Project, id: string, n: number, star: boolean) {
@@ -492,7 +497,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       const t = `${tag(e)} · ${pad3(Math.hypot(e.x, e.z))}m`;
       if (el.textContent !== t) el.textContent = t;
       el.style.transform = `translate(${Math.round(x + 12 + e.size * 10)}px, ${Math.round(y - 14)}px)`;
-      el.className = e.id === s.marked ? 'on mk' : 'on';
+      const c = e.id === s.marked ? 'on mk' : 'on'; if (el.className !== c) el.className = c;
     }
     // Classified decoys: greyed out and struck through, so nobody wastes a mark on them.
     for (const e of s.enemies) {
@@ -500,7 +505,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       const el = labels[n++], [x, y] = project(e.x, e.z, flightAlt(e) + e.size);
       if (el.textContent !== '✕ DECOY') el.textContent = '✕ DECOY';
       el.style.transform = `translate(${Math.round(x + 10)}px, ${Math.round(y - 12)}px)`;
-      el.className = 'on dc';
+      if (el.className !== 'on dc') el.className = 'on dc';
     }
     for (let i = n; i < labels.length; i++) if (labels[i].className) labels[i].className = '';
     // Veterancy: every gun with kills wears its rank (stars) and its tally.
@@ -510,7 +515,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       const r = vetRank(p.kills), el = vetLabels[v++], [x, y] = project(p.x, p.z, 4.2), t = `${r ? '★'.repeat(r) + ' ' : ''}${p.kills}`;
       if (el.textContent !== t) el.textContent = t;
       el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, -100%)`;
-      el.className = `on vet r${r}`;
+      if (el.className !== `on vet r${r}`) el.className = `on vet r${r}`;
     }
     for (let i = v; i < vetLabels.length; i++) if (vetLabels[i].className) vetLabels[i].className = '';
     // Guns the interceptor pool can't feed right now.
@@ -519,7 +524,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       if (!noAmmo(s, p) || m >= padLabels.length) continue;
       const el = padLabels[m++], [x, y] = project(p.x, p.z, 3);
       el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, -100%)`;
-      el.className = 'on na';
+      if (el.className !== 'on na') el.className = 'on na';
     }
     for (let i = m; i < padLabels.length; i++) if (padLabels[i].className) padLabels[i].className = '';
   }
@@ -529,7 +534,12 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   // ---- text (throttled) ----
   let ffSpeed = 1, acc = 1, lastPhase = '', armSaid = -99, tbmSaid = -99, cruiseSaid = -99, rocketSaid = -99, shopForBuild = false;
   const set = (id: string, v: string) => { const el = $(id); if (el.textContent !== v) el.textContent = v; };
-  const bar = (id: string, r: number, crit = false) => { const el = $(id); el.style.setProperty('--r', String(Math.round(Math.max(0, Math.min(1, r)) * 20) / 20)); el.classList.toggle('crit', crit); };
+  const barWas = new Map<string, string>();
+  const bar = (id: string, r: number, crit = false) => { // written only on change: these run every frame
+    const v = String(Math.round(Math.max(0, Math.min(1, r)) * 20) / 20), k = v + +crit;
+    if (barWas.get(id) === k) return;
+    barWas.set(id, k); const el = $(id); el.style.setProperty('--r', v); el.classList.toggle('crit', crit);
+  };
 
   const touchBtns = Array.from(document.querySelectorAll<HTMLElement>('#touch [data-k], #views [data-k]'));
   const touch = (k: string, label: string, on = false) => {
@@ -544,7 +554,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   let buyable = 0; // shop rows you can afford right now: counted on the SHOP button so the shop can stay closed
   const flow = { t: 0, p: 0, a: 0, dp: 0, da: 0 };
   const infoEl = $('info');
-  let infoHtml = '';
+  let infoHtml = '', targetHtml = '';
 
   // ---- threat board: what's attacking, and the few that matter most right now ----
   const threatEl = $('threats');
@@ -559,7 +569,14 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const seen = s.enemies.filter(e => visible(s, e) && !e.ided);
     const count: Partial<Record<string, number>> = {};
     for (const e of seen) { const c = ENEMIES[shownKind(e)].code; count[c] = (count[c] ?? 0) + 1; }
-    const top = seen.map(e => [urgency(e), e] as const).sort((a, b) => b[0] - a[0]).slice(0, 4);
+    const top: (readonly [number, Enemy])[] = []; // the 4 most urgent, kept in order: no sort of the whole swarm
+    for (const e of seen) {
+      const u = urgency(e);
+      if (top.length === 4 && u <= top[3][0]) continue;
+      let i = top.length;
+      while (i > 0 && top[i - 1][0] < u) i--;
+      top.splice(i, 0, [u, e]); if (top.length > 4) top.pop();
+    }
     const worst = top[0]?.[0] ?? 0;
     const h = !seen.length ? '' : `<small>THREATS · ${seen.length}</small> ${Object.entries(count).sort((a, b) => b[1]! - a[1]!).map(([c, n]) => `${n} ${c}`).join(' · ')}` +
       top.map(([u, e]) => { const d = Math.hypot(e.x, e.z), k = shownKind(e);
@@ -585,15 +602,9 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     if (locks >= slots(s) && waiting >= 2) return 'slots';
     return gun || cheaper(s, 'dmg', 'range');
   }
-  function text(s: State) {
+  // Every frame: the battery, power and interceptor bars and the critical warnings.
+  function vitals(s: State) {
     const st = s.st;
-    set('credits', fmt(s.credits)); set('phase', phaseName(s)); set('time', clock(s.t));
-    set('kills', fmt(s.kills)); set('level', String(s.level));
-    { // progress to the next base level: 1.5*(L-1)*L purchases reach level L (config.baseLevel)
-      const lo = 1.5 * (s.level - 1) * s.level, hi = 1.5 * s.level * (s.level + 1), r = String(Math.round(Math.max(0, s.bought - lo) / (hi - lo) * 20) / 20);
-      const el = $('level').parentElement!; if (el.style.getPropertyValue('--r') !== r) el.style.setProperty('--r', r); }
-    const comboOn = s.combo >= 3 && s.t - s.lastKill < COMBO_WINDOW;
-    set('combo', comboOn ? `COMBO x${s.combo}  +${Math.round(Math.min(s.combo, COMBO_CAP) * COMBO_BONUS * 100)}%` : '');
     bar('hpBar', s.hp / st.maxHp, s.hp / st.maxHp < 0.3); set('hpTxt', `${fmt(s.hp)} / ${fmt(st.maxHp)}`);
     // Net flow over the last second or so: what's actually happening to the budget.
     if (s.t - flow.t >= 0.5 || s.t < flow.t) {
@@ -606,6 +617,20 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     set('pwTxt', `${fmt(s.power)} / ${fmt(st.powerCap)}${rate(flow.dp, s.power >= st.powerCap - 0.5)}`);
     bar('amBar', s.ammo / st.ammoCap, s.ammo < 3);
     set('amTxt', `${fmt(s.ammo)} / ${fmt(st.ammoCap)}${rate(flow.da, s.ammo >= st.ammoCap - 0.5)}`);
+    warnings(s);
+    const crit = s.phase === 'play' && s.hp / st.maxHp < 0.3;
+    if (document.body.classList.contains('crit') !== crit) document.body.classList.toggle('crit', crit);
+  }
+  // Throttled (PERF.hudSlow): the details list, threat board, shop, cards and touch labels.
+  function text(s: State) {
+    const st = s.st;
+    set('credits', fmt(s.credits)); set('phase', phaseName(s)); set('time', clock(s.t));
+    set('kills', fmt(s.kills)); set('level', String(s.level));
+    { // progress to the next base level: 1.5*(L-1)*L purchases reach level L (config.baseLevel)
+      const lo = 1.5 * (s.level - 1) * s.level, hi = 1.5 * s.level * (s.level + 1), r = String(Math.round(Math.max(0, s.bought - lo) / (hi - lo) * 20) / 20);
+      const el = $('level').parentElement!; if (el.style.getPropertyValue('--r') !== r) el.style.setProperty('--r', r); }
+    const comboOn = s.combo >= 3 && s.t - s.lastKill < COMBO_WINDOW;
+    set('combo', comboOn ? `COMBO x${s.combo}  +${Math.round(Math.min(s.combo, COMBO_CAP) * COMBO_BONUS * 100)}%` : '');
     let contacts = 0, locks = 0;
     for (const e of s.enemies) { if (visible(s, e)) contacts++; if (e.locked) locks++; }
     const sweepPct = Math.round(s.sweepSpeed / st.sweep * 100);
@@ -635,8 +660,6 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     ].map(([k, v]) => v === '' ? `<dt class="grp">${k}</dt>` : `<dt>${k}</dt><dd>${v}</dd>`).join('');
     if (html !== infoHtml) { infoHtml = html; infoEl.innerHTML = html; } // no DOM churn when nothing changed
     threatBoard(s);
-    warnings(s);
-    document.body.classList.toggle('crit', s.phase === 'play' && s.hp / st.maxHp < 0.3);
     // Touch buttons: live value under the icon, lit while the thing is on.
     const ib = interceptBlock(s);
     touch('Space', interceptActive(s) ? 'FIRING' : ib || 'READY', interceptActive(s) || !ib);
@@ -658,7 +681,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     if (blindEl.innerHTML !== bl) blindEl.innerHTML = bl;
     const m = s.marked ? s.enemies.find(e => e.id === s.marked) : undefined;
     const d = m ? Math.hypot(m.x, m.z) : 0;
-    $('target').innerHTML = m ? `<b>${tag(m)}</b><br>${ENEMIES[shownKind(m)].name}<br>BRG ${pad3(bearing(m.x, m.z))} · RNG ${pad3(d)}m · ${doing(m, 1)}<br>HP ${fmt(Math.max(0, m.hp))} / ${fmt(m.maxHp)}<b class="seg" style="--r:${Math.max(0, m.hp / m.maxHp)}"></b>` : '';
+    const th = m ? `<b>${tag(m)}</b><br>${ENEMIES[shownKind(m)].name}<br>BRG ${pad3(bearing(m.x, m.z))} · RNG ${pad3(d)}m · ${doing(m, 1)}<br>HP ${fmt(Math.max(0, m.hp))} / ${fmt(m.maxHp)}<b class="seg" style="--r:${Math.max(0, m.hp / m.maxHp)}"></b>` : '';
+    if (th !== targetHtml) { targetHtml = th; $('target').innerHTML = th; }
     const hint = suggest(s);
     buyable = 0;
     for (const [id, b] of rows) {
@@ -882,7 +906,9 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       raidArrow(s, project);
       if (s.phase === 'play' && (logAcc += dt) >= 0.3) { logAcc = 0; scanLog(s); }
       showOverlay(s);
-      if ((acc += dt) >= 0.1) { acc = 0; text(s); }
+      vitals(s);
+      if ((acc += dt) >= PERF.hudSlow) { acc = 0; text(s); }
+      flushPops();
     },
     flash(id: string) { const b = rows.get(id)!; b.classList.remove('pop'); void b.offsetWidth; b.classList.add('pop'); },
     toggleShop: () => document.body.classList.toggle('shop-open', !shop.classList.toggle('hidden')),

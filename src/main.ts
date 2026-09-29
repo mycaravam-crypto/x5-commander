@@ -1,7 +1,7 @@
 import { newGame, dailySeed, parseCode, parseResult, update, buy, collectDrop, pickPerk, markAt, placePad, movePad, selectPad, upgradePad, sellPad, skipBuild, building, toggleRelocate, cycleMode, cycleDiscipline, cycleRadarMode, aimFocus, emergencyIntercept, toggleEmcon, type State } from './sim.ts';
 import { createRenderer } from './render.ts';
 import { createHud, loadBest, boardAdd } from './hud.ts';
-import { DOCTRINES, BUILD_SLOW } from './config.ts';
+import { DOCTRINES, BUILD_SLOW, PERF } from './config.ts';
 import * as sfx from './sfx.ts';
 
 // Last doctrine picked, if it's still unlocked.
@@ -196,11 +196,27 @@ addEventListener('blur', () => { if (s.phase === 'play') s.phase = 'pause'; });
 // Dev builds only: poke the running game from the console, e.g. x5().nextRaid = x5().t + 12, or x5run(30) to play 30 s at once.
 if (import.meta.env.DEV) Object.assign(window, { x5: () => s, x5run: (secs: number) => { for (let i = 0; i < secs * 60 && s.phase === 'play'; i++) { s.events.length = 0; update(s, 1 / 60); } } });
 
+// Dev builds only: where the frame time goes. x5perf() gives the mean ms per frame of sim, render and HUD over the
+// last second; x5perf(true) logs it every second, x5perf(false) stops.
+const perf = { sim: 0, render: 0, hud: 0, frames: 0, since: 0, log: false, last: {} as Record<string, string> };
+const clockMs = import.meta.env.DEV ? () => performance.now() : () => 0;
+if (import.meta.env.DEV) Object.assign(window, { x5perf: (log?: boolean) => { if (log !== undefined) perf.log = log; return perf.last; } });
+function perfFrame(now: number, sim: number, render: number, hud: number) {
+  perf.sim += sim; perf.render += render; perf.hud += hud; perf.frames++;
+  if (now - perf.since < 1000) return;
+  const n = perf.frames || 1, ms = (v: number) => (v / n).toFixed(2);
+  perf.last = { fps: (perf.frames * 1000 / (now - perf.since)).toFixed(0), sim: ms(perf.sim), render: ms(perf.render), hud: ms(perf.hud), enemies: String(s.enemies.length) };
+  if (perf.log) console.log('x5perf', perf.last);
+  perf.sim = perf.render = perf.hud = perf.frames = 0; perf.since = now;
+}
+
 // ---- loop ----
-let last = performance.now();
+// The sim ticks at a fixed PERF.step whatever the refresh rate (as the tests and the balance bots run it), so a
+// 30 fps phone and a 144 Hz monitor play the same game; the render draws the latest state once a frame.
+let last = performance.now(), simAcc = 0;
 function frame(now: number) {
   if (lost) return; // the loop stops; the fault card offers a reload
-  const dt = Math.min(0.05, (now - last) / 1000);
+  const dt = Math.min(0.05, (now - last) / 1000); // a stalled tab doesn't dump seconds of sim into one frame
   last = now;
   if (held.has('KeyQ')) view.rotate(-dt * 1.5);
   if (held.has('KeyE')) view.rotate(dt * 1.5);
@@ -209,16 +225,22 @@ function frame(now: number) {
     const ay = +(held.has('KeyW') || held.has('ArrowUp')) - +(held.has('KeyS') || held.has('ArrowDown'));
     if (ax || ay) view.pan(ax * k, ay * k, false);
   }
-  const sweep0 = s.sweepA;
-  // The build window runs slower, so there's time to place things.
-  for (let i = 0; i < speed; i++) update(s, dt * (building(s) ? BUILD_SLOW : 1));
+  const sweep0 = s.sweepA, t0 = clockMs();
+  // 2× speed banks twice the time; the build window runs slower, so there's time to place things.
+  // A tick due within PERF.slack of a step runs now (the time is paid back next frame), so the usual jitter in
+  // frame times at 60 Hz doesn't turn into frames with no tick and frames with two.
+  simAcc = s.phase === 'play' ? Math.min(simAcc + dt * speed, PERF.step * PERF.maxSteps) : 0;
+  while (simAcc >= PERF.step * (1 - PERF.slack)) { simAcc -= PERF.step; update(s, PERF.step * (building(s) ? BUILD_SLOW : 1)); }
+  const t1 = clockMs();
   if (s.sweepA < sweep0) sfx.play('ping'); // sweep completed a revolution
   for (const e of s.events) sfx.play(e.k, e as Parameters<typeof sfx.play>[1]);
   // Music: calm in the build window, driving with a raid on.
   sfx.music(s.phase === 'play' || s.phase === 'pause' || s.phase === 'perk', building(s) ? 0 : s.raidLeft || s.raid ? 1 : 0.45);
   view.inset(...hud.insets());
-  view.render(s, dt);
+  view.render(s, dt, s.phase === 'play' ? simAcc * (building(s) ? BUILD_SLOW : 1) : 0);
+  const t2 = clockMs();
   hud.update(s, dt, view.cameraYaw(), view.project, speed, view.target());
+  if (import.meta.env.DEV) perfFrame(now, t1 - t0, t2 - t1, clockMs() - t2);
   s.events.length = 0;
   requestAnimationFrame(frame);
 }
