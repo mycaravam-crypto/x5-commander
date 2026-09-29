@@ -199,6 +199,44 @@ const addPad = (g: State, k: string, slot: number) => { g.credits += 1e6; ok(buy
   ok(!selectPad(g, 40, 40) && g.selected === -1, 'clicking empty ground picks nothing');
 }
 
+// Cruise missiles: announced with their target, they go for the unit you've sunk the most into and knock it out.
+{
+  const g = quiet(); g.level = 9; g.st.slots = 0; g.st.maxHp = g.hp = 1e9;
+  const cheap = addPad(g, 'observer', 7), dear = addPad(g, 'mantis', 8);
+  const e = spawnEnemy(g, 'cruise', FRONT + Math.PI, 40); e.hp = 1e9;
+  const ev = g.events.find(v => v.k === 'cruise');
+  ok(ev && 'n' in ev && ev.n === dear.slot && e.tgt === dear.slot, 'cruise launch: announced, going for the most valuable unit');
+  run(g, 12);
+  ok(!g.enemies.includes(e) && dear.down && !cheap.down && g.hp === g.st.maxHp, 'one cruise missile knocks its unit out, the base untouched');
+  const e2 = spawnEnemy(g, 'cruise', FRONT + Math.PI, 40); e2.hp = 1e9;
+  run(g, 12);
+  ok(!g.enemies.includes(e2) && cheap.down, 'with its first choice down, the next goes for another unit');
+  const e3 = spawnEnemy(g, 'cruise', FRONT + Math.PI, 40); e3.hp = 1e9;
+  run(g, 12);
+  ok(!g.enemies.includes(e3) && g.hp < g.st.maxHp, 'no unit up: it goes for the battery');
+}
+{
+  // Low flyer: under the radar horizon until it's close.
+  const g = quiet(); g.st.slots = 0; g.st.persist = 0.5;
+  const far = spawnEnemy(g, 'cruise', FRONT, radarRange(g) * 0.8), near = spawnEnemy(g, 'tank', FRONT + 1, radarRange(g) * 0.8);
+  for (const e of [far, near]) { e.speed = e.vx = e.vz = 0; e.hp = 1e9; }
+  let seenFar = false, seenNear = false;
+  run(g, 15, () => { seenFar ||= visible(g, far); seenNear ||= visible(g, near); });
+  ok(!seenFar && seenNear, 'radar horizon: a cruise missile at 80% of radar range stays unseen');
+}
+{
+  // IRIS-T SLM: base level 5 and the radar; takes on the missile before a closer drone.
+  const g = quiet(); g.level = 4; g.credits = 1e6;
+  ok(lockReason(g, 'iris') === 'BASE LV 5', 'IRIS-T SLM opens at base level 5');
+  g.level = 9; g.st.slots = 0;
+  const sam = addPad(g, 'iris', 1);
+  const drone = spawnEnemy(g, 'drone', FRONT, Math.hypot(sam.x, sam.z) + 10), cm = spawnEnemy(g, 'cruise', FRONT + 0.3, Math.hypot(sam.x, sam.z) + 22);
+  for (const e of [drone, cm]) { e.speed = e.vx = e.vz = 0; e.hp = 1e9; e.seenUntil = 1e9; } // both on the scope: this is about priority
+  let first = 0;
+  run(g, 3, () => { first ||= g.shots.find(sh => sh.src === 'IRIS-T SLM')?.target ?? 0; });
+  ok(first === cm.id, 'the SAM takes the cruise missile first');
+}
+
 // The starting kit: one AA machine gun facing the front, eyes, and no radar or Patriot.
 {
   const g = newGame(); g.phase = 'play'; g.spawnAcc = -1e9; g.nextRaid = g.nextElite = 1e9;
@@ -466,7 +504,7 @@ ok(raidRun(0).includes('raidLeak'), 'leaked raid does not');
 // Difficulty curve: each level introduces its problem; nothing turns up before its level.
 {
   const first = (k: string) => LEVELS.findIndex(p => (p.w as Record<string, number>)[k]);
-  ok(first('decoy') === 2 && first('ew') === 2 && first('elite') === 3 && first('arm') === 3 && first('tbm') === 4, 'level order: EW screen, then SEAD, then coordinated');
+  ok(first('decoy') === 2 && first('ew') === 2 && first('elite') === 3 && first('arm') === 3 && first('tbm') === 4 && first('cruise') === 4, 'level order: EW screen, then SEAD, then coordinated');
   for (const p of PACKAGES) ok(p.from >= 2, `${p.name} waits for the EW screen`);
   const g = newGame(); g.stage = LEVELS.length + 3;
   ok(phase(g).pk! > LEVELS[LEVELS.length - 1].pk!, 'packages get likelier past the scripted levels');

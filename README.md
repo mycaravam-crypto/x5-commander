@@ -110,7 +110,7 @@ Detected enemies are locked, up to your number of **lock slots**. A lock holds a
 | Leonidas HPM (microwave) | Power        | Huge hit, affects everything along the line             |
 
 ### Perimeter defenses: building the line
-Perimeter pads (units): **12.7 mm AA MGs** (from the start), **MANTIS 35mm C-RAM** (base level 2, fast gun, short range), **Stinger teams** (level 3, homing, mid range), **EW jammers** (level 4, slow nearby contacts, drain power), and two support units from level 2: the **observer post** (sees 28 m round itself, for every gun) and the **ammo point** (guns within 10 m fire 25% faster and reload their belts twice as fast). Units engage any contact that can be seen, by eye or radar, inside their range and **field of fire**, without using a lock slot.
+Perimeter pads (units): **12.7 mm AA MGs** (from the start), **MANTIS 35mm C-RAM** (base level 2, fast gun, short range), **Stinger teams** (level 3, homing, mid range), **EW jammers** (level 4, slow nearby contacts, drain power), the **IRIS-T SLM** (level 5, needs the radar: a medium-range SAM, 30 m all round, that takes on missiles before anything else), and two support units from level 2: the **observer post** (sees 28 m round itself, for every gun) and the **ammo point** (guns within 10 m fire 25% faster and reload their belts twice as fast). Units engage any contact that can be seen, by eye or radar, inside their range and **field of fire**, without using a lock slot.
 
 **Slots.** Units go on fixed slots in three belts facing the front, plus an inner ring. Base level 1 opens 2 slots in depth on the front axis (one holds the starting MG); more open with each base level, up to 16:
 
@@ -151,9 +151,9 @@ A run is a string of **levels**. Each one is 60 s of waves, then the level's **r
 2. **MIXED THREATS:** FPV swarms and the first Mi-28s.
 3. **EW SCREEN:** decoys and jammer helicopters, and the first attack packages.
 4. **SEAD:** Su-34s and anti-radiation missiles. From here, every level has a Su-34 strike package halfway through its waves.
-5. **COORDINATED RAID:** heavy mixed raids and Iskanders.
+5. **COORDINATED RAID:** heavy mixed raids, Iskanders and cruise missiles.
 
-After COORDINATED RAID, every level adds a **condition** on top of that mix, and attack packages get more likely each time. The conditions loop in this order: **NIGHT RAID** (contacts fade twice as fast), **GROUND CLUTTER** (−30% detection), **LULL** (a breather to rebuild), **JAMMING STORM** (more jammer helicopters), **SWARM TIDE** (many more, weaker enemies) and **SEAD WAVE** (strike aircraft and ARMs). Each strike package is announced with a *STRIKE AIRCRAFT* warning.
+After COORDINATED RAID, every level adds a **condition** on top of that mix, and attack packages get more likely each time. The conditions loop in this order: **NIGHT RAID** (contacts fade twice as fast), **GROUND CLUTTER** (−30% detection), **LULL** (a breather to rebuild), **JAMMING STORM** (more jammer helicopters), **SWARM TIDE** (many more, weaker enemies) and **SEAD WAVE** (strike aircraft, ARMs and cruise missiles). Each strike package is announced with a *STRIKE AIRCRAFT* warning.
 
 **Attack packages:** from the EW SCREEN level on, some spawns are a package instead of a single pack: several types flying in together from one bearing, each covering another's weakness. The log names the element to kill first.
 
@@ -173,7 +173,7 @@ An EW helicopter in a package is an **escort**: it goes in first and holds stati
    - **Lost:** no bonus, and only an **8 s build window**.
    Either way, the level ends when the last aircraft of the raid is gone.
 
-Raids include SHAHED WAVE, LANCET PACK, FPV SWARM, DECOY SCREEN, HELO ASSAULT, ISKANDER SALVO and the package raids SWARM ASSAULT, SEAD STRIKE (led by a Su-34) and SATURATION STRIKE. An escort jammer flies with its raid but doesn't count toward it; ARMs a raid's Su-34 launches do.
+Raids include SHAHED WAVE, LANCET PACK, FPV SWARM, DECOY SCREEN, HELO ASSAULT, ISKANDER SALVO, CRUISE SALVO and the package raids SWARM ASSAULT, SEAD STRIKE (led by a Su-34) and SATURATION STRIKE. An escort jammer flies with its raid but doesn't count toward it; ARMs a raid's Su-34 launches do.
 
 Spawn rate, HP and damage grow **logarithmically** with play time, and raid size with the level: each doubling adds about the same threat. A strong battery can keep going indefinitely.
 
@@ -188,6 +188,7 @@ Spawn rate, HP and damage grow **logarithmically** with play time, and raid size
 | Kh-31P anti-radiation missile | Very fast, knocks the radar offline     |
 | Mi-8MTPR-1 EW helicopter    | Stands off and jams a sector              |
 | Iskander-M ballistic missile | Very fast, big radar return, hits hard. **Only PAC-3 can hit it** |
+| Kh-101 cruise missile       | Fast, low and weaving, can come from the flanks. **Goes for your most valuable unit** (the one you've spent the most on) and knocks it out in one hit; the base only when no unit is up. Flies under the radar horizon: radar sees it only within 60% of its range. Every launch is announced with its bearing and target |
 
 ### The battery
 The base is laid out like a Patriot site. Every base level builds something that changes what it can do, plus an M903 launcher once you have the Patriot (up to 8), and 2 more perimeter pads:

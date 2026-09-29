@@ -1,7 +1,7 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, LEVEL_LEN, BUILD_TIME, BUILD_LOST, ELITE_FROM, PK_GROW, PK_MAX,
   ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, SLOTS, slotXZ, FANS, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty, BACKUP_RADAR,
-  RADAR_MODES, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
+  RADAR_MODES, CRUISE_LOW, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   type EnemyKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
 } from './config.ts';
 
@@ -17,13 +17,14 @@ export interface Enemy {
   raid: number; // id of the raid it belongs to, 0 = none
   pkg: number; // id of the attack package or raid group it flies with, 0 = none
   hold: number; // Mi-8 jammer: bearing it holds station on (its own, or its package's)
+  tgt: number; // cruise missile: slot of the unit it's going for, -1 = the base
 }
 export interface Shot {
   kind: 'shell' | 'missile' | 'tracer'; x: number; z: number; vx: number; vz: number;
   dmg: number; splash: number; life: number; target: number; src: string; // src: weapon, for the debrief
 }
 export type Ev =
-  | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect' | 'arm' | 'tbm' | 'jam' | 'ident' | 'acquire' | 'lost'; x: number; z: number; kind?: EnemyKind; n?: number }
+  | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect' | 'arm' | 'tbm' | 'cruise' | 'jam' | 'ident' | 'acquire' | 'lost'; x: number; z: number; kind?: EnemyKind; n?: number }
   | { k: 'beam' | 'rail' | 'gun'; x: number; z: number; x2: number; z2: number }
   | { k: 'raid'; x: number; z: number; name: string }
   | { k: 'package'; x: number; z: number; name: string }
@@ -249,6 +250,21 @@ export function padStats(s: State, p: Pad) {
   const w = p.k === 'mg' ? MG_TIERS[p.tier] : PERIM[p.k];
   return { ...w, dmg: w.dmg * s.st.padDmg, rate: w.rate * s.st.padRate * (nearAmmo(s, p) ? AMMO_RATE : 1) };
 }
+// A cruise missile goes for the unit you've sunk the most into (the nearest of equals), or the base if there's none.
+export function cruiseTarget(s: State, e: { x: number; z: number }) {
+  let best: Pad | undefined, bv = -Infinity;
+  for (const p of s.perim) {
+    if (p.down) continue;
+    const v = p.paid * 1000 - Math.hypot(p.x - e.x, p.z - e.z);
+    if (v > bv) { bv = v; best = p; }
+  }
+  return best;
+}
+function hitPad(s: State, p: Pad, dmg: number) {
+  p.hp -= dmg;
+  s.events.push({ k: 'padHit', x: p.x, z: p.z, n: dmg, kind: p.k });
+  if (p.hp <= 0) { p.hp = 0; p.down = true; s.events.push({ k: 'padDown', x: p.x, z: p.z, n: 0, kind: p.k }); }
+}
 export const padName = (p: Pad) => p.k === 'mg' ? MG_TIERS[p.tier].name : UPGRADES.find(u => u.id === p.k)!.name;
 export const padUpgradeCost = (p: Pad) => p.k === 'mg' && p.tier + 1 < MG_TIERS.length ? MG_TIERS[p.tier + 1].cost : Infinity;
 export const sellValue = (s: State, p: Pad) => Math.round(p.paid * (building(s) ? 1 : SELL_REFUND));
@@ -447,10 +463,13 @@ export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2
     id: s.nextId++, kind, x, z, vx: -Math.cos(a) * speed, vz: -Math.sin(a) * speed,
     hp, maxHp: hp, speed, dmg: T.dmg * d.dmg,
     reward: T.reward, size: T.size, seenUntil: -1, locked: false, incoming: 0, wob: rnd() * TAU,
-    born: s.t, cd: 3, aim: NaN, lockT: 0, ided: false, orbit: false, raid: 0, pkg: 0, hold: kind === 'ew' ? a : NaN,
+    born: s.t, cd: 3, aim: NaN, lockT: 0, ided: false, orbit: false, raid: 0, pkg: 0, hold: kind === 'ew' ? a : NaN, tgt: -1,
   });
-  if (kind === 'arm' || kind === 'tbm') s.events.push({ k: kind, x, z }); // ESM / early warning hears the launch, radar or not
-  return s.enemies[s.enemies.length - 1];
+  const e = s.enemies[s.enemies.length - 1];
+  if (kind === 'cruise') e.tgt = cruiseTarget(s, e)?.slot ?? -1;
+  // ESM / early warning hears the launch, radar or not (a cruise missile's warning says what it's going for).
+  if (kind === 'arm' || kind === 'tbm' || kind === 'cruise') s.events.push({ k: kind, x, z, n: e.tgt });
+  return e;
 }
 
 // Packs of `kind` a group of `n` brings at `scale`. One escort jammer is enough, however big the group.
@@ -573,16 +592,22 @@ function moveEnemies(s: State, dt: number) {
       const arm = spawnEnemy(s, 'arm', Math.atan2(e.z, e.x), d - 1);
       if (e.raid && e.raid === s.raidId) { arm.raid = e.raid; s.raidLeft++; } // part of the raid
     }
+    // Cruise missile: weaves in on its unit (a new one if that's down or gone), and knocks it out.
+    if (e.kind === 'cruise') {
+      let p = s.perim.find(q => q.slot === e.tgt && !q.down);
+      if (!p && e.tgt >= 0) { p = cruiseTarget(s, e); e.tgt = p?.slot ?? -1; }
+      if (p) {
+        const dx = p.x - e.x, dz = p.z - e.z, dd = Math.hypot(dx, dz) || 1;
+        if (dd < 1.2) { hitPad(s, p, PAD_HP); removeAt(s, i); continue; } // one hit takes a unit down
+        const w = Math.sin(s.t * 2 + e.wob) * ENEMIES.cruise.wobble * Math.min(1, dd / 20);
+        e.vx = dx / dd * e.speed - dz / dd * w; e.vz = dz / dd * e.speed + dx / dd * w;
+      }
+    }
     // FPVs and Lancets that pass close to a unit on the forward line dive on it instead of the base.
     if (e.kind === 'scout' || e.kind === 'swarm') {
       let tgt: Pad | undefined, bd = DIVE_R * DIVE_R;
       for (const p of s.perim) { const dd = (p.x - e.x) ** 2 + (p.z - e.z) ** 2; if (!p.down && SLOTS[p.slot].belt === 'fwd' && dd < bd) { bd = dd; tgt = p; } }
-      if (tgt && bd < 1) {
-        tgt.hp -= e.dmg;
-        s.events.push({ k: 'padHit', x: tgt.x, z: tgt.z, n: e.dmg, kind: tgt.k });
-        if (tgt.hp <= 0) { tgt.hp = 0; tgt.down = true; s.events.push({ k: 'padDown', x: tgt.x, z: tgt.z, n: 0, kind: tgt.k }); }
-        removeAt(s, i); continue;
-      }
+      if (tgt && bd < 1) { hitPad(s, tgt, e.dmg); removeAt(s, i); continue; }
       if (tgt) { const dd = Math.sqrt(bd); e.vx = (tgt.x - e.x) / dd * e.speed; e.vz = (tgt.z - e.z) / dd * e.speed; }
     }
     e.x += e.vx * dt; e.z += e.vz * dt;
@@ -621,6 +646,7 @@ function jammed(s: State, e: Enemy) {
   return s.perim.some(p => p.k === 'jammer' && up(p) && (e.x - p.x) ** 2 + (e.z - p.z) ** 2 < r2);
 }
 
+const isMissile = (e: Enemy) => e.kind === 'cruise' || e.kind === 'arm';
 // Pads engage the closest visible contact in their range and field of fire; no lock slot needed. Repairs run here too.
 function perimeter(s: State, dt: number) {
   const r2 = PERIM.jammer.range ** 2;
@@ -638,13 +664,14 @@ function perimeter(s: State, dt: number) {
     const w = stats[gi];
     p.cd = Math.max(0, p.cd - dt);
     if (p.cd > 0 || s.ammo < w.ammo) return;
-    let best: Enemy | null = null, bd = w.range ** 2;
+    let best: Enemy | null = null, bd = w.range ** 2, brank = 2;
     const ic = interceptActive(s) ? s.enemies.find(e => e.id === s.intercept.target) : undefined;
     for (const e of s.enemies) {
       if (!visible(s, e) || e.ided || e.incoming >= e.hp && e !== ic || ENEMIES[e.kind].pacOnly) continue;
       if (ic && e !== ic && (ic.x - p.x) ** 2 + (ic.z - p.z) ** 2 < bd) continue; // intercept target in reach: only it
-      const d = (e.x - p.x) ** 2 + (e.z - p.z) ** 2;
-      if (d < bd && covers(p, e.x, e.z, w.range)) { bd = d; best = e; }
+      const d = (e.x - p.x) ** 2 + (e.z - p.z) ** 2, rank = p.k === 'iris' && isMissile(e) ? 0 : 1; // the SAM takes missiles first
+      if (d > w.range ** 2 || !covers(p, e.x, e.z, w.range) || rank > brank || rank === brank && d >= bd) continue;
+      bd = d; best = e; brank = rank;
     }
     if (!best) return;
     const t = best;
@@ -665,7 +692,8 @@ function perimeter(s: State, dt: number) {
       s.events.push({ k: 'gun', x: p.x, z: p.z, x2: best.x, z2: best.z });
     } else {
       const d = Math.sqrt(bd) || 1;
-      s.shots.push({ kind: 'missile', x: p.x, z: p.z, vx: (best.x - p.x) / d * 15, vz: (best.z - p.z) / d * 15, dmg, splash: 0, life: 3, target: best.id, src: 'STINGER' });
+      const sp = p.k === 'iris' ? 25 : 15;
+      s.shots.push({ kind: 'missile', x: p.x, z: p.z, vx: (best.x - p.x) / d * sp, vz: (best.z - p.z) / d * sp, dmg, splash: 0, life: 3, target: best.id, src: p.k === 'iris' ? 'IRIS-T SLM' : 'STINGER' });
       best.incoming += dmg;
       s.events.push({ k: 'missile', x: p.x, z: p.z });
     }
@@ -750,7 +778,7 @@ function radar(s: State, dt: number) {
   const sector = radarSector(s), fa = focusBearing(s), sig = M.lpi && s.st.lpi ? 1 : M.sig;
   let newly = 0;
   for (const e of s.enemies) {
-    if (e.x * e.x + e.z * e.z > r2) continue;
+    if (e.x * e.x + e.z * e.z > (ENEMIES[e.kind].low ? r2 * CRUISE_LOW * CRUISE_LOW : r2)) continue; // low flyers: under the horizon
     const a = Math.atan2(e.z, e.x);
     // FOCUSED: the same looks, spent on a narrower arc. An AESA stares, a rotating radar sweeps.
     if (sector) { if (Math.abs(angDiff(a, fa)) > sector / 2 || Math.random() >= da / sector) continue; }
