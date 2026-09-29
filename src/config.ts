@@ -23,10 +23,11 @@ export const FRONT = -Math.PI / 2, FRONT_ARC = 25 * Math.PI / 180;
 const DEG = Math.PI / 180;
 export const bearing = (x: number, z: number) => ((Math.atan2(z, x) * 180 / Math.PI) % 360 + 360) % 360;
 
-export type EnemyKind = 'scout' | 'drone' | 'swarm' | 'tank' | 'elite' | 'decoy' | 'arm' | 'ew' | 'tbm' | 'cruise';
+export type EnemyKind = 'scout' | 'drone' | 'swarm' | 'tank' | 'elite' | 'decoy' | 'arm' | 'ew' | 'tbm' | 'cruise' | 'atgm' | 'kab';
 
 export interface EnemyType {
-  hp: number; speed: number; dmg: number; reward: number;
+  hp: number; speed: number; reward: number;
+  dmg: number; // on impact; for the Mi-28 and Su-34, which don't ram, what their weapons carry (the threat board ranks by it)
   name: string; code: string; // display name + short label code
   size: number; sig: number; glow: number; // glow: brightness on PAL.bright (tank/elite also blink, see render.ts)
   pack: number; wobble: number;
@@ -50,7 +51,12 @@ export const ENEMIES: Record<EnemyKind, EnemyType> = {
   // Low, fast and weaving, and it goes for your most valuable unit instead of the base (see sim.cruiseTarget).
   cruise: { name: 'Kh-101 cruise missile', code: 'KH-101', hp: 6, speed: 8, dmg: 15, reward: 40, size: 1, sig: 0.35, glow: 1.1, pack: 1, wobble: 2, flank: true, low: true, drop: 0.08 },
   ew: { name: 'Mi-8MTPR-1 EW helicopter', code: 'MI-8PR', hp: 60, speed: 2.5, dmg: 0, reward: 80, size: 1.8, sig: 1.6, glow: 1, pack: 1, wobble: 0, drop: 0.3 },
+  // Launched by other enemies, never spawned on their own: the Mi-28's anti-tank missiles, the Su-34's glide bomb.
+  atgm: { name: '9M120 Ataka anti-tank missile', code: 'ATAKA', hp: 3, speed: 9, dmg: 6, reward: 4, size: 0.6, sig: 0.4, glow: 1.2, pack: 1, wobble: 0, drop: 0 },
+  kab: { name: 'KAB-500 glide bomb (UMPK kit)', code: 'KAB', hp: 35, speed: 4.5, dmg: 40, reward: 20, size: 1, sig: 0.9, glow: 1, pack: 1, wobble: 0, drop: 0 },
 };
+// Munitions heading for the battery: drawn amber, their launches and intercepts logged.
+export const MUNITIONS: EnemyKind[] = ['arm', 'tbm', 'cruise', 'atgm', 'kab'];
 export const KINDS = Object.keys(ENEMIES) as EnemyKind[];
 
 // Rare drops: a kill sometimes leaves salvage on the ground (chance per kind: ENEMIES.drop). Click it within
@@ -71,6 +77,15 @@ export const CACHE = { reward: 6, flat: 40 }; // credits: 6x the kill's reward +
 export const REPAIR_DROP = 0.3; // share of max HP a repair kit restores
 export const OVERDRIVE = { time: 12, rate: 1.5 };
 export const CRUISE_LOW = 0.6; // share of radar range a low flyer is seen at (the radar horizon)
+// How each type flies (sim.moveEnemies). Speeds are x the type's own.
+export const DIVE_SPEED = 1.7; // terminal dive: Shaheds (and the Gerberas copying them), Lancets
+export const SHAHED_DIVE = 10; // m from the battery a Shahed pitches over into its dive
+export const LANCET = { loiter: 26, time: 3, seek: 5 }; // m out it circles at, s it searches, m it spots a unit from and dives on it
+export const HELO = { standoff: 26, every: 4, ammo: 4 }; // Mi-28: m out it hovers at, s between ATGMs, ATGMs carried; then it goes home
+export const KAB_R = 32, KAB_PAIR = 2; // m out a Su-34 releases its glide bombs (and how many), then turns for home
+export const EGRESS_SPEED = 1.4; // aircraft heading home, out of the arena (no reward, but no more harm)
+export const TBM_TERMINAL = { r: 25, jink: 2.5 }; // Iskander: m out it starts its evasive manoeuvres, their size
+export const CRUISE_DOGLEG = 0.7; // rad off its launch bearing a Kh-101 routes through before turning in on its target
 
 // Each level adds a kind of problem rather than just more HP:
 // 1 learn the systems · 2 mixed threats · 3 jammers + decoys · 4 SEAD · 5 heavy coordinated raids ·

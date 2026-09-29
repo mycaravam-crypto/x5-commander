@@ -3,6 +3,7 @@ import {
   ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, SLOTS, slotXZ, FANS, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty, BACKUP_RADAR,
   DROPS, DROP_KINDS, DROP_LIFE, DROP_GRAB, DROP_MAX, DROP_HEAVY, CACHE, REPAIR_DROP, OVERDRIVE, MILESTONE, rank,
   RADAR_MODES, CRUISE_LOW, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
+  DIVE_SPEED, SHAHED_DIVE, LANCET, HELO, KAB_R, KAB_PAIR, EGRESS_SPEED, TBM_TERMINAL, CRUISE_DOGLEG, MUNITIONS,
   type EnemyKind, type DropKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
 } from './config.ts';
 
@@ -11,7 +12,10 @@ export interface Enemy {
   hp: number; maxHp: number; speed: number; dmg: number; reward: number; size: number;
   seenUntil: number; locked: boolean; incoming: number; wob: number;
   born: number;
-  cd: number; // Su-34: time to next ARM launch
+  cd: number; // Su-34: time to next ARM launch · Mi-28: to next ATGM · Lancet: search time left
+  act: Act; // what it's doing now (see moveEnemies)
+  ammo: number; // Mi-28: ATGMs left · Su-34: glide bombs left
+  wx: number; wz: number; // Kh-101: dogleg waypoint, NaN once past it
   aim: number; // ARM: heading it flies blind on, NaN while guided
   lockT: number; ided: boolean; // decoy: time held in lock, classified yet
   orbit: boolean; // Mi-8 jammer: on station and jamming
@@ -20,12 +24,15 @@ export interface Enemy {
   hold: number; // Mi-8 jammer: bearing it holds station on (its own, or its package's)
   tgt: number; // cruise missile: slot of the unit it's going for, -1 = the base
 }
+// in: inbound · loiter: Lancet circling, searching · dive: terminal dive · hover: Mi-28 firing from standoff ·
+// egress: heading home after its attack (leaves the arena, no reward)
+export type Act = 'in' | 'loiter' | 'dive' | 'hover' | 'egress';
 export interface Shot {
   kind: 'shell' | 'missile' | 'tracer'; x: number; z: number; vx: number; vz: number;
   dmg: number; splash: number; life: number; target: number; src: string; // src: weapon, for the debrief
 }
 export type Ev =
-  | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect' | 'arm' | 'tbm' | 'cruise' | 'jam' | 'ident' | 'acquire' | 'lost'; x: number; z: number; kind?: EnemyKind; n?: number }
+  | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect' | 'arm' | 'tbm' | 'cruise' | 'jam' | 'ident' | 'acquire' | 'lost' | 'release' | 'egress'; x: number; z: number; kind?: EnemyKind; n?: number }
   | { k: 'beam' | 'rail' | 'gun'; x: number; z: number; x2: number; z2: number }
   | { k: 'raid'; x: number; z: number; name: string }
   | { k: 'package'; x: number; z: number; name: string }
@@ -529,10 +536,16 @@ export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2
     id: s.nextId++, kind, x, z, vx: -Math.cos(a) * speed, vz: -Math.sin(a) * speed,
     hp, maxHp: hp, speed, dmg: T.dmg * d.dmg,
     reward: T.reward, size: T.size, seenUntil: -1, locked: false, incoming: 0, wob: rnd() * TAU,
-    born: s.t, cd: 3, aim: NaN, lockT: 0, ided: false, orbit: false, raid: 0, pkg: 0, hold: kind === 'ew' ? a : NaN, tgt: -1,
+    born: s.t, cd: kind === 'tank' ? 1 : kind === 'scout' ? LANCET.time : 3, act: 'in', ammo: kind === 'tank' ? HELO.ammo : kind === 'elite' ? KAB_PAIR : 0,
+    wx: NaN, wz: NaN, aim: NaN, lockT: 0, ided: false, orbit: false, raid: 0, pkg: 0, hold: kind === 'ew' ? a : NaN, tgt: -1,
   });
   const e = s.enemies[s.enemies.length - 1];
-  if (kind === 'cruise') e.tgt = cruiseTarget(s, e)?.slot ?? -1;
+  if (kind === 'cruise') {
+    e.tgt = cruiseTarget(s, e)?.slot ?? -1;
+    // Routed through a waypoint off its launch bearing, so it turns in on its target from somewhere else.
+    const w = a + (rnd() < 0.5 ? -CRUISE_DOGLEG : CRUISE_DOGLEG);
+    e.wx = Math.cos(w) * r * 0.7; e.wz = Math.sin(w) * r * 0.7;
+  }
   // ESM / early warning hears the launch, radar or not (a cruise missile's warning says what it's going for).
   if (kind === 'arm' || kind === 'tbm' || kind === 'cruise') s.events.push({ k: kind, x, z, n: e.tgt });
   return e;
@@ -638,9 +651,19 @@ function moveEnemies(s: State, dt: number) {
         s.stats.armsEvaded++;
         removeAt(s, i); continue;
       }
+    } else if (e.act === 'egress') {
+      // Heading home: straight out, and gone at the rim.
+      const sp = e.speed * EGRESS_SPEED;
+      e.vx = -nx * sp; e.vz = -nz * sp;
+      if (d > ARENA_R + 4) { removeAt(s, i); continue; }
     } else {
-      const wob = Math.sin(s.t * 2 + e.wob) * ENEMIES[e.kind].wobble * Math.min(1, d / 20);
-      const sp = e.speed * (e.kind !== 'elite' && jammed(s, e) ? JAM_SLOW : 1);
+      // Iskanders fly a straight ballistic path, then jink hard on the way down.
+      const wobble = e.kind === 'tbm' ? (d < TBM_TERMINAL.r ? TBM_TERMINAL.jink : 0) : ENEMIES[e.kind].wobble;
+      const wob = Math.sin(s.t * (e.kind === 'tbm' ? 5 : 2) + e.wob) * wobble * Math.min(1, d / 20);
+      let sp = e.speed * (e.kind !== 'elite' && jammed(s, e) ? JAM_SLOW : 1);
+      // Shaheds pitch over into a dive for the last stretch; a Gerbera flies the same profile, so it doesn't give itself away.
+      if ((e.kind === 'drone' || e.kind === 'decoy') && d < SHAHED_DIVE) e.act = 'dive';
+      if (e.act === 'dive') sp *= DIVE_SPEED;
       e.vx = nx * sp - nz * wob;
       e.vz = nz * sp + nx * wob;
       if (e.kind === 'ew' && (e.orbit || d <= EW_ORBIT)) {
@@ -651,30 +674,60 @@ function moveEnemies(s: State, dt: number) {
         e.vx = -nz * dir * sp + nx * pull;
         e.vz = nx * dir * sp + nz * pull;
       }
+      // Mi-28: stops at standoff and hovers, firing ATGMs, then goes home once it's out of them.
+      if (e.kind === 'tank' && d <= HELO.standoff) {
+        e.act = 'hover';
+        const drift = Math.sin(s.t * 0.7 + e.wob) * sp * 0.2;
+        e.vx = -nz * drift; e.vz = nx * drift;
+        if ((e.cd -= dt) <= 0) {
+          e.cd = HELO.every;
+          launch(s, e, 'atgm', d);
+          if (--e.ammo <= 0) { e.act = 'egress'; s.events.push({ k: 'egress', x: e.x, z: e.z, kind: e.kind }); }
+        }
+      }
+      // Su-34: releases its pair of glide bombs from standoff, then turns for home.
+      if (e.kind === 'elite' && e.ammo > 0 && d <= KAB_R) {
+        for (; e.ammo > 0; e.ammo--) launch(s, e, 'kab', d, (e.ammo - 1.5) * 0.06);
+        e.act = 'egress'; s.events.push({ k: 'egress', x: e.x, z: e.z, kind: e.kind });
+      }
+      // Lancet: circles a while out there, searching, then dives on the battery (or on a unit it spots, below).
+      if (e.kind === 'scout' && e.act !== 'dive' && d <= LANCET.loiter) {
+        e.act = 'loiter';
+        const dir = e.wob < Math.PI ? 1 : -1, pull = (LANCET.loiter - d) * 0.8;
+        e.vx = -nz * dir * sp - nx * pull; e.vz = nx * dir * sp - nz * pull;
+        if ((e.cd -= dt) <= 0) e.act = 'dive';
+      }
     }
-    // Su-34s loose Kh-31Ps at a radiating radar once in range.
+    // Su-34s loose Kh-31Ps at a radiating radar once in range, on the way in or out.
     if (e.kind === 'elite' && (e.cd -= dt) <= 0 && d < ARM_LAUNCH_R * radarMode(s).armR && emitting(s)) {
       e.cd = ARM_EVERY * radarMode(s).armEvery;
-      const arm = spawnEnemy(s, 'arm', Math.atan2(e.z, e.x), d - 1);
-      if (e.raid && e.raid === s.raidId) { arm.raid = e.raid; s.raidLeft++; } // part of the raid
+      launch(s, e, 'arm', d);
     }
     // Cruise missile: weaves in on its unit (a new one if that's down or gone), and knocks it out.
     if (e.kind === 'cruise') {
       let p = s.perim.find(q => q.slot === e.tgt && !q.down);
       if (!p && e.tgt >= 0) { p = cruiseTarget(s, e); e.tgt = p?.slot ?? -1; }
-      if (p) {
-        const dx = p.x - e.x, dz = p.z - e.z, dd = Math.hypot(dx, dz) || 1;
-        if (dd < 1.2) { hitPad(s, p, PAD_HP); removeAt(s, i); continue; } // one hit takes a unit down
+      if (!Number.isNaN(e.wx) && (e.wx - e.x) ** 2 + (e.wz - e.z) ** 2 < 9) e.wx = e.wz = NaN; // past the dogleg
+      const wp = Number.isNaN(e.wx) ? p : { x: e.wx, z: e.wz };
+      if (wp) {
+        const dx = wp.x - e.x, dz = wp.z - e.z, dd = Math.hypot(dx, dz) || 1;
+        if (wp === p && dd < 1.2) { hitPad(s, p, PAD_HP); removeAt(s, i); continue; } // one hit takes a unit down
         const w = Math.sin(s.t * 2 + e.wob) * ENEMIES.cruise.wobble * Math.min(1, dd / 20);
         e.vx = dx / dd * e.speed - dz / dd * w; e.vz = dz / dd * e.speed + dx / dd * w;
       }
     }
-    // FPVs and Lancets that pass close to a unit on the forward line dive on it instead of the base.
+    // FPVs that pass close to a unit on the forward line dive on it instead of the base. Lancets hunt: they dive,
+    // fast, on any unit they spot within LANCET.seek, whatever its belt.
     if (e.kind === 'scout' || e.kind === 'swarm') {
-      let tgt: Pad | undefined, bd = DIVE_R * DIVE_R;
-      for (const p of s.perim) { const dd = (p.x - e.x) ** 2 + (p.z - e.z) ** 2; if (!p.down && SLOTS[p.slot].belt === 'fwd' && dd < bd) { bd = dd; tgt = p; } }
+      const lancet = e.kind === 'scout', r = lancet ? LANCET.seek : DIVE_R;
+      let tgt: Pad | undefined, bd = r * r;
+      for (const p of s.perim) { const dd = (p.x - e.x) ** 2 + (p.z - e.z) ** 2; if (!p.down && (lancet || SLOTS[p.slot].belt === 'fwd') && dd < bd) { bd = dd; tgt = p; } }
       if (tgt && bd < 1) { hitPad(s, tgt, e.dmg); removeAt(s, i); continue; }
-      if (tgt) { const dd = Math.sqrt(bd); e.vx = (tgt.x - e.x) / dd * e.speed; e.vz = (tgt.z - e.z) / dd * e.speed; }
+      if (tgt) {
+        const dd = Math.sqrt(bd), sp = e.speed * (lancet ? DIVE_SPEED : 1);
+        if (lancet) e.act = 'dive';
+        e.vx = (tgt.x - e.x) / dd * sp; e.vz = (tgt.z - e.z) / dd * sp;
+      }
     }
     e.x += e.vx * dt; e.z += e.vz * dt;
     if (d < BASE_R + e.size * 0.5) {
@@ -706,13 +759,22 @@ function steerArm(s: State, e: Enemy, dt: number) {
   e.vx = Math.cos(nh) * e.speed; e.vz = Math.sin(nh) * e.speed;
 }
 
+// A munition `e` fires (ARM, ATGM, glide bomb): from just inside it, on its bearing, and part of its raid.
+function launch(s: State, e: Enemy, kind: EnemyKind, d: number, off = 0) {
+  const r = { seed: e.id * 7919 + s.nextId }; // seeded off the launcher: a daily's raids end the same way whatever else draws randoms
+  const m = spawnEnemy(s, kind, Math.atan2(e.z, e.x) + off, d - 1, () => rand(r));
+  if (kind !== 'arm') s.events.push({ k: 'release', x: e.x, z: e.z, kind }); // ARMs announce themselves (spawnEnemy)
+  if (e.raid && e.raid === s.raidId) { m.raid = e.raid; s.raidLeft++; }
+  return m;
+}
+
 function jammed(s: State, e: Enemy) {
   if (!s.jamming) return false;
   const r2 = PERIM.jammer.range ** 2;
   return s.perim.some(p => p.k === 'jammer' && up(p) && (e.x - p.x) ** 2 + (e.z - p.z) ** 2 < r2);
 }
 
-const isMissile = (e: Enemy) => e.kind === 'cruise' || e.kind === 'arm';
+const isMissile = (e: Enemy) => MUNITIONS.includes(e.kind);
 // Pads engage the closest visible contact in their range and field of fire; no lock slot needed. Repairs run here too.
 function perimeter(s: State, dt: number) {
   const r2 = PERIM.jammer.range ** 2;
