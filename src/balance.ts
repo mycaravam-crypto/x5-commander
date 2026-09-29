@@ -1,4 +1,4 @@
-// `npm run balance` — headless bots over many seeds. Median survival per doctrine, and per perk when the bot
+// `npm run balance` — headless bots over many seeds. Median survival (and level reached) per doctrine, and per perk when the bot
 // always takes that perk if offered. A perk far above the rest is a balance problem.
 import { newGame, update, buy, cost, pickPerk, toggleEmcon, emitting, rand, type State } from './sim.ts';
 import { DOCTRINES, PERKS, UPGRADES } from './config.ts';
@@ -28,8 +28,8 @@ function play(seed: number, doctrine: string, perk = '') {
 const median = (a: number[]) => a.sort((x, y) => x - y)[a.length >> 1];
 const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 function row(label: string, runs: State[]) {
-  const t = runs.map(s => s.t), lv = runs.map(s => s.level);
-  console.log(`${label.padEnd(22)} median ${mmss(median(t)).padStart(6)}  min ${mmss(Math.min(...t)).padStart(6)}  max ${mmss(Math.max(...t)).padStart(6)}  lv ${median(lv)}`);
+  const t = runs.map(s => s.t), lv = runs.map(s => s.level), stage = runs.map(s => s.stage + 1);
+  console.log(`${label.padEnd(22)} median ${mmss(median(t)).padStart(6)}  min ${mmss(Math.min(...t)).padStart(6)}  max ${mmss(Math.max(...t)).padStart(6)}  reached L${median(stage)}  battery lv ${median(lv)}`);
   return median(t);
 }
 

@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, draft, placePad, rand, dailySeed, type State } from './sim.ts';
-import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, PHASES, PHASE_LEN, RAID_WARN, RAID_PRESS } from './config.ts';
+import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, draft, placePad, rand, dailySeed, type State } from './sim.ts';
+import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC } from './config.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
 const rng = { seed: 12345 };
@@ -212,8 +212,10 @@ ok(s.power >= pw, 'silent radar draws no power');
     for (let i = 0; i < 20 * 60; i++) { update(g, 1 / 60); if (visible(g, e)) return g.t; }
     return Infinity;
   };
-  const avg = (mode: number) => { let t = 0; for (let i = 0; i < 40; i++) t += firstSeen(mode, 0.2, 30); return t / 40; };
-  ok(avg(1) < avg(0) * 0.7, `FOCUSED detects faster on its bearing (${avg(1).toFixed(2)}s vs ${avg(0).toFixed(2)}s)`);
+  // Enough samples that the average is stable (true ratio ~0.55; 40 samples crossed 0.7 on about 1 seed in 5).
+  const avg = (mode: number) => { let t = 0; for (let i = 0; i < 200; i++) t += firstSeen(mode, 0.2, 30); return t / 200; };
+  const [foc, act] = [avg(1), avg(0)];
+  ok(foc < act * 0.7, `FOCUSED detects faster on its bearing (${foc.toFixed(2)}s vs ${act.toFixed(2)}s)`);
   ok(firstSeen(1, Math.PI, 30) === Infinity, 'FOCUSED is blind off its bearing');
   ok(firstSeen(1, 0, 50) < Infinity && firstSeen(0, 0, 50) === Infinity, 'FOCUSED reaches further');
   const g = quiet(); cycleRadarMode(g); cycleRadarMode(g);
@@ -241,7 +243,7 @@ run(s, 15, () => { for (const e of s.enemies) { ided ||= e.ided; relocked ||= e.
 ok(ided && !relocked, 'decoy classified and released');
 ok(s.enemies.length === 0 && s.hp === s.st.maxHp, 'decoy does no damage');
 
-// Mi-8 jammer stands off, circles, and blanks only its own sector.
+// Mi-8 jammer stands off on its bearing and blanks only its own sector.
 s = quiet(); spawnEnemy(s, 'ew', 0, 45); s.enemies[0].hp = 1e9;
 run(s, 15);
 const j = s.enemies[0], ja = Math.atan2(j.z, j.x);
@@ -260,23 +262,39 @@ const raidRun = (slots: number) => {
 ok(raidRun(2).includes('raidClear'), 'clean raid pays');
 ok(raidRun(0).includes('raidLeak'), 'leaked raid does not');
 
-// Raid event: briefing matches what arrives; held = recovery lull; lost = next raid sooner.
+// Raid event: briefing matches what arrives; the raid ends the level; held = full build window, lost = short one.
 {
   const g = quiet(); g.nextRaid = RAID_WARN; g.st.slots = 0; g.st.maxHp = g.hp = 1e9;
   run(g, 1 / 60);
   const brief = g.raid!, total = Object.values(brief.n).reduce((a, b) => a + b, 0) - (brief.n.ew ?? 0);
   ok(brief.bonus > 25 && brief.obj, 'briefing has objective and bonus');
-  const next = g.nextRaid;
+  ok(g.nextRaid === Infinity, 'one raid per level');
   run(g, RAID_WARN);
   ok(g.raidLeft === total && g.raidName === brief.name, `briefing matches the raid (${g.raidLeft}/${total})`);
-  run(g, 25);
-  ok(!g.raidClean && g.nextRaid === next - RAID_PRESS && g.calmUntil === 0, 'lost objective: next raid sooner, no recovery');
+  let build = 0;
+  run(g, 25, () => { for (const e of g.events) if (e.k === 'build') build = e.n; });
+  ok(!g.raidClean && build === BUILD_LOST && g.stage === 1, 'lost objective: short build window, then the next level');
 }
 {
   const g = quiet(); g.nextRaid = RAID_WARN; g.st.slots = 2;
   run(g, 1 / 60, () => { if (g.raid) g.raid.g = { drone: 1 }; });
-  run(g, 40);
-  ok(g.stats.clean === 1 && g.calmUntil > 0, 'held objective: recovery lull');
+  let build = 0;
+  run(g, 40, () => { for (const e of g.events) if (e.k === 'build') build = e.n; });
+  ok(g.stats.clean === 1 && build === BUILD_TIME, 'held objective: full build window');
+}
+// Level cycle: waves, the raid, a build window with no new contacts, then the next level and its raid.
+{
+  const g = newGame(4); g.phase = 'play'; g.st.maxHp = g.hp = 1e9;
+  let quietBuild = true, stages = 0, t0 = 0;
+  for (let i = 0; i < 400 * 60 && stages < 2; i++) {
+    const n = g.nextId, was = building(g);
+    update(g, 1 / 60);
+    if (was && building(g) && g.enemies.some(e => e.id >= n && e.kind !== 'arm')) quietBuild = false;
+    for (const e of g.events) if (e.k === 'stage') { stages++; t0 = g.t; }
+    g.events.length = 0;
+  }
+  ok(stages === 2 && g.stage === 2 && quietBuild, `levels advance through build windows (${stages}, stage ${g.stage})`);
+  ok(Math.abs(g.nextRaid - (t0 + LEVEL_LEN)) < 0.1, 'each level schedules its own raid');
 }
 {
   // PROTECT RADAR: an ARM on the radar loses it even though nothing landed on the battery.
@@ -286,9 +304,9 @@ ok(raidRun(0).includes('raidLeak'), 'leaked raid does not');
   ok(!g.raidClean && g.stats.radarHits > 0, 'ARM hit loses PROTECT RADAR');
 }
 
-// Attack packages: turn up in normal waves once their time comes, all from one bearing, escort jamming it.
+// Attack packages: turn up in normal waves once their level comes, all from one bearing, escort jamming it.
 {
-  const g = newGame(3); g.phase = 'play'; g.nextRaid = g.nextElite = 1e9; g.st.maxHp = g.hp = 1e9;
+  const g = newGame(3); g.phase = 'play'; g.stage = 4; g.nextRaid = g.nextElite = 1e9; g.st.maxHp = g.hp = 1e9; // stays on the level
   const seen = new Set<string>();
   run(g, 600, () => { for (const e of g.events) if (e.k === 'package') seen.add(e.name); });
   ok(seen.size >= 2, `packages spawn in normal waves (${[...seen]})`);
@@ -305,22 +323,39 @@ ok(raidRun(0).includes('raidLeak'), 'leaked raid does not');
   ok(swarm.length && swarm.every(e => jamFactor(q, e) < 1 || Math.hypot(e.x, e.z) < 5), 'package flies inside its escort\'s jammed sector');
 }
 
-// Difficulty curve: each phase introduces its problem; nothing turns up before its phase.
+// The front: aircraft and short-range drones only ever come from FRONT ± FRONT_ARC. Long-range drones and
+// missiles stay on the front early on, then widen to their phase's arc (checked at spawn, allowing for group spread).
 {
-  const first = (k: string) => PHASES.findIndex(p => (p.w as Record<string, number>)[k]);
-  ok(first('decoy') === 2 && first('ew') === 2 && first('elite') === 3 && first('arm') === 3 && first('tbm') === 4, 'phase order: EW screen, then SEAD, then coordinated');
-  for (const p of PACKAGES) ok(p.from >= PHASE_LEN * 2, `${p.name} waits for the EW screen`);
-  const g = newGame(); g.t = PHASE_LEN * (PHASES.length + 3);
-  ok(phase(g).pk! > PHASES[PHASES.length - 1].pk!, 'packages get likelier past the scripted phases');
-  const h = newGame(2); h.phase = 'play'; h.st.maxHp = h.hp = 1e9; let early = false;
-  run(h, PHASE_LEN * 3 - 1, () => { early ||= h.enemies.some(e => e.kind === 'elite' || e.kind === 'arm' || e.kind === 'tbm'); });
-  ok(!early, 'no Su-34s, ARMs or Iskanders before the SEAD phase');
+  const g = newGame(11); g.phase = 'play'; g.st.maxHp = g.hp = 1e9;
+  const off = (e: { x: number; z: number }) => Math.abs(((Math.atan2(e.z, e.x) - FRONT + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI);
+  let seen = g.nextId, front = 0, wide = 0, early = 0;
+  run(g, 900, () => {
+    for (const e of g.enemies) if (e.id >= seen && e.kind !== 'arm') {
+      if (ENEMIES[e.kind].flank) { ok(off(e) < flankArc(g.stage) + 0.2, `${e.kind} inside the flank arc`); if (off(e) > FRONT_ARC + 0.2) wide++; }
+      else { ok(off(e) < FRONT_ARC + 0.2, `${e.kind} comes from the front (${off(e).toFixed(2)} rad)`); front++; }
+      if (g.stage < 3) { ok(off(e) < FRONT_ARC + 0.2, `nothing off the front early (${e.kind} at ${g.t.toFixed(0)}s)`); early++; }
+    }
+    seen = g.nextId;
+  });
+  ok(front > 50 && early > 50 && wide > 10, `front ${front} · early ${early} · off-axis ${wide}`);
 }
 
-// Conditions: after the scripted phases, MODS loop.
-s = newGame(); s.t = PHASE_LEN * PHASES.length + 1;
+// Difficulty curve: each level introduces its problem; nothing turns up before its level.
+{
+  const first = (k: string) => LEVELS.findIndex(p => (p.w as Record<string, number>)[k]);
+  ok(first('decoy') === 2 && first('ew') === 2 && first('elite') === 3 && first('arm') === 3 && first('tbm') === 4, 'level order: EW screen, then SEAD, then coordinated');
+  for (const p of PACKAGES) ok(p.from >= 2, `${p.name} waits for the EW screen`);
+  const g = newGame(); g.stage = LEVELS.length + 3;
+  ok(phase(g).pk! > LEVELS[LEVELS.length - 1].pk!, 'packages get likelier past the scripted levels');
+  const h = newGame(2); h.phase = 'play'; h.st.maxHp = h.hp = 1e9; let early = false;
+  for (let i = 0; i < 600 * 20 && h.stage < 3; i++) { update(h, 1 / 20); h.events.length = 0; early ||= h.stage < 3 && h.enemies.some(e => e.kind === 'elite' || e.kind === 'arm' || e.kind === 'tbm'); }
+  ok(h.stage === 3 && !early, 'no Su-34s, ARMs or Iskanders before the SEAD level');
+}
+
+// Conditions: after the scripted levels, MODS loop.
+s = newGame(); s.stage = LEVELS.length;
 ok(phase(s).name === MODS[0].name, 'first condition');
-s.t += PHASE_LEN * MODS.length;
+s.stage += MODS.length;
 ok(phase(s).name === MODS[0].name, 'conditions loop');
 
 // Drafts: no rule perks before lv5; after, exactly one, never a repeat, never one needing gear you lack.
@@ -375,18 +410,20 @@ const withPerk = (id: string) => { const g = quiet(); g.perks = [id]; g.st = der
 
 // Same seed, same schedule: the spawn stream and perk drafts don't depend on anything else.
 {
+  // Per level: how long a level lasts depends on play (the raid has to be dealt with), but what each level sends doesn't.
   const spawns = (seed: number, noise: boolean) => {
     const g = newGame(seed); g.phase = 'play';
-    const seen: string[] = [];
-    for (let i = 0; i < 90 * 60; i++) {
+    const seen: string[][] = [];
+    for (let i = 0; i < 150 * 60; i++) {
       const n = g.nextId;
       update(g, 1 / 60);
       if (noise) Math.random();
-      for (const e of g.enemies) if (e.id >= n && e.kind !== 'arm') seen.push(`${e.kind}@${e.x.toFixed(2)}`);
+      for (const e of g.enemies) if (e.id >= n && e.kind !== 'arm' && !e.raid && !e.pkg) (seen[g.stage] ??= []).push(`${e.kind}@${e.wob.toFixed(4)}`); // wob: a seeded draw, unlike position (clock)
     }
-    return seen.join();
+    return seen;
   };
-  ok(spawns(7, false) === spawns(7, true), 'seeded schedule ignores other randomness');
+  const same = (a: string[][], b: string[][]) => a.length >= 2 && a.every((l, i) => { const m = Math.min(l.length, b[i]?.length ?? 0); return m > 5 && l.slice(0, m).join() === b[i].slice(0, m).join(); });
+  ok(same(spawns(7, false), spawns(7, true)), 'seeded schedule ignores other randomness, level by level');
   // Through packages and raids, with the player working the commands: none of them touch the schedule.
   // (No fire here, and before the SEAD raid, so every raid ends the same way and the pacing matches too.)
   const long = (commands: boolean) => {
@@ -401,17 +438,22 @@ const withPerk = (id: string) => { const g = quiet(); g.perks = [id]; g.st = der
     return seen.join();
   };
   ok(long(false) === long(true), 'daily schedule (packages, raids) ignores the player\'s commands');
-  // Raids draw from their own stream: the same raids in the same order, however the pacing shifts.
+  // Raids draw from their own stream and go by the level: the same raids, bearings and sizes in the same order,
+  // however the pacing shifts.
   const raids = (press: number) => {
     const g = newGame(5, '2026-09-28'); g.phase = 'play'; g.st.maxHp = g.hp = 1e9; const out: string[] = [];
-    for (let i = 0; i < 500 * 20; i++) {
-      if (i === 200 * 20) g.nextRaid -= press; // as if an objective had been lost
-      update(g, 1 / 20); for (const e of g.events) if (e.k === 'raid') out.push(`${e.name}@${e.x.toFixed(1)}`); g.events.length = 0;
+    for (let i = 0; i < 700 * 20; i++) {
+      update(g, 1 / 20);
+      for (const e of g.events) {
+        if (e.k === 'build') g.buildUntil += press; // as if the level had gone differently
+        if (e.k === 'raid') out.push(`${e.name}@${e.x.toFixed(1)}×${JSON.stringify(g.raid!.n)}`);
+      }
+      g.events.length = 0;
     }
-    return out.slice(0, 4).join();
+    return out.slice(0, 5).join();
   };
-  ok(raids(0) === raids(20), 'raid order is independent of pacing');
-  ok(spawns(7, false) !== spawns(8, false), 'different seeds differ');
+  ok(raids(0).split(',').length >= 5 && raids(0) === raids(15), 'raids are independent of pacing');
+  ok(!same(spawns(7, false), spawns(8, false)), 'different seeds differ');
   ok(dailySeed('2026-09-28') === dailySeed('2026-09-28') && dailySeed('2026-09-28') !== dailySeed('2026-09-29'), 'daily seed');
 }
 
