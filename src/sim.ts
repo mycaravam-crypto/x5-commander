@@ -3,10 +3,10 @@ import {
   ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, FANS, beltAt, buildR, BUILD_MIN, PAD_GAP, START_PAD, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty, BACKUP_RADAR,
   DROPS, DROP_KINDS, DROP_LIFE, DROP_GRAB, DROP_MAX, DROP_HEAVY, CACHE, REPAIR_DROP, OVERDRIVE, MILESTONE, rank,
   RADAR_MODES, CRUISE_LOW, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
-  DIVE_SPEED, SHAHED_DIVE, LANCET, HELO, KAB_R, KAB_PAIR, EGRESS_SPEED, TBM_TERMINAL, CRUISE_DOGLEG, MUNITIONS,
+  DIVE_SPEED, SHAHED_DIVE, LANCET, HELO, KAB_R, KAB_PAIR, KAB_FIRST, EGRESS_SPEED, TBM_TERMINAL, CRUISE_DOGLEG, MUNITIONS,
   type EnemyKind, type DropKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
 } from './config.ts';
-import { ground } from './terrain.ts';
+import { ground, setMap } from './terrain.ts';
 
 export interface Enemy {
   id: number; kind: EnemyKind; x: number; z: number; vx: number; vz: number;
@@ -65,6 +65,7 @@ export const dailySeed = (date: string) => [...date].reduce((h, c) => Math.imul(
 // how you play (detection rolls, launches) uses Math.random, so it can't shift the schedule.
 export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine = 'standard') {
   const doc = DOCTRINES.find(d => d.id === doctrine && !daily) ?? DOCTRINES[0];
+  setMap(seed); // the map comes from the seed too: a daily op flies over the same ground for everyone
   const s = {
     phase: 'start' as Phase,
     daily, // date of the daily op, '' for a normal run
@@ -124,7 +125,7 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     // The raid in the air: its id, aircraft left, objective still held, reward so far, bearing, objective, name.
     raidId: 0, raidLeft: 0, raidClean: true, raidReward: 0, raidA: 0, raidObj: 'battery' as RaidObjective, raidName: '',
     // debrief counters
-    stats: { kills: {} as Partial<Record<EnemyKind, number>>, dmg: {} as Record<string, number>, raids: 0, clean: 0, armsEvaded: 0, radarHits: 0, drops: 0, recovered: 0 },
+    stats: { kills: {} as Partial<Record<EnemyKind, number>>, dmg: {} as Record<string, number>, taken: {} as Partial<Record<EnemyKind, number>>, raids: 0, clean: 0, armsEvaded: 0, radarHits: 0, drops: 0, recovered: 0 },
     mode: 0,
     marked: 0,
     discipline: 1, // index into DISCIPLINES, BALANCED
@@ -571,7 +572,7 @@ export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2
     id: s.nextId++, kind, x, z, vx: -Math.cos(a) * speed, vz: -Math.sin(a) * speed,
     hp, maxHp: hp, speed, dmg: T.dmg * d.dmg,
     reward: T.reward, size: T.size, seenUntil: -1, locked: false, incoming: 0, wob: rnd() * TAU,
-    born: s.t, cd: kind === 'tank' ? 1 : kind === 'scout' ? LANCET.time : 3, act: 'in', ammo: kind === 'tank' ? HELO.ammo : kind === 'elite' ? KAB_PAIR : 0,
+    born: s.t, cd: kind === 'tank' ? 1 : kind === 'scout' ? LANCET.time : 3, act: 'in', ammo: kind === 'tank' ? HELO.ammo : kind === 'elite' ? (s.stage <= ELITE_FROM ? KAB_FIRST : KAB_PAIR) : 0,
     wx: NaN, wz: NaN, aim: NaN, lockT: 0, ided: false, orbit: false, raid: 0, pkg: 0, hold: kind === 'ew' ? a : NaN, tgt: -1,
   });
   const e = s.enemies[s.enemies.length - 1];
@@ -774,6 +775,7 @@ function moveEnemies(s: State, dt: number) {
       }
       if (e.dmg > 0) {
         s.hp -= e.dmg * armor;
+        s.stats.taken[e.kind] = (s.stats.taken[e.kind] ?? 0) + e.dmg * armor;
         s.shake = Math.min(1.5, s.shake + 0.3 + e.dmg / 40);
         s.events.push({ k: 'baseHit', x: e.x, z: e.z, kind: e.kind, n: e.dmg * armor });
       }

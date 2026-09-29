@@ -1,5 +1,6 @@
 import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, altitude, buildR, DROPS, DROP_LIFE, MILESTONE, OVERDRIVE, rank } from './config.ts';
 import { paintTerrain } from './terrainPaint.ts';
+import { mapSeed } from './terrain.ts';
 import type { Records } from './config.ts';
 import { beltOf, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, noAmmo, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
@@ -12,7 +13,9 @@ const doing = (e: Enemy, dp = 0) => e.kind === 'ew' ? (e.orbit ? 'JAMMING' : 'IN
   : `ETA ${Math.max(0, (Math.hypot(e.x, e.z) - BASE_R) / e.speed).toFixed(dp)}s${e.act === 'dive' ? ' DIVE' : ''}`;
 const tag = (e: Enemy) => `TN${pad3(e.id % 1000)} ${ENEMIES[shownKind(e)].code}`; // track number + type
 const rgba = (c: number, a = 1) => `rgba(${c >> 16},${c >> 8 & 255},${c & 255},${a})`;
-const BOOT = ['PATRIOT BATTERY X5 EMPLACED', 'EPP-III POWER ..... OK', 'AN/MPQ-65 RADIATING', 'ECS FIRE CONTROL .. OK', 'PAC-3 MSE ON THE RAIL', 'WEAPONS FREE'];
+const BOOT = ['COMMAND POST ....... OK', '12.7MM AA MG ... DUG IN', 'AN/MPQ-65 RADAR . NOT BUILT', 'PAC-3 MSE ....... NOT BUILT', 'EYES ON THE SKY', 'WEAPONS FREE'];
+// The map's name on the start screen: its seed, as a grid reference.
+const mapName = (seed: number) => `GRID ${String.fromCharCode(65 + (seed >>> 0) % 26)}${String.fromCharCode(65 + ((seed >>> 5) >>> 0) % 26)}-${String((seed >>> 10) % 10000).padStart(4, '0')}`;
 const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 
 type Project = (x: number, z: number, y?: number) => readonly [number, number];
@@ -59,13 +62,33 @@ const docsHtml = (s: State, best: Best) => DOCTRINES.map((d, i) => {
   return `<button class="perk frame${d.id === s.doctrine ? ' sel' : ''}${open ? '' : ' locked'}" data-a="doc${i}"><b>${d.name}</b><span>${open ? d.desc : `LOCKED · ${d.need}`}</span><kbd>[${i + 1}]</kbd></button>`;
 }).join('');
 
+// After the run: what to do next time about the threat that did the most damage.
+const LESSONS: Record<keyof typeof ENEMIES, string> = {
+  scout: 'Lancets hunt your units: keep guns covering each other, and an observer post to see them early.',
+  drone: 'more guns across the front, and crossfire where their fields of fire overlap.',
+  swarm: 'FPVs come in packs: MANTIS and crossfire shred them.',
+  tank: 'Mi-28s hover and fire: mark them as the priority target and kill them on station.',
+  elite: 'kill Su-34s before they release: mark them, and have Stingers or the Patriot up by SEAD.',
+  decoy: 'decoys do no damage.',
+  arm: 'go silent with [F] EMCON as ARMs close, or try LPI radar mode.',
+  ew: 'jammers do no damage themselves.',
+  tbm: 'only the Patriot stops Iskanders: keep interceptors stocked.',
+  cruise: 'IRIS-T SLM takes on missiles first, and the radar needs range to see them low.',
+  atgm: 'kill the Mi-28 while it hovers: its missiles come 4 s apart, and guns can shoot them down.',
+  kab: 'glide bombs are slow but heavy: kill the Su-34 first, or keep guns on the front to shoot the bombs.',
+};
 function debrief(s: State) {
   const S = s.stats, total = Object.values(S.dmg).reduce((a, b) => a + b, 0) || 1;
   const kills = (Object.entries(S.kills) as [keyof typeof ENEMIES, number][]).sort((a, b) => b[1] - a[1])
     .map(([k, n]) => `<dt>${ENEMIES[k].code}</dt><dd>${fmt(n)}</dd>`).join('');
   const dmg = Object.entries(S.dmg).sort((a, b) => b[1] - a[1])
     .map(([k, n]) => `<dt>${k}</dt><dd>${Math.round(n / total * 100)}%</dd>`).join('');
-  return `<div class="debrief"><div><small>KILLS</small><dl>${kills || '<dt>none</dt>'}</dl></div><div><small>DAMAGE</small><dl>${dmg || '<dt>none</dt>'}</dl></div>
+  // What hurt the battery, and a line on the worst of it.
+  const hurt = (Object.entries(S.taken) as [keyof typeof ENEMIES, number][]).sort((a, b) => b[1] - a[1]);
+  const taken = hurt.slice(0, 6).map(([k, n]) => `<dt>${ENEMIES[k].code}</dt><dd>${fmt(Math.round(n))}</dd>`).join('');
+  const lesson = hurt.length ? `<p class="lesson"><span class="alert">MOST DAMAGE · ${ENEMIES[hurt[0][0]].code}</span> · ${LESSONS[hurt[0][0]]}</p>` : '';
+  return `${lesson}<div class="debrief"><div><small>KILLS</small><dl>${kills || '<dt>none</dt>'}</dl></div><div><small>DAMAGE DEALT</small><dl>${dmg || '<dt>none</dt>'}</dl></div>
+    <div><small>HP LOST TO</small><dl>${taken || '<dt>nothing</dt>'}</dl></div>
     <div><small>OPS</small><dl><dt>RAIDS CLEAN</dt><dd>${S.clean} / ${S.raids}</dd><dt>ARMS EVADED</dt><dd>${S.armsEvaded}</dd><dt>RADAR HITS</dt><dd>${S.radarHits}</dd><dt>SALVAGE</dt><dd>${S.recovered} / ${S.drops}</dd></dl></div></div>`;
 }
 
@@ -73,15 +96,37 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   for (const [k, v] of Object.entries(PAL)) document.documentElement.style.setProperty(`--${k}`, rgba(v));
 
   // ---- shop (built once) ----
-  const shop = $('shop'), rows = new Map<string, HTMLButtonElement>();
-  let group = '';
+  // One section per group. Before the radar the PERIMETER section comes first: guns are what the battery has.
+  // Rows waiting on something you don't own yet (NEEDS RADAR / PATRIOT) fold away; a section with nothing
+  // else left shows only its header and what it's waiting for.
+  const shop = $('shop'), rows = new Map<string, HTMLButtonElement>(), groups = new Map<string, HTMLElement>();
   for (const u of UPGRADES) {
-    if (u.group !== group) shop.insertAdjacentHTML('beforeend', `<h4>${group = u.group}</h4>`);
+    let sec = groups.get(u.group);
+    if (!sec) {
+      sec = document.createElement('section'); sec.innerHTML = `<h4>${u.group}<i></i></h4>`;
+      shop.append(sec); groups.set(u.group, sec);
+    }
     const b = document.createElement('button');
     const ranks = u.max === Infinity && u.group !== 'PERIMETER';
     b.innerHTML = `<span>${u.name}</span><span class="lv"></span><span class="c"></span><span class="d">${u.desc}${ranks ? ` · every ${MILESTONE}th level: rank up, +1 free level` : ''}</span>`;
     b.onclick = () => actions.buy(u.id);
-    shop.append(b); rows.set(u.id, b);
+    sec.append(b); rows.set(u.id, b);
+  }
+  let gunsFirst: boolean | null = null;
+  function arrangeShop(s: State) {
+    const first = !s.st.radar;
+    if (first !== gunsFirst) {
+      gunsFirst = first;
+      const perim = groups.get('PERIMETER')!;
+      if (first) shop.prepend(perim); else shop.append(perim);
+    }
+    for (const sec of groups.values()) {
+      let open = 0, need = '';
+      sec.querySelectorAll('button').forEach(b => { if (b.classList.contains('needs')) need ||= b.children[2].textContent ?? ''; else open++; });
+      sec.classList.toggle('shut', !open);
+      const i = sec.querySelector('h4 i')!, t = open ? '' : ` · ${need}`;
+      if (i.textContent !== t) i.textContent = t;
+    }
   }
 
   if (matchMedia('(pointer: coarse)').matches) shop.classList.add('hidden'); // phones: map first, shop on demand
@@ -99,11 +144,12 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     else if (a === 'share') share();
     else if (a?.startsWith('perk')) actions.perk(+a.slice(4));
   };
-  let shownPhase = '', shownDoc = '';
+  let shownPhase = '', shownDoc = '', shownSeed = NaN;
   function showOverlay(s: State) {
     const key = s.phase + s.perkChoices.join();
     // Doctrine picks only redraw their row, so the boot text doesn't replay.
     if (key === shownPhase && s.phase === 'start' && s.doctrine !== shownDoc) { shownDoc = s.doctrine; overlay.querySelector('.docs')!.innerHTML = docsHtml(s, loadBest()); }
+    if (s.phase === 'start' && s.seed !== shownSeed) { shownSeed = s.seed; const m = overlay.querySelector('.mapline'); if (m) m.textContent = `MAP ${mapName(s.seed)} · [N] NEW MAP`; }
     if (key === shownPhase) return;
     shownDoc = s.doctrine;
     shownPhase = key;
@@ -113,11 +159,12 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     if (s.phase === 'start') html = `<div class="card"><h1>X5 COMMANDER</h1>
       <div class="boot">${BOOT.map((l, i) => `<p style="--n:${l.length + 2};--d:${i * D}s">&gt; ${l}</p>`).join('')}</div>
       <div class="later" style="--d:${BOOT.length * D}s"><p class="dim">SCAN · DETECT · LOCK · ENGAGE · EXPAND</p><br>
-      <p>Your radar decides what exists. Undetected tracks can't be engaged.</p>
-      <p>Locked targets get fired on automatically. <b>Click</b> a contact to force priority.</p>
-      <p>Spend credits on the right. Every few upgrades the battery gets another launcher and you draft a <b class="hot">perk</b>.</p>
-      <p>Power feeds radar, reloads, laser and HPM — run dry and the sweep slows.</p>
+      <p>You start with <b>one machine gun</b> and your eyes. Guns fire by themselves at whatever they can see.</p>
+      <p><b class="hot">Build more guns</b> from the PERIMETER shop on the right, then <b>click open ground</b> to place them. Cover the <span class="alert">front</span> first.</p>
+      <p>Every few purchases the battery levels up: a bigger build zone, new units and a <b class="hot">perk</b>.</p>
+      <p>From battery level 3, build the <b>radar</b> to see further and lock targets, then the <b>Patriot</b>.</p>
       <p>Anti-radiation missiles <span class="alert">home on your radar</span>. <b>[F] EMCON</b> goes silent so they miss, but you lose every lock.</p>
+      <p class="dim mapline"></p>
       ${best.time ? `<p class="dim">BEST · ${clock(best.time)} · ${fmt(best.kills)} kills · base lv ${best.level}</p>` : ''}
       <p class="dim">DOCTRINE · starting loadout, unlocked by your records</p><div class="perks docs">${docsHtml(s, best)}</div>
       <button class="btn" data-a="start">DEPLOY [SPACE]</button> <button class="btn" data-a="daily">DAILY OP [D]</button>
@@ -148,6 +195,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     }
     overlay.innerHTML = html;
     overlay.classList.toggle('on', !!html);
+    if (s.phase === 'start') { shownSeed = NaN; showOverlay(s); }
   }
 
   let lastState: State | null = null;
@@ -201,12 +249,15 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   // ---- minimap: the terrain from above, turned with the camera: build zone, your units, contacts, the radar.
   // Click it to look there. ----
   const cv = $('radar') as HTMLCanvasElement, g = cv.getContext('2d')!;
-  const MAP_R = ARENA_R + 6, C = cv.width / 2, K = C / MAP_R, IMG_R = MAP_R * 1.45, map = paintTerrain(320, IMG_R);
-  { // phosphor tint: the terrain keeps its light and shade, in scope green
+  const MAP_R = ARENA_R + 6, C = cv.width / 2, K = C / MAP_R, IMG_R = MAP_R * 1.45;
+  let map: HTMLCanvasElement, mapKey = NaN;
+  const paintMap = () => { // repainted for each new map; phosphor tint: the terrain keeps its light and shade, in scope green
+    mapKey = mapSeed; map = paintTerrain(320, IMG_R);
     const t = map.getContext('2d')!;
     t.globalCompositeOperation = 'color'; t.fillStyle = rgba(PAL.mid); t.fillRect(0, 0, map.width, map.height);
     t.globalCompositeOperation = 'source-over';
-  }
+  };
+  paintMap();
   let lastSweep = 0, mapYaw = Math.PI / 2;
   cv.addEventListener('pointerdown', e => {
     const r = cv.getBoundingClientRect(), dx = ((e.clientX - r.left) / r.width * cv.width - C) / K, dy = ((e.clientY - r.top) / r.height * cv.height - C) / K;
@@ -216,6 +267,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   });
   function drawRadar(s: State, yaw: number, look: { x: number; z: number }) {
     mapYaw = yaw;
+    if (mapSeed !== mapKey) paintMap();
     const sy = Math.sin(yaw), cy = Math.cos(yaw), TAU = Math.PI * 2;
     const px = (x: number, z: number) => C + (x * sy - z * cy) * K, py = (x: number, z: number) => C + (x * cy + z * sy) * K;
     const ring = (x: number, z: number, r: number, col: string, lw = 1, dash: number[] = []) => {
@@ -378,18 +430,21 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
 
   // ---- what to buy: the one shop row that fixes today's bottleneck ----
   const cheaper = (s: State, a: string, b: string) => cost(s, a) <= cost(s, b) ? a : b;
+  const GUN_IDS = ['mg', 'mantis', 'stinger', 'iris'];
   function suggest(s: State) {
     const st = s.st;
     if (s.phase !== 'play') return '';
     for (const id of ['radar', 'pac3']) if (!s.lv[id] && !lockReason(s, id)) return id; // the milestones, once open
-    if (!st.radar) return s.hp < st.maxHp * 0.5 ? cheaper(s, 'hp', 'repair') : cheaper(s, 'mg', 'dmg');
+    // A free unit slot is the best buy there is before the radar, and still a good one after.
+    const gun = s.perim.length < perimSlots(s.level) && !s.placing ? GUN_IDS.filter(id => !lockReason(s, id)).reduce<string>((a, b) => !a || cost(s, b) < cost(s, a) ? b : a, '') : '';
+    if (!st.radar) return s.hp < st.maxHp * 0.5 ? cheaper(s, 'hp', 'repair') : gun || cheaper(s, 'dmg', 'rate');
     if (s.ammo < st.ammoCap * 0.25) return cheaper(s, 'aprod', 'acap');
     if (s.power < st.powerCap * 0.25 || s.sweepSpeed < st.sweep * 0.99 && emitting(s)) return 'gen';
     if (s.hp < st.maxHp * 0.5) return cheaper(s, 'hp', 'repair');
     let locks = 0, waiting = 0;
     for (const e of s.enemies) { if (e.locked) locks++; else if (visible(s, e) && !e.ided && e.x * e.x + e.z * e.z <= st.trackRange ** 2) waiting++; }
     if (locks >= slots(s) && waiting >= 2) return 'slots';
-    return cheaper(s, 'dmg', 'range');
+    return gun || cheaper(s, 'dmg', 'range');
   }
   function text(s: State) {
     const st = s.st;
@@ -479,7 +534,9 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       if (s.credits >= c && !why) buyable++;
       b.classList.toggle('max', c === Infinity && !why);
       b.classList.toggle('locked', !!why);
+      b.classList.toggle('needs', why.startsWith('NEEDS'));
     }
+    arrangeShop(s);
   }
 
   const blindEl = $('blind');

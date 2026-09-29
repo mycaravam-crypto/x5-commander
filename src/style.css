@@ -99,6 +99,9 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #shop.hidden { display: none; }
 #shop h4 { margin: 8px 4px 3px; font-size: 10px; letter-spacing: 0.2em; color: var(--mid); font-weight: 600; }
 #shop h4::before { content: '// '; }
+#shop h4 i { font-style: normal; color: var(--alert); opacity: 0.6; letter-spacing: 0.08em; }
+#shop button.needs { display: none; }
+#shop section.shut h4 { opacity: 0.6; }
 #shop button { all: unset; display: grid; grid-template-columns: 1fr auto auto; gap: 8px; width: 100%; box-sizing: border-box;
   padding: 4px 6px; cursor: pointer; opacity: 0.4; border-left: 2px solid transparent; }
 #shop button.can { opacity: 1; border-left-color: var(--hot); }
@@ -142,7 +145,9 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #labels div.mk { color: var(--hot); }
 #labels div.na { color: var(--alert); font-weight: bold; animation: blink 0.4s infinite alternate; }
 
-#help { bottom: 10px; left: 50%; transform: translateX(-50%); color: var(--mid); font-size: 11px; white-space: nowrap; }
+/* Between the left panel and the shop, wrapping instead of running off the edges. */
+#help { bottom: 10px; left: 50%; transform: translateX(-50%); width: min(760px, calc(100vw - 560px)); color: var(--mid); font-size: 11px; text-align: center; line-height: 1.5; }
+@media (max-width: 1100px) { #help { display: none; } }
 
 #popups { inset: 0; }
 #popups div { position: absolute; color: var(--hot); font-weight: 700; font-size: 12px;
@@ -176,7 +181,8 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 .perk:hover { --c: var(--hot); box-shadow: 0 0 20px color-mix(in srgb, var(--bright) 35%, transparent); }
 .perk b { display: block; color: var(--hot); letter-spacing: 0.15em; margin-bottom: 8px; }
 .perk span { font-size: 12px; }
-.debrief { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; text-align: left; margin: 14px auto; max-width: 560px; font-size: 12px; }
+.debrief { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 18px; text-align: left; margin: 14px auto; max-width: 720px; font-size: 12px; }
+.lesson { max-width: 620px; margin: 10px auto 0; font-size: 12px; }
 .debrief small { color: var(--mid); }
 .debrief dl { display: grid; grid-template-columns: 1fr auto; gap: 1px 8px; margin: 4px 0 0; }
 .debrief dt { color: var(--mid); }
@@ -300,6 +306,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
     display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; align-content: start; }
   #shop.hidden { display: none; }
   #shop h4 { display: none; }
+  #shop section { display: contents; }
   /* One-line tiles: name, level, cost. What you can't buy yet sinks to the end. */
   #shop button { grid-template-columns: minmax(0, 1fr) auto auto; gap: 5px; padding: 7px 5px; font-size: 10px; border: 1px solid var(--line); border-left-width: 2px; }
   #shop button > span { white-space: nowrap; }
