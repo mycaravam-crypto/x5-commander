@@ -62,6 +62,14 @@ export const KINDS = Object.keys(ENEMIES) as EnemyKind[];
 // airspace over real terrain. A ballistic missile and a glide bomb come down as they close.
 const ALT: Record<EnemyKind, number> = { scout: 4, drone: 5.5, swarm: 2.5, tank: 3.5, elite: 9, decoy: 5.5, arm: 7, ew: 5, tbm: 0, cruise: 1.6, atgm: 2.5, kab: 0 };
 export const altitude = (k: EnemyKind, x: number, z: number) => k === 'tbm' ? 1 + Math.min(22, Math.hypot(x, z) * 0.35) : k === 'kab' ? 1 + Math.min(8, Math.hypot(x, z) * 0.25) : ALT[k];
+// Drawn height of a contact in flight: a diver (Shahed, Gerbera, Lancet) comes down over its last stretch onto
+// the battery instead of arriving at cruise height. The rest fly their type's height.
+export function flightAlt(e: { kind: EnemyKind; x: number; z: number; act: string }) {
+  const a = altitude(e.kind, e.x, e.z);
+  if (e.act !== 'dive') return a;
+  const from = e.kind === 'scout' ? LANCET.loiter : SHAHED_DIVE;
+  return a * Math.max(0.15, Math.min(1, (Math.hypot(e.x, e.z) - BASE_R) / (from - BASE_R)));
+}
 
 // Rare drops: a kill sometimes leaves salvage on the ground (chance per kind: ENEMIES.drop). Click it within
 // DROP_LIFE s to recover it; unclaimed salvage is lost. Heavy kills (reward >= DROP_HEAVY) roll TECH more often.
@@ -87,9 +95,21 @@ export const SHAHED_DIVE = 10; // m from the battery a Shahed pitches over into 
 export const LANCET = { loiter: 26, time: 3, seek: 5 }; // m out it circles at, s it searches, m it spots a unit from and dives on it
 export const HELO = { standoff: 26, every: 4, ammo: 4 }; // Mi-28: m out it hovers at, s between ATGMs, ATGMs carried; then it goes home
 export const KAB_R = 32, KAB_PAIR = 2; // m out a Su-34 releases its glide bombs (and how many), then turns for home
+export const KAB_FIRST = 1; // bombs a Su-34 carries on the SEAD level, where it's new: one, so the first strike teaches instead of ending the run
 export const EGRESS_SPEED = 1.4; // aircraft heading home, out of the arena (no reward, but no more harm)
 export const TBM_TERMINAL = { r: 25, jink: 2.5 }; // Iskander: m out it starts its evasive manoeuvres, their size
 export const CRUISE_DOGLEG = 0.7; // rad off its launch bearing a Kh-101 routes through before turning in on its target
+// How hard each type manoeuvres (sim.steer). Fixed wings swing their heading at up to `turn` rad/s; rotorcraft and
+// quadcopters (`hover`) ease their whole velocity toward the one they want, so they slow into a hover and sidestep.
+// `acc`: how fast speed (or, hovering, velocity) closes on what's wanted, per s. Homing on a unit or a waypoint
+// manoeuvres HOMING_BOOST x harder, and inside HOMING_SNAP m it flies straight at it, so nothing circles its target.
+export const AGILITY: Record<EnemyKind, { turn: number; acc: number; hover?: boolean }> = {
+  scout: { turn: 2.6, acc: 3 }, drone: { turn: 1.4, acc: 2.5 }, decoy: { turn: 1.4, acc: 2.5 }, swarm: { turn: 0, acc: 7, hover: true },
+  tank: { turn: 0, acc: 1.5, hover: true }, ew: { turn: 0, acc: 1.3, hover: true }, elite: { turn: 0.9, acc: 1.2 },
+  arm: { turn: 0, acc: 0 }, // flies its own seeker (sim.steerArm)
+  tbm: { turn: 1.6, acc: 3 }, cruise: { turn: 2.4, acc: 2.5 }, atgm: { turn: 4, acc: 4 }, kab: { turn: 1.2, acc: 1.5 },
+};
+export const HOMING_BOOST = 3, HOMING_SNAP = 2;
 
 // Each level adds a kind of problem rather than just more HP, in step with what the battery can build by then:
 // 1 learn the guns · 2 FPV swarms · 3 helicopters and decoys · 4 Shaheds round the flanks (the radar's moment) ·
@@ -107,10 +127,6 @@ export const LEVELS: { name: string; desc: string; w: Partial<Record<EnemyKind, 
   { name: 'SEAD', desc: 'Su-34s, anti-radiation missiles and Iskanders', w: { scout: 2, drone: 3, swarm: 2, tank: 1.5, elite: 0.25, decoy: 1.5, arm: 0.3, ew: 0.1, tbm: 0.15, cruise: 0.3 }, pk: 0.1, arc: 120 * DEG },
 ];
 export const PK_GROW = 0.02, PK_MAX = 0.25;
-// Past the scripted levels, each level presses harder, on top of the time curve: spawn rate x (1 + LOOP_PRESS per level)
-// and enemy HP x LOOP_HP per level, compounding. The battery's upgrades multiply together, so a linear rise is
-// outgrown; a compounding one isn't, and no battery holds forever.
-export const LOOP_PRESS = 0.5, LOOP_HP = 1.4;
 
 // Attack packages (`from`: first level index): existing types flying in together from one bearing, each covering another's weakness.
 // Counts are packs (a decoy pack is 3, an FPV pack 6). An EW helicopter in a package is an escort: it holds
@@ -188,14 +204,20 @@ export const EW_JAM = 0.35; // detection chance multiplier inside a jammed secto
 // Logarithmic growth: every doubling of play time adds about the same threat, so upgrades (whose costs grow
 // exponentially) can keep up and a run has no built-in end. m = minutes played.
 export const grow = (m: number, k: number) => 1 + k * Math.log1p(m / 4);
+// Past SURGE.from minutes the war escalates: HP and damage grow exponentially, numbers linearly, on top of the
+// gentle curve. Upgrades cost more with every level, so a battery's strength grows about with the log of its
+// income; the surge outruns it, and every run ends. Per minute past `from`.
+export const SURGE = { from: 12, hp: 0.12, dmg: 0.06, spawn: 0.05 };
+const surge = (m: number, k: number) => Math.exp(k * Math.max(0, m - SURGE.from));
+const surgeLin = (m: number, k: number) => 1 + k * Math.max(0, m - SURGE.from);
 export function difficulty(t: number) {
   const m = t / 60;
   return {
-    // Composition carries most of the difficulty (see LEVELS), so raw numbers grow gently.
-    spawnRate: 0.6 * grow(m, 1.6), // spawn events / s
-    hp: grow(m, 1),
+    // Composition carries most of the difficulty (see LEVELS), so raw numbers grow gently, until the surge.
+    spawnRate: 0.6 * grow(m, 1.4) * surgeLin(m, SURGE.spawn), // spawn events / s
+    hp: grow(m, 0.75) * surge(m, SURGE.hp),
     speed: 1 + 0.025 * Math.min(m, 20),
-    dmg: grow(m, 0.8),
+    dmg: grow(m, 0.6) * surge(m, SURGE.dmg),
   };
 }
 
@@ -354,10 +376,10 @@ export const LAST_STAND = { hp: 0.25, rate: 1.5, gen: 0.6 };
 // `min`: base level before it's offered; `need`: upgrade that must be owned (radar and Patriot perks wait for them). Rule perks (`rule`) are one-offs
 // that change how the game plays; from base level 5 every draft includes one while any are left.
 export const PERKS: { id: string; name: string; desc: string; fx: PerkFx; rule?: boolean; min?: number; need?: string }[] = [
-  { id: 'overcharge', name: 'OVERCHARGE', desc: '+35% damage · -30% power gen', fx: { dmg: 1.35, gen: 0.7 } },
+  { id: 'overcharge', name: 'OVERCHARGE', desc: '+50% damage · -30% power gen', fx: { dmg: 1.5, gen: 0.7 } },
   { id: 'highfreq', name: 'HIGH FREQUENCY', desc: '+40% sweep speed · -15% radar range', fx: { sweep: 1.4, range: 0.85 }, need: 'radar' },
   { id: 'logistics', name: 'AUTOMATED LOGISTICS', desc: '+100% ammo production · -15% credits', fx: { aprod: 2, credits: 0.85 }, need: 'pac3' },
-  { id: 'glass', name: 'GLASS CANNON', desc: '+60% damage · -40% max HP', fx: { dmg: 1.6, hp: 0.6 } },
+  { id: 'glass', name: 'GLASS CANNON', desc: '+60% damage · -45% max HP', fx: { dmg: 1.6, hp: 0.55 } },
   { id: 'salvage', name: 'SALVAGE', desc: '+25% credits · -15% damage', fx: { credits: 1.25, dmg: 0.85 } },
   { id: 'trigger', name: 'HAIR TRIGGER', desc: '+35% fire rate · -20% ammo production', fx: { rate: 1.35, aprod: 0.8 } },
   { id: 'deepscan', name: 'DEEP SCAN', desc: '+30% radar range · -20% sweep speed', fx: { range: 1.3, sweep: 0.8 }, need: 'radar' },

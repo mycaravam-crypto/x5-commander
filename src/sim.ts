@@ -1,12 +1,12 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, LEVEL_LEN, BUILD_TIME, BUILD_LOST, ELITE_FROM, PK_GROW, PK_MAX,
-  LOOP_PRESS, LOOP_HP, TERRAIN, ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, FANS, beltAt, buildR, BUILD_MIN, PAD_GAP, START_PAD, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty, BACKUP_RADAR,
+  TERRAIN, ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, FANS, beltAt, buildR, BUILD_MIN, PAD_GAP, START_PAD, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty, BACKUP_RADAR,
   DROPS, DROP_KINDS, DROP_LIFE, DROP_GRAB, DROP_MAX, DROP_HEAVY, CACHE, REPAIR_DROP, OVERDRIVE, MILESTONE, rank,
   RADAR_MODES, CRUISE_LOW, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
-  DIVE_SPEED, SHAHED_DIVE, LANCET, HELO, KAB_R, KAB_PAIR, EGRESS_SPEED, TBM_TERMINAL, CRUISE_DOGLEG, MUNITIONS,
+  DIVE_SPEED, SHAHED_DIVE, LANCET, HELO, KAB_R, KAB_PAIR, KAB_FIRST, EGRESS_SPEED, TBM_TERMINAL, CRUISE_DOGLEG, MUNITIONS, AGILITY, HOMING_BOOST, HOMING_SNAP,
   type EnemyKind, type DropKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
 } from './config.ts';
-import { ground, site, type Site } from './terrain.ts';
+import { ground, setMap, site, type Site } from './terrain.ts';
 
 export interface Enemy {
   id: number; kind: EnemyKind; x: number; z: number; vx: number; vz: number;
@@ -65,6 +65,7 @@ export const dailySeed = (date: string) => [...date].reduce((h, c) => Math.imul(
 // how you play (detection rolls, launches) uses Math.random, so it can't shift the schedule.
 export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine = 'standard') {
   const doc = DOCTRINES.find(d => d.id === doctrine && !daily) ?? DOCTRINES[0];
+  setMap(seed); // the map comes from the seed too: a daily op flies over the same ground for everyone
   const s = {
     phase: 'start' as Phase,
     daily, // date of the daily op, '' for a normal run
@@ -124,7 +125,7 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     // The raid in the air: its id, aircraft left, objective still held, reward so far, bearing, objective, name.
     raidId: 0, raidLeft: 0, raidClean: true, raidReward: 0, raidA: 0, raidObj: 'battery' as RaidObjective, raidName: '',
     // debrief counters
-    stats: { kills: {} as Partial<Record<EnemyKind, number>>, dmg: {} as Record<string, number>, raids: 0, clean: 0, armsEvaded: 0, radarHits: 0, drops: 0, recovered: 0 },
+    stats: { kills: {} as Partial<Record<EnemyKind, number>>, dmg: {} as Record<string, number>, taken: {} as Partial<Record<EnemyKind, number>>, raids: 0, clean: 0, armsEvaded: 0, radarHits: 0, drops: 0, recovered: 0 },
     mode: 0,
     marked: 0,
     discipline: 1, // index into DISCIPLINES, BALANCED
@@ -148,16 +149,14 @@ const AESA_SPIN = 1.2; // rad/s, cosmetic
 const pick = <T>(r: { seed: number }, a: T[]) => a[Math.floor(rand(r) * a.length)];
 export const visible = (s: State, e: Enemy) => e.locked || e.seenUntil > s.t;
 const NO_MOD: Mod = { name: '', desc: '' };
-// Scripted levels first, then SEAD's mix under a looping condition, with flank threats from every direction, pressing
-// harder every level (LOOP_PRESS).
+// Scripted levels first, then SEAD's mix under a looping condition, with flank threats from every direction.
 export const phase = (s: State) => stageInfo(s.stage);
 export function stageInfo(i: number) {
   if (i < LEVELS.length) return { ...LEVELS[i], mod: NO_MOD };
   const last = LEVELS[LEVELS.length - 1], mod = MODS[(i - LEVELS.length) % MODS.length], w = { ...last.w };
   for (const [k, v] of Object.entries(mod.w ?? {}) as [EnemyKind, number][]) w[k] = (w[k] ?? 0) + v;
   const loop = i - LEVELS.length; // packages get likelier every level past the scripted ones
-  return { name: mod.name, desc: mod.desc, w, mod, pk: Math.min(PK_MAX, (last.pk ?? 0) + PK_GROW * (loop + 1)), arc: Math.PI,
-    rate: 1 + LOOP_PRESS * (loop + 1), hp: LOOP_HP ** (loop + 1) };
+  return { name: mod.name, desc: mod.desc, w, mod, pk: Math.min(PK_MAX, (last.pk ?? 0) + PK_GROW * (loop + 1)), arc: Math.PI };
 }
 // Half-width around FRONT that flank threats can come from in level i.
 export const flankArc = (i: number) => Math.max(FRONT_ARC, stageInfo(i).arc ?? 0);
@@ -572,13 +571,13 @@ export function update(s: State, dt: number) {
 
 export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2, rnd = Math.random) {
   const T = ENEMIES[kind], d = difficulty(s.t);
-  const L = phase(s), hp = T.hp * d.hp * (L.mod.hp ?? 1) * ('hp' in L ? L.hp ?? 1 : 1), speed = T.speed * d.speed * (0.9 + rnd() * 0.2);
+  const hp = T.hp * d.hp * (phase(s).mod.hp ?? 1), speed = T.speed * d.speed * (0.9 + rnd() * 0.2);
   const x = Math.cos(a) * r, z = Math.sin(a) * r;
   s.enemies.push({
     id: s.nextId++, kind, x, z, vx: -Math.cos(a) * speed, vz: -Math.sin(a) * speed,
     hp, maxHp: hp, speed, dmg: T.dmg * d.dmg,
     reward: T.reward, size: T.size, seenUntil: -1, locked: false, incoming: 0, wob: rnd() * TAU,
-    born: s.t, cd: kind === 'tank' ? 1 : kind === 'scout' ? LANCET.time : 3, act: 'in', ammo: kind === 'tank' ? HELO.ammo : kind === 'elite' ? KAB_PAIR : 0,
+    born: s.t, cd: kind === 'tank' ? 1 : kind === 'scout' ? LANCET.time : 3, act: 'in', ammo: kind === 'tank' ? HELO.ammo : kind === 'elite' ? (s.stage <= ELITE_FROM ? KAB_FIRST : KAB_PAIR) : 0,
     wx: NaN, wz: NaN, aim: NaN, lockT: 0, ided: false, orbit: false, raid: 0, pkg: 0, hold: kind === 'ew' ? a : NaN, tgt: -1,
   });
   const e = s.enemies[s.enemies.length - 1];
@@ -685,6 +684,9 @@ function moveEnemies(s: State, dt: number) {
     const e = s.enemies[i];
     const d = Math.hypot(e.x, e.z) || 1;
     const nx = -e.x / d, nz = -e.z / d;
+    // Below, each flight mode sets the velocity it wants; steer() then flies the airframe toward it.
+    const pvx = e.vx, pvz = e.vz;
+    let homing = 0; // 1: homing on a unit or waypoint, 2: close enough to fly straight at it
     if (e.kind === 'arm') {
       steerArm(s, e, dt);
       // Out of motor, or veered off past the arena: it's gone.
@@ -701,7 +703,7 @@ function moveEnemies(s: State, dt: number) {
     } else {
       // Iskanders fly a straight ballistic path, then jink hard on the way down.
       const wobble = e.kind === 'tbm' ? (d < TBM_TERMINAL.r ? TBM_TERMINAL.jink : 0) : ENEMIES[e.kind].wobble;
-      const wob = Math.sin(s.t * (e.kind === 'tbm' ? 5 : 2) + e.wob) * wobble * Math.min(1, d / 20);
+      const wob = weave(s.t, e.kind === 'tbm' ? 5 : 2, e.wob) * wobble * Math.min(1, d / 20);
       let sp = e.speed * (e.kind !== 'elite' && jammed(s, e) ? JAM_SLOW : 1);
       // Shaheds pitch over into a dive for the last stretch; a Gerbera flies the same profile, so it doesn't give itself away.
       if ((e.kind === 'drone' || e.kind === 'decoy') && d < SHAHED_DIVE) e.act = 'dive';
@@ -719,7 +721,7 @@ function moveEnemies(s: State, dt: number) {
       // Mi-28: stops at standoff and hovers, firing ATGMs, then goes home once it's out of them.
       if (e.kind === 'tank' && d <= HELO.standoff) {
         e.act = 'hover';
-        const drift = Math.sin(s.t * 0.7 + e.wob) * sp * 0.2;
+        const drift = weave(s.t, 0.7, e.wob) * sp * 0.2;
         e.vx = -nz * drift; e.vz = nx * drift;
         if ((e.cd -= dt) <= 0) {
           e.cd = HELO.every;
@@ -753,7 +755,8 @@ function moveEnemies(s: State, dt: number) {
       const wp = Number.isNaN(e.wx) ? p ?? { x: 0, z: 0 } : { x: e.wx, z: e.wz };
       const dx = wp.x - e.x, dz = wp.z - e.z, dd = Math.hypot(dx, dz) || 1;
       if (p && wp === p && dd < 1.2) { hitPad(s, p, PAD_HP); removeAt(s, i); continue; } // one hit takes a unit down
-      const w = Math.sin(s.t * 2 + e.wob) * ENEMIES.cruise.wobble * Math.min(1, dd / 20);
+      homing = dd < HOMING_SNAP * 2 ? 2 : 1;
+      const w = weave(s.t, 2, e.wob) * ENEMIES.cruise.wobble * Math.min(1, dd / 20);
       e.vx = dx / dd * e.speed - dz / dd * w; e.vz = dz / dd * e.speed + dx / dd * w;
     }
     // FPVs that pass close to a unit on the forward line dive on it instead of the base. Lancets hunt: they dive,
@@ -772,8 +775,10 @@ function moveEnemies(s: State, dt: number) {
         const dd = Math.sqrt(bd), sp = e.speed * (lancet ? DIVE_SPEED : 1);
         if (lancet) e.act = 'dive';
         e.vx = (tgt.x - e.x) / dd * sp; e.vz = (tgt.z - e.z) / dd * sp;
+        homing = dd < HOMING_SNAP ? 2 : 1;
       }
     }
+    if (e.kind !== 'arm' && homing < 2) steer(e, pvx, pvz, dt, homing ? HOMING_BOOST : 1);
     e.x += e.vx * dt; e.z += e.vz * dt;
     if (d < BASE_R + e.size * 0.5) {
       // Objective lost: PROTECT BATTERY by anything of the raid landing, PROTECT RADAR by any ARM hit while it's on.
@@ -786,12 +791,38 @@ function moveEnemies(s: State, dt: number) {
       }
       if (e.dmg > 0) {
         s.hp -= e.dmg * armor;
+        s.stats.taken[e.kind] = (s.stats.taken[e.kind] ?? 0) + e.dmg * armor;
         s.shake = Math.min(1.5, s.shake + 0.3 + e.dmg / 40);
         s.events.push({ k: 'baseHit', x: e.x, z: e.z, kind: e.kind, n: e.dmg * armor });
       }
       removeAt(s, i);
     }
   }
+}
+
+// A lateral weave that doesn't look machine-made: two tones, the second off the first's beat, each airframe
+// on its own phase and a slightly different tempo. Stays within ±1 like the sine it replaces.
+function weave(t: number, f: number, ph: number) {
+  const k = f * (0.85 + 0.3 * (ph / TAU));
+  return 0.75 * Math.sin(t * k + ph) + 0.25 * Math.sin(t * k * 1.73 + ph * 3.1);
+}
+// Flies `e` from its last velocity (pvx, pvz) toward the one its flight mode asked for (e.vx, e.vz), within its
+// airframe's limits (AGILITY): wings swing the heading round at a capped rate, rotors ease the velocity over.
+// Turns, pull-outs and the swing for home come out as arcs instead of a snap onto the new course.
+function steer(e: Enemy, pvx: number, pvz: number, dt: number, boost: number) {
+  const A = AGILITY[e.kind], k = 1 - Math.exp(-A.acc * boost * dt);
+  if (A.hover) { e.vx = pvx + (e.vx - pvx) * k; e.vz = pvz + (e.vz - pvz) * k; return; }
+  const sp = Math.hypot(pvx, pvz), want = Math.hypot(e.vx, e.vz);
+  if (sp < 1e-6) return; // nothing to turn: take the new velocity as it is
+  const nsp = sp + (want - sp) * k, ux = pvx / sp, uz = pvz / sp;
+  if (want < 1e-6) { e.vx = ux * nsp; e.vz = uz * nsp; return; }
+  // Vectors, not angles (this runs for every contact, every tick): within the turn it can make, take the new
+  // heading; else rotate the old one by the full turn, toward the new (a reversal turns the way its weave leans).
+  const wx = e.vx / want, wz = e.vz / want, dot = ux * wx + uz * wz, t = A.turn * boost * dt;
+  if (dot >= 1 - t * t / 2) { e.vx = wx * nsp; e.vz = wz * nsp; return; }
+  const cross = ux * wz - uz * wx, side = Math.abs(cross) > 1e-3 ? Math.sign(cross) : e.wob < Math.PI ? 1 : -1;
+  const c = Math.cos(t), sn = Math.sin(t) * side;
+  e.vx = (ux * c - uz * sn) * nsp; e.vz = (uz * c + ux * sn) * nsp;
 }
 
 // Homes on the radar while it radiates. When it goes dark the seeker loses the emitter and the missile

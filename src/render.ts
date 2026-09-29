@@ -5,16 +5,18 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { ARENA_R, BASE_R, BUILD_MIN, DROP_MAX, ENEMIES, MUNITIONS, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, FANS, GUNS, MG_TIERS, PERIM, PAD_HP, altitude, buildR, type EnemyKind, type PerimKind } from './config.ts';
-import { building as inBuildWindow, emitting, focusBearing, flankArc, radarRange, radarSector, bestSpot, spotNear, selectedPad, coverage, padStats, phase, shownKind, visible, type Shot, type State } from './sim.ts';
-import { heightSampler, treeList, ROCKS, WATER_Y } from './terrain.ts';
+import { ARENA_R, BASE_R, BUILD_MIN, DROP_MAX, ENEMIES, MUNITIONS, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, FANS, GUNS, MG_TIERS, PERIM, PAD_HP, altitude, flightAlt, buildR, type EnemyKind, type PerimKind } from './config.ts';
+import { building as inBuildWindow, emitting, focusBearing, flankArc, radarRange, radarSector, bestSpot, spotNear, selectedPad, coverage, padStats, phase, shownKind, visible, type Enemy, type Shot, type State } from './sim.ts';
+import { heightSampler, treeList, ROCKS, FARMS, WATER_Y, mapSeed } from './terrain.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import { enemyGeos, ROTORS } from './models.ts';
 
-const MAX_ENEMIES = 2000, MAX_LOCKS = 64, MAX_SHOTS = 600, MAX_SHARDS = 2500, MAX_WAVES = 64, MAX_BEAMS = 3000, MAX_FRONTS = 48, MAX_BLIPS = 1024, MAX_PUFFS = 600;
+const MAX_WRECKS = 48, MAX_FIRES = 24, MAX_ENEMIES = 2000, MAX_LOCKS = 64, MAX_SHOTS = 600, MAX_SHARDS = 2500, MAX_WAVES = 64, MAX_BEAMS = 3000, MAX_FRONTS = 48, MAX_BLIPS = 1024, MAX_PUFFS = 600;
 const VIS = 1.6; // enemies drawn bigger than their hitbox so they read at a glance
 const PAD_VIS = 1.35; // emplacements too
 const TAU = Math.PI * 2;
+const angDiff = (a: number, b: number) => ((a - b + Math.PI) % TAU + TAU) % TAU - Math.PI;
+const clamp = (v: number, m: number) => Math.max(-m, Math.min(m, v));
 const WORLD_R = 120; // ground drawn out to here; fog hides the edge
 const { mid: MID, bright: BRIGHT, hot: HOT, alert: ALERT } = PAL;
 // Scene colours: the palette is for the HUD and overlays; the world has its own.
@@ -22,7 +24,8 @@ const C = {
   olive: 0x56633a, oliveL: 0x6f7c49, dark: 0x25271f, metal: 0xb9beb0, sand: 0xa89668, concrete: 0x8d8a80, wreck: 0x3a3833,
   fire: 0xffa640, flash: 0xfff1c0, smoke: 0x55534d, threat: 0xff5a44, friend: 0x4dff9a, sky: 0x9fb2ae, night: 0x06140c,
 };
-const hGrid = heightSampler(WORLD_R, 240);
+// Rebuilt with the map (see buildTerrain in createRenderer).
+let hGrid = heightSampler(WORLD_R, 240);
 export const groundY = (x: number, z: number) => hGrid(x, z);
 
 const additive = (color = 0xffffff, wireframe = false) =>
@@ -145,56 +148,72 @@ export function createRenderer() {
   scene.add(hemi, sun, sun.target);
   let night = 0;
 
-  // ---- terrain: one draped mesh, painted once; water, trees, rocks and a few farms ----
-  const tex = new THREE.CanvasTexture(paintTerrain(coarse ? 768 : 1536, WORLD_R));
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = Math.min(coarse ? 4 : 16, renderer.capabilities.getMaxAnisotropy());
-  const SEG = coarse ? 128 : 240;
-  const groundGeo = new THREE.PlaneGeometry(WORLD_R * 2, WORLD_R * 2, SEG, SEG).rotateX(-Math.PI / 2);
-  { const p = groundGeo.attributes.position; for (let i = 0; i < p.count; i++) p.setY(i, groundY(p.getX(i), p.getZ(i))); groundGeo.computeVertexNormals(); }
-  const groundMat = new THREE.MeshLambertMaterial({ map: tex });
-  const groundMesh = new THREE.Mesh(groundGeo, groundMat);
-  groundMesh.receiveShadow = true; scene.add(groundMesh);
+  // ---- terrain: one draped mesh, painted once per map; water, trees, rocks and a few farms ----
+  // Everything that follows the ground lives in `terrainG` and is rebuilt when a new run brings a new map.
   const water = new THREE.Mesh(new THREE.PlaneGeometry(WORLD_R * 2, WORLD_R * 2).rotateX(-Math.PI / 2),
     new THREE.MeshStandardMaterial({ color: 0x3f6f88, roughness: 0.15, metalness: 0.2, transparent: true, opacity: 0.82 }));
   water.position.y = WATER_Y; water.receiveShadow = true; scene.add(water);
   let groundFlash = 0;
-  {
-    const list = treeList(WORLD_R), n = list.length;
-    const trunk = instanced(new THREE.CylinderGeometry(0.12, 0.16, 1, 5).translate(0, 0.5, 0), new THREE.MeshLambertMaterial({ color: 0x4a3a28 }), n);
-    const pine = instanced(mergeGeometries([new THREE.ConeGeometry(0.95, 1.8, 7).translate(0, 1.6, 0), new THREE.ConeGeometry(0.7, 1.4, 7).translate(0, 2.4, 0)])!, new THREE.MeshLambertMaterial(), n);
-    const leaf = instanced(new THREE.IcosahedronGeometry(1, 0).scale(1, 0.9, 1).translate(0, 1.9, 0), new THREE.MeshLambertMaterial(), n);
-    const d = new THREE.Object3D(), c = new THREE.Color();
-    for (const t of list) {
-      d.position.set(t.x, groundY(t.x, t.z) - 0.05, t.z); d.rotation.set(0, t.x * 7.1 + t.z, 0); d.scale.set(t.s, t.s * (t.pine ? 1.25 : 1), t.s);
-      d.updateMatrix();
-      trunk.setMatrixAt(trunk.count++, d.matrix);
-      const m = t.pine ? pine : leaf;
-      m.setMatrixAt(m.count, d.matrix);
-      m.setColorAt(m.count++, c.setHex(t.pine ? 0x2f4a26 : 0x4b6a2c).multiplyScalar(0.8 + 0.4 * ((t.s * 13.7) % 1)));
-    }
-    for (const m of [trunk, pine, leaf]) { m.castShadow = !coarse; m.receiveShadow = true; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; scene.add(m); }
-    // Rock outcrops: a cluster of boulders each.
-    const rocks = instanced(new THREE.DodecahedronGeometry(1, 0), new THREE.MeshStandardMaterial({ color: 0x8a867a, roughness: 0.95 }), ROCKS.length * 6);
-    ROCKS.forEach((q, i) => {
-      for (let k = 0; k < 6; k++) {
-        const a = k * 2.4 + i, r = k ? q.r * 0.55 : 0, x = q.x + Math.cos(a) * r, z = q.z + Math.sin(a) * r, s = q.r * (k ? 0.35 : 0.6);
-        d.position.set(x, groundY(x, z) + s * 0.2, z); d.rotation.set(a, a * 2, 0); d.scale.set(s, s * 0.8, s); d.updateMatrix();
-        rocks.setMatrixAt(rocks.count, d.matrix); rocks.setColorAt(rocks.count++, c.setScalar(0.85 + 0.1 * (k % 3)));
+  let terrainG = new THREE.Group(), terrainKey = NaN;
+  const SEG = coarse ? 128 : 240;
+  const groundMat = new THREE.MeshLambertMaterial();
+  const dispose = (o: THREE.Object3D) => o.traverse(c => {
+    const m = c as THREE.Mesh;
+    m.geometry?.dispose();
+    for (const x of ([] as THREE.Material[]).concat(m.material ?? [])) if (x !== groundMat) x.dispose();
+  });
+  function buildTerrain() {
+    terrainKey = mapSeed;
+    scene.remove(terrainG); dispose(terrainG); terrainG = new THREE.Group(); scene.add(terrainG);
+    hGrid = heightSampler(WORLD_R, 240);
+    groundMat.map?.dispose();
+    const tex = new THREE.CanvasTexture(paintTerrain(coarse ? 768 : 1536, WORLD_R));
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = Math.min(coarse ? 4 : 16, renderer.capabilities.getMaxAnisotropy());
+    groundMat.map = tex; groundMat.needsUpdate = true;
+    const groundGeo = new THREE.PlaneGeometry(WORLD_R * 2, WORLD_R * 2, SEG, SEG).rotateX(-Math.PI / 2);
+    { const p = groundGeo.attributes.position; for (let i = 0; i < p.count; i++) p.setY(i, groundY(p.getX(i), p.getZ(i))); groundGeo.computeVertexNormals(); }
+    const groundMesh = new THREE.Mesh(groundGeo, groundMat);
+    groundMesh.receiveShadow = true; terrainG.add(groundMesh);
+    {
+      const list = treeList(WORLD_R), n = list.length;
+      const trunk = instanced(new THREE.CylinderGeometry(0.12, 0.16, 1, 5).translate(0, 0.5, 0), new THREE.MeshLambertMaterial({ color: 0x4a3a28 }), n);
+      const pine = instanced(mergeGeometries([new THREE.ConeGeometry(0.95, 1.8, 7).translate(0, 1.6, 0), new THREE.ConeGeometry(0.7, 1.4, 7).translate(0, 2.4, 0)])!, new THREE.MeshLambertMaterial(), n);
+      const leaf = instanced(new THREE.IcosahedronGeometry(1, 0).scale(1, 0.9, 1).translate(0, 1.9, 0), new THREE.MeshLambertMaterial(), n);
+      const d = new THREE.Object3D(), c = new THREE.Color();
+      for (const t of list) {
+        d.position.set(t.x, groundY(t.x, t.z) - 0.05, t.z); d.rotation.set(0, t.x * 7.1 + t.z, 0); d.scale.set(t.s, t.s * (t.pine ? 1.25 : 1), t.s);
+        d.updateMatrix();
+        trunk.setMatrixAt(trunk.count++, d.matrix);
+        const m = t.pine ? pine : leaf;
+        m.setMatrixAt(m.count, d.matrix);
+        m.setColorAt(m.count++, c.setHex(t.pine ? 0x2f4a26 : 0x4b6a2c).multiplyScalar(0.8 + 0.4 * ((t.s * 13.7) % 1)));
       }
-    });
-    rocks.castShadow = rocks.receiveShadow = true; scene.add(rocks);
-    // Farmsteads in the rear: whitewashed walls, red tile roofs.
-    const walls = new THREE.MeshStandardMaterial({ color: 0xd8d0bc, roughness: 0.9 }), roof = new THREE.MeshStandardMaterial({ color: 0x8e4a34, roughness: 0.8 });
-    for (const [x, z, ry, w] of [[-44, 44, 0.3, 5], [-38, 50, 1.8, 3.5], [46, 42, -0.4, 4.5], [52, 36, 1.2, 3], [64, -6, 0.8, 4]]) {
-      const h = new THREE.Group(); h.position.set(x, groundY(x, z), z); h.rotation.y = ry;
-      const body = new THREE.Mesh(new THREE.BoxGeometry(w, 2.2, w * 0.6).translate(0, 1.1, 0), walls);
-      const top = new THREE.Mesh(new THREE.CylinderGeometry(0.01, w * 0.45, 1.3, 4, 1).rotateY(Math.PI / 4).scale(w / (w * 0.64), 1, 0.6 / 0.64).translate(0, 2.85, 0), roof);
-      for (const m of [body, top]) { m.castShadow = m.receiveShadow = true; h.add(m); }
-      scene.add(h);
+      for (const m of [trunk, pine, leaf]) { m.castShadow = !coarse; m.receiveShadow = true; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; terrainG.add(m); }
+      // Rock outcrops: a cluster of boulders each.
+      const rocks = instanced(new THREE.DodecahedronGeometry(1, 0), new THREE.MeshStandardMaterial({ color: 0x8a867a, roughness: 0.95 }), ROCKS.length * 6);
+      ROCKS.forEach((q, i) => {
+        for (let k = 0; k < 6; k++) {
+          const a = k * 2.4 + i, r = k ? q.r * 0.55 : 0, x = q.x + Math.cos(a) * r, z = q.z + Math.sin(a) * r, s = q.r * (k ? 0.35 : 0.6);
+          d.position.set(x, groundY(x, z) + s * 0.2, z); d.rotation.set(a, a * 2, 0); d.scale.set(s, s * 0.8, s); d.updateMatrix();
+          rocks.setMatrixAt(rocks.count, d.matrix); rocks.setColorAt(rocks.count++, c.setScalar(0.85 + 0.1 * (k % 3)));
+        }
+      });
+      rocks.castShadow = rocks.receiveShadow = true; terrainG.add(rocks);
+      // Farmsteads in the rear: whitewashed walls, red tile roofs.
+      const walls = new THREE.MeshStandardMaterial({ color: 0xd8d0bc, roughness: 0.9 }), roof = new THREE.MeshStandardMaterial({ color: 0x8e4a34, roughness: 0.8 });
+      for (const { x, z, ry, w } of FARMS) {
+        const h = new THREE.Group(); h.position.set(x, groundY(x, z), z); h.rotation.y = ry;
+        const body = new THREE.Mesh(new THREE.BoxGeometry(w, 2.2, w * 0.6).translate(0, 1.1, 0), walls);
+        const top = new THREE.Mesh(new THREE.CylinderGeometry(0.01, w * 0.45, 1.3, 4, 1).rotateY(Math.PI / 4).scale(w / (w * 0.64), 1, 0.6 / 0.64).translate(0, 2.85, 0), roof);
+        for (const m of [body, top]) { m.castShadow = m.receiveShadow = true; h.add(m); }
+        terrainG.add(h);
+      }
     }
+    drapeOverlays();
+    // Whatever was draped over the old ground is redrawn on the new.
+    zoneKey = flankKey = -1; ringR.clear(); baseKey = covKey = ghostKey = hintKey = '';
   }
-
   // ---- map overlays on the ground: build zone, the front, eyesight / radar range ----
   const lineMat = (color: number, opacity: number, dashed = false) => dashed
     ? new THREE.LineDashedMaterial({ color, transparent: true, opacity, dashSize: 1.2, gapSize: 0.8, depthWrite: false })
@@ -204,15 +223,17 @@ export function createRenderer() {
     if (mat instanceof THREE.LineDashedMaterial) l.computeLineDistances();
     l.renderOrder = 2; return l;
   };
-  // The front: a red dashed arc at the rim over FRONT ± FRONT_ARC, and a dimmer one over the arc flank threats can use.
-  scene.add(groundLine(arcPts(ARENA_R, FRONT - FRONT_ARC, FRONT + FRONT_ARC, 40), lineMat(C.threat, 0.8, true)));
-  for (const a of [FRONT - FRONT_ARC, FRONT + FRONT_ARC]) scene.add(groundLine([Math.cos(a) * 40, Math.sin(a) * 40, Math.cos(a) * ARENA_R, Math.sin(a) * ARENA_R], lineMat(C.threat, 0.4, true)));
   let flankLine: THREE.Line | null = null, flankKey = -1;
   let zoneLine: THREE.Line | null = null, zoneKey = -1;
-  const zoneMat = lineMat(0xffffff, 0.35, true), innerLine = groundLine(arcPts(BUILD_MIN, 0, TAU, 64), lineMat(0xffffff, 0.3, true), true);
-  scene.add(innerLine);
-  // Tactical grid: range rings every 10 m and bearing spokes every 30°, faint phosphor green laid over the ground.
-  {
+  const zoneMat = lineMat(0xffffff, 0.35, true);
+  let innerLine = new THREE.Line(); // the build zone's inner edge, shown while building
+  // The lines draped over this map's ground (in terrainG, so they go with it).
+  function drapeOverlays() {
+    // The front: a red dashed arc at the rim over FRONT ± FRONT_ARC, and a dimmer one over the arc flank threats can use.
+    terrainG.add(groundLine(arcPts(ARENA_R, FRONT - FRONT_ARC, FRONT + FRONT_ARC, 40), lineMat(C.threat, 0.8, true)));
+    for (const a of [FRONT - FRONT_ARC, FRONT + FRONT_ARC]) terrainG.add(groundLine([Math.cos(a) * 40, Math.sin(a) * 40, Math.cos(a) * ARENA_R, Math.sin(a) * ARENA_R], lineMat(C.threat, 0.4, true)));
+    terrainG.add(innerLine = groundLine(arcPts(BUILD_MIN, 0, TAU, 64), lineMat(0xffffff, 0.3, true), true));
+    // Tactical grid: range rings every 10 m and bearing spokes every 30°, faint phosphor green laid over the ground.
     const pts: number[] = [], seg = (x0: number, z0: number, x1: number, z1: number) => pts.push(x0, z0, x1, z1);
     for (let r = 20; r <= ARENA_R; r += 10) for (let i = 0; i < 96; i++) {
       const a0 = i / 96 * TAU, a1 = (i + 1) / 96 * TAU;
@@ -224,7 +245,7 @@ export function createRenderer() {
     }
     const grid = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(drape(pts, 0.1), 3)), lineMat(PAL.bright, 0.16));
     (grid.material as THREE.LineBasicMaterial).toneMapped = false;
-    grid.renderOrder = 1; scene.add(grid);
+    grid.renderOrder = 1; terrainG.add(grid);
   }
   // Eyesight (no radar) or radar range, and the tracking range, as rings that follow the ground.
   const ringGeo = () => new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(129 * 3), 3));
@@ -583,7 +604,18 @@ export function createRenderer() {
   const wv = { x: new Float32Array(MAX_WAVES), y: new Float32Array(MAX_WAVES), z: new Float32Array(MAX_WAVES), r: new Float32Array(MAX_WAVES), life: new Float32Array(MAX_WAVES), max: new Float32Array(MAX_WAVES), col: new Float32Array(MAX_WAVES * 3), next: 0 };
   // grow: 0 = beam (thins as it fades), 1 = smoke trail (spreads and thins as it fades).
   const bm = { a: new Float32Array(MAX_BEAMS * 6), w: new Float32Array(MAX_BEAMS), life: new Float32Array(MAX_BEAMS), max: new Float32Array(MAX_BEAMS), col: new Float32Array(MAX_BEAMS * 3), grow: new Uint8Array(MAX_BEAMS), next: 0 };
-  const pf = { p: new Float32Array(MAX_PUFFS * 3), r: new Float32Array(MAX_PUFFS), life: new Float32Array(MAX_PUFFS), max: new Float32Array(MAX_PUFFS), c: new Float32Array(MAX_PUFFS), next: 0 };
+  const bmShade = new Float32Array(MAX_BEAMS).fill(1); // smoke trails: 1 = pale motor smoke, lower = darker (burning wrecks)
+  // hot: 0..1, how much of a fireball it starts as (glows orange, then cools to smoke).
+  const pf = { p: new Float32Array(MAX_PUFFS * 3), r: new Float32Array(MAX_PUFFS), life: new Float32Array(MAX_PUFFS), max: new Float32Array(MAX_PUFFS), c: new Float32Array(MAX_PUFFS), hot: new Float32Array(MAX_PUFFS), next: 0 };
+  // Shot-down aircraft falling out of the sky, tumbling and trailing smoke until they hit the ground.
+  const wk = { kind: [] as EnemyKind[], p: new Float32Array(MAX_WRECKS * 3), v: new Float32Array(MAX_WRECKS * 3), rot: new Float32Array(MAX_WRECKS * 3), spin: new Float32Array(MAX_WRECKS * 3), size: new Float32Array(MAX_WRECKS), life: new Float32Array(MAX_WRECKS), emit: new Float32Array(MAX_WRECKS), next: 0 };
+  // Where a wreck came down: burns a while, sending up a column of dark smoke.
+  const fi = { x: new Float32Array(MAX_FIRES), z: new Float32Array(MAX_FIRES), r: new Float32Array(MAX_FIRES), life: new Float32Array(MAX_FIRES), emit: new Float32Array(MAX_FIRES), next: 0 };
+  // Per-contact flight state for drawing: the sim turns on the spot between ticks; this eases the airframe round
+  // (heading), banks it into turns, pitches it along its climb or dive, and remembers where its trail last left off.
+  interface Flight { kind: EnemyKind; x: number; y: number; z: number; vx: number; vz: number; h: number; bank: number; pitch: number; hs: number; acc: number; tx: number; ty: number; tz: number; emit: number; frame: number }
+  const flights = new Map<number, Flight>();
+  let frameNo = 0;
   const fr = { x: new Float32Array(MAX_FRONTS), y: new Float32Array(MAX_FRONTS), z: new Float32Array(MAX_FRONTS), a: new Float32Array(MAX_FRONTS), t: new Float32Array(MAX_FRONTS), max: new Float32Array(MAX_FRONTS), next: 0 };
   // Per-shot render state: where it left from (the sim launches PAC-3 / IRIS-T from the battery centre, the
   // round is drawn from its launcher and eases onto the sim path), its age, how far it had to go, and where it was last drawn.
@@ -595,7 +627,8 @@ export function createRenderer() {
   // Drawn height of a contact near (x, z) (an event only says where), or low over the ground if there's none.
   const airY = (s: State, x: number, z: number) => {
     let by = groundY(x, z) + 2, bd = 9;
-    for (const e of s.enemies) { const d = (e.x - x) ** 2 + (e.z - z) ** 2; if (d < bd) { bd = d; by = groundY(e.x, e.z) + altitude(e.kind, e.x, e.z); } }
+    for (const f of flights.values()) { const d = (f.x - x) ** 2 + (f.z - z) ** 2; if (d < bd) { bd = d; by = f.y; } }
+    if (bd === 9) for (const e of s.enemies) { const d = (e.x - x) ** 2 + (e.z - z) ** 2; if (d < bd) { bd = d; by = groundY(e.x, e.z) + flightAlt(e); } }
     return by;
   };
 
@@ -611,18 +644,35 @@ export function createRenderer() {
       sh.size[i] = size * (0.8 + Math.random());
     }
   }
-  function puffs(x: number, y: number, z: number, n: number, r: number, life = 1.6, dark = 0.35) {
+  function puffs(x: number, y: number, z: number, n: number, r: number, life = 1.6, dark = 0.35, hot = 0) {
     for (let j = 0; j < n; j++) {
       const i = pf.next = (pf.next + 1) % MAX_PUFFS;
       pf.p.set([x + (Math.random() - 0.5) * r, y + (Math.random() - 0.3) * r * 0.6, z + (Math.random() - 0.5) * r], i * 3);
       pf.r[i] = r * (0.5 + Math.random() * 0.6); pf.life[i] = pf.max[i] = life * (0.7 + Math.random() * 0.6); pf.c[i] = dark + Math.random() * 0.2;
+      pf.hot[i] = hot;
     }
   }
+  // A kill: a fireball that swells and cools into a pall of smoke, sparks and a flash ring.
   function boom(x: number, y: number, z: number, size: number, n: number) {
     shards(x, z, n, C.fire, 8 + size * 3, size * 0.9, y, 1.6);
     shards(x, z, Math.ceil(n / 3), C.flash, 5, size * 0.6, y, 2);
     wave(x, y, z, size * 3, C.fire, 0.35, 1.2);
+    puffs(x, y, z, 2 + Math.ceil(size * 1.5), size * 0.8, 0.9, 0.2, 1);
     puffs(x, y, z, 2 + Math.ceil(size * 2), size * 1.1);
+  }
+  // A shot-down aircraft starts to fall from where it was drawn, carrying on along its course.
+  function wreck(f: Flight, size: number) {
+    const i = wk.next = (wk.next + 1) % MAX_WRECKS, heli = !!ROTORS[f.kind];
+    wk.kind[i] = f.kind; wk.p.set([f.x, f.y, f.z], i * 3);
+    wk.v.set([f.vx * 0.7, heli ? 0 : 1 + Math.random(), f.vz * 0.7], i * 3);
+    // Helicopters spin round their rotor mast; fixed wings roll and drop their nose.
+    wk.rot.set([f.bank, f.h, f.pitch], i * 3);
+    wk.spin.set(heli ? [(Math.random() - 0.5) * 2, (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 3), -0.6] : [(Math.random() < 0.5 ? -1 : 1) * (3 + Math.random() * 5), (Math.random() - 0.5) * 1.5, -1.2 - Math.random()], i * 3);
+    wk.size[i] = size; wk.life[i] = 6; wk.emit[i] = 0;
+  }
+  function burn(x: number, z: number, r: number) {
+    const i = fi.next = (fi.next + 1) % MAX_FIRES;
+    fi.x[i] = x; fi.z[i] = z; fi.r[i] = r; fi.life[i] = 3 + r * 2; fi.emit[i] = 0;
   }
   function wave(x: number, y: number, z: number, r: number, color: number, life = 0.5, k = 1) {
     const i = wv.next = (wv.next + 1) % MAX_WAVES;
@@ -634,7 +684,7 @@ export function createRenderer() {
     const i = bm.next = (bm.next + 1) % MAX_BEAMS;
     const a = bm.a, j = i * 6;
     a[j] = x; a[j + 1] = y; a[j + 2] = z; a[j + 3] = x2; a[j + 4] = y2; a[j + 5] = z2;
-    bm.w[i] = w; bm.life[i] = bm.max[i] = life; bm.grow[i] = grow;
+    bm.w[i] = w; bm.life[i] = bm.max[i] = life; bm.grow[i] = grow; bmShade[i] = 1;
     tmpC.setHex(color).multiplyScalar(k); bm.col[i * 3] = tmpC.r; bm.col[i * 3 + 1] = tmpC.g; bm.col[i * 3 + 2] = tmpC.b;
   }
   // Laser: soft glow around a white-hot core, and sparks where it lands.
@@ -653,14 +703,21 @@ export function createRenderer() {
     bl.x[i] = x; bl.z[i] = z; bl.r[i] = r; bl.life[i] = bl.max[i] = life;
   }
 
+  const WRECKS: EnemyKind[] = ['scout', 'drone', 'decoy', 'tank', 'ew', 'elite'];
   const KILL_SHARDS: Record<EnemyKind, number> = { swarm: 4, scout: 6, drone: 8, tank: 16, elite: 24, decoy: 5, arm: 6, ew: 16, tbm: 12, cruise: 8, atgm: 3, kab: 10 };
   function consume(s: State) {
     for (const e of s.events) {
       switch (e.k) {
         case 'kill': {
-          const T = ENEMIES[e.kind!], y = groundY(e.x, e.z) + altitude(e.kind!, e.x, e.z);
+          const T = ENEMIES[e.kind!];
+          // Where it was drawn last frame (it's gone from the sim now), for its height and course.
+          let f: Flight | undefined, bd = 4;
+          for (const g of flights.values()) { const d = (g.x - e.x) ** 2 + (g.z - e.z) ** 2; if (g.kind === e.kind && d < bd) { bd = d; f = g; } }
+          const y = f ? f.y : groundY(e.x, e.z) + altitude(e.kind!, e.x, e.z);
           boom(e.x, y, e.z, T.size * 1.3, KILL_SHARDS[e.kind!]);
-          if (T.size > 1.5) gwave(e.x, e.z, T.size * 3, C.fire, 0.5, 0.6); // debris lands
+          // Aircraft come down in one piece-ish; missiles and FPVs just go up in the blast.
+          if (f && WRECKS.includes(e.kind!)) { f.x = e.x; f.z = e.z; wreck(f, T.size * VIS); }
+          else if (T.size > 1.5) gwave(e.x, e.z, T.size * 3, C.fire, 0.5, 0.6); // debris lands
           break;
         }
         case 'hit': {
@@ -739,6 +796,7 @@ export function createRenderer() {
 
   function render(s: State, dt: number) {
     clock += dt;
+    if (mapSeed !== terrainKey) buildTerrain(); // a new run, a new map
     consume(s);
     const key = `${s.level}${s.st.radar}${!!s.st.weapons.cannon}${s.st.aesa}${!!s.st.weapons.pulse}${s.lv.missile ?? 0}${!!s.st.weapons.rail}|${s.perim.map(p => `${p.slot}${p.k}${p.tier}${p.down ? 'd' : ''}${p.x},${p.z}`).join()}|${s.selected}`;
     if (key !== baseKey) { baseKey = key; buildBase(s); }
@@ -896,19 +954,18 @@ export function createRenderer() {
       if (!visible(s, e)) continue;
       const k = shownKind(e), m = enemyMeshes[k];
       if (m.count >= MAX_ENEMIES) continue;
-      const gy = groundY(e.x, e.z), alt = altitude(e.kind, e.x, e.z), y = gy + alt, sz = e.size * VIS;
+      const gy = groundY(e.x, e.z), sz = e.size * VIS, f = fly(e, gy, dt, play), y = f.y, alt = y - gy;
       const pos = ePos[ne++ % MAX_ENEMIES]; pos.x = e.x; pos.z = e.z; pos.y = y; byId.set(e.id, pos);
       const fade = e.locked ? 1 : Math.max(0.35, Math.min(1, (e.seenUntil - s.t) / 1.5));
-      const heading = Math.atan2(e.vz, e.vx);
-      // Nose along the flight path: divers and the Iskander pitch down, helicopters dip the nose flying in, FPVs rock as they jink.
-      const pitch = e.kind === 'tbm' ? -0.9 : e.act === 'dive' ? -0.6 : (k === 'tank' || k === 'ew') && e.act !== 'hover' && !e.orbit ? -0.15 : 0;
-      const bank = k === 'swarm' ? 0.25 * Math.sin(clock * 9 + e.id) : Math.sin(clock * 2 + e.wob) * 0.25 * ENEMIES[e.kind].wobble / 3;
+      // FPVs rock as they jink, on top of the banking.
+      const bank = f.bank + (k === 'swarm' ? 0.25 * Math.sin(clock * 9 + e.id) : 0);
       dummy.position.set(e.x, y, e.z);
-      dummy.rotation.set(bank, -heading, pitch, 'YXZ');
+      dummy.rotation.set(bank, -f.h, f.pitch, 'YXZ');
       dummy.scale.setScalar(sz);
       dummy.updateMatrix();
       m.setMatrixAt(m.count, dummy.matrix);
       m.setColorAt(m.count++, tmpC.setHex(k === 'decoy' ? 0x9a9a9a : KIND_COL[k]).multiplyScalar(0.6 + 0.4 * fade));
+      if (play) exhaust(e, f, sz, dt);
       const rotor = ROTORS[k];
       if (rotor) { // spinning main rotor disc
         dummy.position.set(e.x, y + rotor.y * sz, e.z); dummy.rotation.set(0, clock * 20, 0); dummy.scale.set(rotor.r * sz, 1, rotor.r * sz); dummy.updateMatrix();
@@ -943,6 +1000,11 @@ export function createRenderer() {
         nl++;
       }
     }
+    for (const [id, f] of flights) if (f.frame !== frameNo) flights.delete(id); // gone, or off the scope
+    frameNo++;
+    if (play) fires(dt);
+    wrecks(dt, play, rf);
+
     // Your damaged units get an HP bar too.
     for (const p of s.perim) {
       if (p.hp >= PAD_HP || nb >= MAX_LOCKS + 32) continue;
@@ -1035,10 +1097,12 @@ export function createRenderer() {
       if (play) { pf.life[i] -= dt; pf.p[i * 3 + 1] += dt * 1.2; pf.p[i * 3] += dt * 0.6; } // rises and drifts with the wind
       const r = Math.max(0, pf.life[i] / pf.max[i]);
       dummy.position.set(pf.p[i * 3], pf.p[i * 3 + 1], pf.p[i * 3 + 2]); dummy.rotation.set(i, i * 2, 0);
-      dummy.scale.setScalar(pf.r[i] * (1.6 - r));
+      dummy.scale.setScalar(pf.r[i] * (pf.hot[i] ? 0.6 + 1.2 * Math.sqrt(1 - r) : 1.6 - r)); // a fireball swells fast, then slows
       dummy.updateMatrix();
       puffMesh.setMatrixAt(puffMesh.count, dummy.matrix);
-      puffMesh.setColorAt(puffMesh.count, tmpC.setScalar(pf.c[i] * (0.4 + 0.6 * (1 - night))));
+      // A fireball glows orange while young, then cools into smoke.
+      const heat = pf.hot[i] * Math.max(0, (r - 0.35) / 0.65) ** 1.5, grey = pf.c[i] * (0.4 + 0.6 * (1 - night)) * (1 - heat);
+      puffMesh.setColorAt(puffMesh.count, tmpC.setRGB(grey + heat * 1.7, grey + heat * 0.5, grey + heat * 0.05));
       pa.setX(puffMesh.count++, r * r);
     }
     waveMesh.count = 0;
@@ -1069,7 +1133,7 @@ export function createRenderer() {
       dummy.updateMatrix();
       if (bm.grow[i]) {
         smokeMesh.setMatrixAt(smokeMesh.count, dummy.matrix);
-        smokeMesh.setColorAt(smokeMesh.count, tmpC.setScalar(0.85 - 0.5 * night)); sa.setX(smokeMesh.count++, r * r);
+        smokeMesh.setColorAt(smokeMesh.count, tmpC.setScalar((0.85 - 0.5 * night) * bmShade[i])); sa.setX(smokeMesh.count++, r * r);
       } else {
         beamMesh.setMatrixAt(beamMesh.count, dummy.matrix);
         beamMesh.setColorAt(beamMesh.count++, tmpC.setRGB(bm.col[c] * r, bm.col[c + 1] * r, bm.col[c + 2] * r));
@@ -1115,7 +1179,121 @@ export function createRenderer() {
     grade.uniforms.blind.value += (blind - grade.uniforms.blind.value) * Math.min(1, dt * 6);
     composer.render(dt);
   }
-  function smoke(x: number, y: number, z: number, x2: number, y2: number, z2: number, w: number, life: number) { beam(x, y, z, x2, y2, z2, w, 0xffffff, life, 1, 1); }
+  function smoke(x: number, y: number, z: number, x2: number, y2: number, z2: number, w: number, life: number, shade = 1) { beam(x, y, z, x2, y2, z2, w, 0xffffff, life, 1, 1); bmShade[bm.next] = shade; }
+
+  // Drawn flight of contact `e` this frame: height eased onto its flight profile (so a dive comes down in an arc),
+  // nose eased round onto its course, banked into turns and pitched along its climb or dive. Helicopters keep
+  // their nose on the battery while they hover or hold station, sidestep with a tilt, dip the nose flying in and
+  // flare as they slow.
+  function fly(e: Enemy, gy: number, dt: number, play: boolean) {
+    const want = gy + flightAlt(e), hs = Math.hypot(e.vx, e.vz), heli = !!ROTORS[e.kind];
+    const course = heli && (e.act === 'hover' || e.orbit) ? Math.atan2(-e.z, -e.x) : hs > 0.05 ? Math.atan2(e.vz, e.vx) : undefined;
+    let f = flights.get(e.id);
+    if (!f) {
+      f = { kind: e.kind, x: e.x, y: want, z: e.z, vx: e.vx, vz: e.vz, h: course ?? Math.atan2(-e.z, -e.x), bank: 0, pitch: 0, hs, acc: 0, tx: e.x, ty: want, tz: e.z, emit: 0, frame: frameNo };
+      flights.set(e.id, f);
+    }
+    f.frame = frameNo;
+    if (play && dt > 0) {
+      const y0 = f.y, h0 = f.h, ease = (r: number) => 1 - Math.exp(-r * dt);
+      f.y += (want - f.y) * ease(e.kind === 'tbm' ? 14 : 6);
+      if (course !== undefined) f.h += angDiff(course, f.h) * ease(heli ? 2.5 : 7);
+      const vy = (f.y - y0) / dt, yaw = angDiff(f.h, h0) / dt;
+      f.acc += ((hs - f.hs) / dt - f.acc) * ease(4); f.hs = hs;
+      let bank: number, pitch: number;
+      if (heli) {
+        // Sideways speed relative to the nose tilts the disc; forward speed dips the nose, braking lifts it.
+        const lat = -Math.sin(f.h) * e.vx + Math.cos(f.h) * e.vz, fwd = Math.cos(f.h) * e.vx + Math.sin(f.h) * e.vz;
+        bank = clamp(lat * 0.18 + yaw * 0.3, 0.45); pitch = clamp(-0.1 * fwd + 0.25 * f.acc, 0.35);
+      } else {
+        // Coordinated turns: roll into the turn with the turn rate; nose along the flight path.
+        bank = clamp(yaw * (e.kind === 'swarm' ? 0.12 : 0.35) * Math.max(1, hs / 4), 1.1);
+        pitch = e.kind === 'tbm' ? -0.9 : clamp(Math.atan2(vy, Math.max(hs, 0.5)) * 1.2, 1.1);
+      }
+      f.bank += (bank - f.bank) * ease(5); f.pitch += (pitch - f.pitch) * ease(5);
+    }
+    f.x = e.x; f.z = e.z; f.vx = e.vx; f.vz = e.vz;
+    return f;
+  }
+  const TRAIL: Partial<Record<EnemyKind, { w: number; life: number; shade: number; flame: number; twin?: boolean }>> = {
+    elite: { w: 0.1, life: 1.6, shade: 1, flame: 0.7, twin: true }, // contrails off the engines, afterburner glow
+    arm: { w: 0.18, life: 1.3, shade: 0.9, flame: 0.8 },
+    tbm: { w: 0.35, life: 2.6, shade: 1, flame: 1.4 },
+    cruise: { w: 0.14, life: 0.8, shade: 0.85, flame: 0.5 },
+    atgm: { w: 0.12, life: 0.8, shade: 0.9, flame: 0.5 },
+  };
+  const TRAIL_STEP = LITE ? 1.2 : 0.6; // m between smoke segments: trail cost goes with distance flown, not frame rate
+  // Motor flame and smoke trail, and smoke (then fire) streaming off an aircraft that's been hit hard.
+  function exhaust(e: Enemy, f: Flight, sz: number, dt: number) {
+    const tr = TRAIL[e.kind], ch = Math.cos(f.h), shh = Math.sin(f.h), cp = Math.cos(f.pitch);
+    const tail = sz * 0.5, bx = f.x - ch * cp * tail, by = f.y - Math.sin(f.pitch) * tail, bz = f.z - shh * cp * tail;
+    if (tr) {
+      const fl = tr.flame * sz * (0.8 + 0.4 * Math.random());
+      for (const side of tr.twin ? [-0.12, 0.12] : [0]) {
+        const ox = -shh * side * sz, oz = ch * side * sz;
+        beam(bx + ox, by, bz + oz, bx + ox - ch * cp * fl, by - Math.sin(f.pitch) * fl, bz + oz - shh * cp * fl, tr.w * 1.4, C.fire, 0.04, 2);
+      }
+      const d2 = (bx - f.tx) ** 2 + (by - f.ty) ** 2 + (bz - f.tz) ** 2;
+      if (d2 > TRAIL_STEP * TRAIL_STEP) {
+        if (d2 < 36) smoke(f.tx, f.ty, f.tz, bx, by, bz, tr.w, tr.life, tr.shade); // a jump (first frame back on the scope): no streak
+        f.tx = bx; f.ty = by; f.tz = bz;
+      }
+    }
+    const hp = e.hp / e.maxHp;
+    if (hp < 0.5 && e.maxHp >= 8 && !MUNITIONS.includes(e.kind) && (f.emit -= dt) <= 0) {
+      f.emit = LITE ? 0.2 : 0.1;
+      puffs(bx, by, bz, 1, sz * 0.25, 1.2, 0.12);
+      if (hp < 0.25) shards(bx, bz, 1, C.fire, 1.5, sz * 0.3, by, 1.6);
+    }
+  }
+  function wrecks(dt: number, play: boolean, rf: THREE.InstancedBufferAttribute) {
+    for (let i = 0; i < MAX_WRECKS; i++) {
+      if (wk.life[i] <= 0) continue;
+      const j = i * 3, P = wk.p, V = wk.v, R = wk.rot, k = wk.kind[i], m = enemyMeshes[k], sz = wk.size[i];
+      if (play) {
+        wk.life[i] -= dt;
+        V[j + 1] -= 7 * dt; V[j] *= 1 - 0.4 * dt; V[j + 2] *= 1 - 0.4 * dt; // gravity, drag
+        const x0 = P[j], y0 = P[j + 1], z0 = P[j + 2];
+        P[j] += V[j] * dt; P[j + 1] += V[j + 1] * dt; P[j + 2] += V[j + 2] * dt;
+        for (let a = 0; a < 3; a++) R[j + a] += wk.spin[j + a] * dt;
+        R[j + 2] = Math.max(-1.3, R[j + 2]); // nose down, not over and over
+        if ((wk.emit[i] -= dt) <= 0) { // burning: black smoke behind, flame at the break
+          wk.emit[i] = LITE ? 0.1 : 0.05;
+          smoke(x0, y0, z0, P[j], P[j + 1], P[j + 2], 0.25 * sz, 1.8, 0.3);
+          beam(x0, y0, z0, P[j], P[j + 1], P[j + 2], 0.2 * sz, C.fire, 0.12, 1.6);
+        }
+        const gy = groundY(P[j], P[j + 2]);
+        if (P[j + 1] <= gy + 0.2 || wk.life[i] <= 0) { // impact
+          wk.life[i] = 0;
+          boom(P[j], gy + 0.4, P[j + 2], sz * 0.6, 10);
+          gwave(P[j], P[j + 2], sz * 2.5, C.fire, 0.6, 0.8);
+          puffs(P[j], gy + 0.3, P[j + 2], 4, sz * 0.8, 1.5, 0.5); // dust kicked up
+          burn(P[j], P[j + 2], sz * 0.4);
+          continue;
+        }
+      }
+      if (m.count >= MAX_ENEMIES) continue;
+      dummy.position.set(P[j], P[j + 1], P[j + 2]); dummy.rotation.set(R[j], -R[j + 1], R[j + 2], 'YXZ'); dummy.scale.setScalar(sz);
+      dummy.updateMatrix(); m.setMatrixAt(m.count, dummy.matrix);
+      m.setColorAt(m.count++, tmpC.setHex(C.wreck).multiplyScalar(0.8 + 0.4 * Math.random())); // charred, lit by its own fire
+      const rotor = ROTORS[k];
+      if (rotor && rotors.count < MAX_ENEMIES) {
+        dummy.position.y += rotor.y * sz; dummy.rotation.set(0, clock * 9, 0); dummy.scale.set(rotor.r * sz, 1, rotor.r * sz); dummy.updateMatrix();
+        rotors.setMatrixAt(rotors.count, dummy.matrix); rotors.setColorAt(rotors.count, tmpC.setHex(0x222222)); rf.setX(rotors.count++, 0.5);
+      }
+    }
+  }
+  function fires(dt: number) {
+    for (let i = 0; i < MAX_FIRES; i++) {
+      if (fi.life[i] <= 0) continue;
+      fi.life[i] -= dt;
+      if ((fi.emit[i] -= dt) > 0) continue;
+      fi.emit[i] = LITE ? 0.3 : 0.15;
+      const x = fi.x[i], z = fi.z[i], gy = groundY(x, z), r = fi.r[i];
+      puffs(x, gy + 0.4, z, 1, r * 1.2, 2.5, 0.08);
+      shards(x, z, 1, C.fire, 1.2, r * 0.8, gy + 0.3, 1.8);
+    }
+  }
 
   const ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hit = new THREE.Vector3(), v = new THREE.Vector3(), ndc = new THREE.Vector2();
   const clampTarget = () => { const r = Math.hypot(tx, tz), max = 45; if (r > max) { tx *= max / r; tz *= max / r; } };
@@ -1156,7 +1334,7 @@ export function createRenderer() {
       let best: { x: number; z: number } | null = null, bd = 30 * 30;
       for (const e of s.enemies) {
         if (!visible(s, e)) continue;
-        const [px, py] = project(e.x, e.z, altitude(e.kind, e.x, e.z)), d = (px - cx) ** 2 + (py - cy) ** 2;
+        const [px, py] = project(e.x, e.z, flightAlt(e)), d = (px - cx) ** 2 + (py - cy) ** 2;
         if (d < bd) { bd = d; best = { x: e.x, z: e.z }; }
       }
       return best;

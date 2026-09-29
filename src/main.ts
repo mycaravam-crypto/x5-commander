@@ -37,8 +37,10 @@ const doctrine = (i: number) => {
   const d = DOCTRINES[i];
   if (s.phase !== 'start' || !d || openDoc(d.id) !== d.id) return;
   try { localStorage.setItem('x5-doctrine', d.id); } catch { /* storage blocked: skip */ }
-  s = newGame(undefined, '', d.id);
+  s = newGame(s.seed, '', d.id); // same map, new loadout
 };
+// Start screen: roll another map (and schedule) for a normal run.
+const reroll = () => { if (s.phase === 'start') s = newGame(undefined, '', s.doctrine); };
 const hud = createHud({
   buy: id => { if (buy(s, id)) hud.flash(id); },
   perk: i => pickPerk(s, i),
@@ -131,6 +133,7 @@ function key(code: string) {
     case 'KeyB': toggleRelocate(s); break;
     case 'Delete': case 'Backspace': sellPad(s); break;
     case 'KeyD': start(true); break;
+    case 'KeyN': reroll(); break;
     case 'KeyP': case 'Escape': if (s.phase === 'play') s.phase = 'pause'; else if (s.phase === 'pause') s.phase = 'play'; break;
     case 'KeyT': cycleMode(s); break;
     case 'KeyF': toggleEmcon(s); break;
