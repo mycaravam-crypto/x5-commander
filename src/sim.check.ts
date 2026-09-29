@@ -1,12 +1,31 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive } from './sim.ts';
-import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, HELO, LANCET, MILESTONE, DROP_LIFE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP } from './config.ts';
+import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive, noAmmo } from './sim.ts';
+import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, HELO, LANCET, MILESTONE, DROP_LIFE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE } from './config.ts';
+import { PONDS, ROCKS, FARMS, mapSeed, openShare, OPEN_MIN, ground, riverZ, RIVER_W } from './terrain.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
 const rng = { seed: 12345 };
 Math.random = () => rand(rng);
 
 const ok = (c: unknown, msg: string) => { if (!c) throw new Error('FAIL: ' + msg); };
+
+// Terrain: the seed decides the map; every map keeps the layout rules.
+{
+  const sig = () => JSON.stringify([PONDS, ROCKS, FARMS.length, riverZ(0), ground(20, 20), ground(-25, 5)]);
+  newGame(77); const a = sig();
+  newGame(78); const b = sig();
+  newGame(77); ok(sig() === a && mapSeed === 77, 'same seed, same map');
+  ok(a !== b, 'another seed, another map');
+  const d = newGame(dailySeed('2026-01-01'), '2026-01-01'); ok(mapSeed === d.seed, 'the daily op flies over its own seed\'s map');
+  for (let seed = 1; seed <= 60; seed++) {
+    const g = newGame(seed * 7919);
+    ok(!buildBlock(g, g.perim[0].x, g.perim[0].z, g.perim[0].slot), `starting MG on open ground (seed ${seed})`);
+    ok(openShare() >= OPEN_MIN, `enough open ground to build on (seed ${seed})`);
+    ok(PONDS.length >= 1 && ROCKS.length >= 3, `ponds and outcrops (seed ${seed})`);
+    for (let x = -36; x <= 36; x += 2) ok(Math.abs(riverZ(x)) - RIVER_W > 36 || Math.hypot(x, riverZ(x)) > 36, `river beyond the build zone (seed ${seed})`);
+    ok(freeSpots(g).length > 10, `the auto-placer finds spots (seed ${seed})`);
+  }
+}
 const run = (s: State, secs: number, each?: () => void) => {
   for (let i = 0; i < secs * 60; i++) { update(s, 1 / 60); each?.(); s.events.length = 0; }
 };
@@ -38,7 +57,9 @@ s.lv.aesa = 1; ok(cost(s, 'sweep') < Infinity, 'AESA lifts the scan cap');
 
 // Difficulty grows, but slower and slower: the second 30 min add less than the first.
 { const d = (m: number) => difficulty(m * 60).spawnRate * difficulty(m * 60).hp;
-  ok(d(30) > d(10) && d(60) - d(30) < d(30) - d(0), 'difficulty is sub-linear'); }
+  const f = SURGE.from;
+  ok(d(f) > d(f / 2) && d(f) - d(f / 2) < d(f / 2) - d(0), 'difficulty is sub-linear until the surge');
+  ok(d(f + 20) / d(f + 10) > 3 && d(f + 10) / d(f) > 3, 'then it outgrows any battery: every run ends'); }
 
 // Nothing happens before start
 s = newGame(); run(s, 5); ok(s.t === 0, 'start phase frozen');
@@ -126,7 +147,7 @@ ok(buy(s, 'mantis') && !buy(s, 'mantis'), 'one pad placed at a time');
   ok(!placePad(s, 0, -buildR(2) - 8), 'nothing outside the build zone');
   ok(placePad(s, f.x + 0.2, f.z) && near(s.perim[2], f), 'a unit goes where you click');
   ok(buy(s, 'mantis') && placePad(s, f.x, f.z) && Math.hypot(s.perim[3].x - f.x, s.perim[3].z - f.z) >= PAD_GAP - 1e-9, 'a taken spot: the nearest open one'); }
-ok(!!buildBlock(s, -22, 21) && !!buildBlock(s, 17, -6), 'no building on water or rock');
+ok(!!buildBlock(s, PONDS[0].x, PONDS[0].z) && !!buildBlock(s, ROCKS[0].x, ROCKS[0].z), 'no building on water or rock');
 { const q = slotXZ(4); ok(buy(s, 'mg') && placePad(s, q.x, q.z) && !buy(s, 'mantis') && lockReason(s, 'mantis') === 'PADS FULL', 'lv2 = 5 units'); }
 ok(s.perim.every(p => Math.hypot(p.x, p.z) >= BUILD_MIN && Math.hypot(p.x, p.z) <= buildR(2)), 'units stay inside the build zone');
 ok(perimSlots(1) === 2 && perimSlots(9) === 16 && buildR(1) < buildR(3), 'the unit cap and the build zone grow with the base level');
@@ -277,6 +298,14 @@ const addPad = (g: State, k: string, slot: number) => { g.credits += 1e6; ok(buy
   const pre = g.ammo; run(g, 1); ok(g.ammo >= pre, 'MG ammo is its own, not the interceptor pool');
 }
 {
+  // NO AMMO: a gun that draws on the interceptor pool flags when the pool can't feed it; the MG never does.
+  const g = quiet(); g.level = 9;
+  const mg = addPad(g, 'mg', 1), sam = addPad(g, 'iris', 0);
+  g.ammo = g.st.ammoCap; ok(!noAmmo(g, sam) && !noAmmo(g, mg), 'no NO AMMO with a full pool');
+  g.ammo = 1; ok(noAmmo(g, sam) && !noAmmo(g, mg), 'NO AMMO on the SAM with the pool short of a round, not on the MG');
+  sam.down = true; ok(!noAmmo(g, sam), 'a unit that is down shows as down, not NO AMMO');
+}
+{
   const g = newGame(); g.phase = 'play'; g.spawnAcc = -1e9; g.nextRaid = g.nextElite = 1e9; g.st.maxHp = g.hp = 1e9;
   const e = spawnEnemy(g, 'drone', FRONT, 40);
   run(g, 15);
@@ -371,6 +400,7 @@ ok(emitting(s), 'radar comes back');
   const h = quiet(); spawnEnemy(h, 'drone', 0, 5); h.st.slots = 0; let dmg = 0;
   run(h, 3, () => { for (const v of h.events) if (v.k === 'baseHit') dmg = v.n!; });
   ok(dmg > 0, 'base hit carries its damage');
+  ok(Math.abs((h.stats.taken.drone ?? 0) - dmg) < 1e-9, 'the debrief counts what hit the battery, by type');
 }
 
 // EMCON before it arrives: the ARM loses the emitter and misses.
@@ -429,6 +459,8 @@ ok(armSeen, 'Su-34 fires ARMs');
   let kab = false, egress = false;
   run(q, 40, () => { kab ||= q.enemies.some(e => e.kind === 'kab'); egress ||= su.act === 'egress'; });
   ok(kab && egress && !q.enemies.includes(su) && q.hp < q.st.maxHp && q.stats.kills.elite === undefined, 'Su-34 lobs a glide bomb and egresses');
+  ok(su.ammo === 0 && spawnEnemy(q, 'elite', 0, 50).ammo === KAB_FIRST, 'on the SEAD level, where the Su-34 is new, it carries one bomb');
+  q.stage = 4; ok(spawnEnemy(q, 'elite', 0, 50).ammo === KAB_PAIR, 'after that, a pair');
   // Lancet: circles out at LANCET.loiter searching, then dives.
   const l = quiet(); l.st.slots = 0;
   const la = spawnEnemy(l, 'scout', 0, 35); la.hp = 1e9;

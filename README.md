@@ -1,6 +1,6 @@
 # X5 Commander
 
-A browser air-defense RTS made from simple 3D shapes. You start with a single anti-aircraft machine gun on a hill farm behind a river, and build it up into a Patriot air-defense battery against an endless, escalating raid of drones, helicopters and strike jets. You build your defenses anywhere on open ground round the base, among woods, ponds and rock outcrops. You can only engage what you can see: by eye at first, by radar once you've built one.
+A browser air-defense RTS made from simple 3D shapes. You start with a single anti-aircraft machine gun on a hill farm behind a river, and build it up into a Patriot air-defense battery against an endless, escalating raid of drones, helicopters and strike jets. You build your defenses anywhere on open ground round the base, among woods, ponds and rock outcrops, on a map generated fresh for every run. You can only engage what you can see: by eye at first, by radar once you've built one.
 
 System and threat names are real or announced systems, used for flavor only; the numbers are game balance, not real performance.
 
@@ -22,7 +22,7 @@ Other scripts:
 | `npm run build` | Type-checks, then builds a static site into `dist/`        |
 | `npm test`      | Runs a headless check of the game simulation in Node       |
 | `npm run bench` | Times the simulation under a heavy swarm (e.g. `npm run bench -- 2000`) |
-| `npm run balance [seeds] [cap-s]` | Bots play many seeded runs; median survival per doctrine and per perk |
+| `npm run balance [seeds] [cap-s]` | Bots play many seeded runs; median survival per doctrine and per perk, and what did the most damage |
 
 The game runs entirely in the browser, with no backend and no asset files. `dist/` can be hosted on any static file server.
 
@@ -34,6 +34,7 @@ The game runs entirely in the browser, with no backend and no asset files. `dist
 | Space (in play)        | Emergency intercept                       |
 | G                      | Cycle fire discipline: CONSERVE / BALANCED / MAXIMUM |
 | D                      | Start today's daily op                    |
+| N (start screen)       | Roll a new map                            |
 | Left click             | Build a bought unit on open ground; pick one of your units; otherwise mark a contact as the priority target (needs the radar) |
 | U / Delete             | Upgrade / sell the unit you picked         |
 | B, or right-click ground | Move the unit you picked               |
@@ -63,13 +64,15 @@ The first time you meet each threat or mechanic, a short tip explains it. Tips d
 ## Gameplay
 
 ### The battlefield
-The base sits on a low plateau in farmland. Ahead, toward the front, a cleared field of fire runs down to a river; woods cover the flanks, with ponds, rock outcrops, fields and farmsteads in the rear and hills beyond. Aircraft fly at their own heights over the ground (FPVs and cruise missiles low, Su-34s high, ballistic missiles diving in steeply), each with a faint line dropped to a ring on the ground so you can see where it is. They fly like aircraft: jets and drones bank round in arcs, helicopters slow into a hover and keep their nose on the battery, Shaheds and Lancets come down in a dive, and heading home is a wide turn, not a U-turn on the spot. Missiles and Su-34s leave smoke and contrails, a badly hit aircraft trails smoke (then fire), and a shot-down one falls burning and leaves a fire where it hits the ground. The terrain is the same every run. It's scenery for the aircraft, but it decides where you can build (see *Building the line*). NIGHT RAID turns the day to moonlight.
+The base sits on a low plateau in farmland. Ahead, toward the front, a cleared field of fire runs down to a river; woods, ponds, rock outcrops, fields and farmsteads lie round it, with hills beyond. Aircraft fly at their own heights over the ground (FPVs and cruise missiles low, Su-34s high, ballistic missiles diving in steeply), each with a faint line dropped to a ring on the ground so you can see where it is. They fly like aircraft: jets and drones bank round in arcs, helicopters slow into a hover and keep their nose on the battery, Shaheds and Lancets come down in a dive, and heading home is a wide turn, not a U-turn on the spot. Missiles and Su-34s leave smoke and contrails, a badly hit aircraft trails smoke (then fire), and a shot-down one falls burning and leaves a fire where it hits the ground. It's scenery for the aircraft, but it decides where you can build (see *Building the line*). NIGHT RAID turns the day to moonlight.
+
+**Every run gets its own map**, generated from the run's seed: the river's course, woods, fields, roads, farmsteads, and the ponds and rock outcrops inside the build zone all change. Every map keeps the same rules: the plateau and the field of fire toward the front stay clear, the river stays beyond the build zone, the starting MG's spot is open, and at least 55% of the build zone is buildable. The start screen names the map (a grid reference); `N` rolls another. Picking a doctrine keeps the map. The daily op's map comes from its seed, so everyone flies over the same ground that day.
 
 ### Reading the HUD
 - **Left panel:** battery, power and interceptor bars (with net flow per second), then three groups: SENSORS (radar mode, radar state, range, tracks), FIRE CONTROL (locks in use with a bar, fire discipline, target mode, intercept readiness) and BATTERY (pads, raid state, build window). The top bar shows the level you're on.
 - **Minimap (under the left panel):** the terrain from above, turned with the camera: the build zone (dashed), your units (pale green), contacts (red, missiles amber), the front (red rim), the radar or eyesight range and the camera's view. Click it to look there.
 - **Threat board (top right):** what's on the scope by type, and the 4 most urgent contacts (damage they'd do over time to impact). Amber means dangerous now; ◆ means locked.
-- **Shop:** the row marked ◆ in amber is the suggested buy for the current bottleneck: interceptors when the magazine runs low, generator when power starves the radar, hull when HP is low, ECS channels when contacts wait for a lock.
+- **Shop:** until the radar is built, PERIMETER comes first. Rows waiting on something you don't own yet (the radar or the Patriot) are folded away, and a group with nothing else left shows only its header and what it needs. The row marked ◆ in amber is the suggested buy for the current bottleneck: a gun while there's a free unit slot, interceptors when the magazine runs low, generator when power starves the radar, hull when HP is low, ECS channels when contacts wait for a lock.
 
 ### Starting out: one gun and your eyes
 A run starts with a command post and one **12.7 mm AA machine gun**, dug in on the front. There is no radar and no Patriot yet:
@@ -157,7 +160,7 @@ Your generator fills a power pool, and everything draws on it in this order:
 Laser and HPM shots cost power as well. The power and interceptor bars show the net flow per second, so you can see which way the budget is going. Balancing seeing, shooting and building is the core tension of the game.
 
 ### Credits, upgrades and base levels
-Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits. There are 28 upgrades in 7 groups: BATTERY, POWER, SENSORS, FIRE CONTROL, WEAPONS, MAGAZINE and PERIMETER. Each upgrade costs more with every level. There is **no max level**, except for *Threat Evaluation*, the *radar*, the *PAC-3 battery* and *LTAMDS AESA*, which are on/off, and Scan Rate before the AESA. Earth Revetments have diminishing returns, up to 85% less damage taken. **Ranks:** every 5th level of an open-ended upgrade (not a pad) is a new rank and adds one free level on top. A bar under each shop row fills toward the next rank, and the buy that reaches it is marked ★. Every purchase shows what it bought, and the purchase sound climbs with the upgrade's level. The bar under BATTERY LV fills toward the next base level. Buying upgrades raises your **base level**, which adds visible structures to the base and offers a **perk draft: pick 1 of 3**. Every perk has a tradeoff, for example *GLASS CANNON*: +100% damage, −40% max HP. From base level 3, every draft also offers one **rule perk** (marked ★ NEW RULE) that changes how the battery plays, until you've taken them all. From level 3: *BLACKOUT PROTOCOL* (tracks coast twice as long when the radar goes dark, −30% memory while radiating), *COUNTER-SEAD* (each ARM shot down restores 20% power), *KILL CHAIN* (every 5 kills: +1 lock slot for 8 s), *OVERKILL* (damage past a kill jumps to the nearest contact within 8 m) and *LAST STAND* (below 25% HP: +50% fire rate, −40% power gen). From level 5: *TRACK FUSION* (locks hold while the radar is dark), *LPI WAVEFORM* (LPI mode keeps full detection), *OVERWATCH* (your marked target takes double damage), *ARC LASER* (laser jumps to 2 more targets; needs the laser), *SCAVENGER* (kills refund interceptors) and *FRAG WARHEADS* (PAC-3 hits splash).
+Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits. There are 28 upgrades in 7 groups: BATTERY, POWER, SENSORS, FIRE CONTROL, WEAPONS, MAGAZINE and PERIMETER. Each upgrade costs more with every level. There is **no max level**, except for *Threat Evaluation*, the *radar*, the *PAC-3 battery* and *LTAMDS AESA*, which are on/off, and Scan Rate before the AESA. Earth Revetments have diminishing returns, up to 85% less damage taken. **Ranks:** every 5th level of an open-ended upgrade (not a pad) is a new rank and adds one free level on top. A bar under each shop row fills toward the next rank, and the buy that reaches it is marked ★. Every purchase shows what it bought, and the purchase sound climbs with the upgrade's level. The bar under BATTERY LV fills toward the next base level. Buying upgrades raises your **base level**, which adds visible structures to the base and offers a **perk draft: pick 1 of 3**. Every perk has a tradeoff, for example *GLASS CANNON*: +60% damage, −45% max HP. From base level 3, every draft also offers one **rule perk** (marked ★ NEW RULE) that changes how the battery plays, until you've taken them all. From level 3: *BLACKOUT PROTOCOL* (tracks coast twice as long when the radar goes dark, −30% memory while radiating), *COUNTER-SEAD* (each ARM shot down restores 20% power), *KILL CHAIN* (every 5 kills: +1 lock slot for 8 s), *OVERKILL* (damage past a kill jumps to the nearest contact within 8 m) and *LAST STAND* (below 25% HP: +50% fire rate, −40% power gen). From level 5: *TRACK FUSION* (locks hold while the radar is dark), *LPI WAVEFORM* (LPI mode keeps full detection), *OVERWATCH* (your marked target takes double damage), *ARC LASER* (laser jumps to 2 more targets; needs the laser), *SCAVENGER* (kills refund interceptors) and *FRAG WARHEADS* (PAC-3 hits splash).
 
 ### Salvage
 Kills sometimes drop **salvage**: a spinning crate with a light over it. **Click it within 12 s** to recover it, or it's lost. Heavier kills drop more often (FPV under 1%, Shahed 3%, Mi-28 12%, Mi-8 30%, Su-34 40%; decoys never drop) and are more likely to drop tech:
@@ -202,7 +205,7 @@ An EW helicopter in a package is an **escort**: it goes in first and holds stati
 
 Raids include SHAHED WAVE, LANCET PACK, FPV SWARM, DECOY SCREEN, HELO ASSAULT, ISKANDER SALVO, CRUISE SALVO and the package raids SWARM ASSAULT, SEAD STRIKE (led by a Su-34) and SATURATION STRIKE. An escort jammer flies with its raid but doesn't count toward it; ARMs a raid's Su-34 launches do.
 
-Spawn rate, HP and damage grow **logarithmically** with play time, and raid size with the level: each doubling adds about the same threat. A strong battery can keep going indefinitely.
+Spawn rate, HP and damage grow **logarithmically** with play time, and raid size with the level: each doubling adds about the same threat. **After 12 minutes the war escalates:** enemy HP grows 12% and damage 6% per minute (compounding), and numbers 5% per minute. Upgrades cost more with every level, so the surge outruns any battery sooner or later: every run ends, and the question is when.
 
 | Threat                      | Notes                                     |
 |-----------------------------|-------------------------------------------|
@@ -210,7 +213,7 @@ Spawn rate, HP and damage grow **logarithmically** with play time, and raid size
 | Shahed-136 attack drone     | Slow and straight, then a fast terminal dive over the last 10 m |
 | FPV strike swarm            | Weak, arrives in packs of 6, hard to see  |
 | Mi-28NM attack helicopter   | Slow and tough. Never comes in: **hovers about 26 m out** and fires 4 Ataka anti-tank missiles (shootable, 4 s apart), then flies home |
-| Su-34 strike fighter        | Very tough, big reward, launches ARMs. **Releases two KAB glide bombs** about 32 m out, then turns for home: kill it before it lets go. The bombs are slow but heavy (35 HP) and hit hard |
+| Su-34 strike fighter        | Very tough, big reward, launches ARMs. **Releases two KAB glide bombs** about 32 m out (one on the SEAD level, where it's new), then turns for home: kill it before it lets go. The bombs are slow but heavy (35 HP) and hit hard |
 | Gerbera decoy               | Looks like a Shahed and flies the same profile, dive included. Harmless, no reward |
 | Kh-31P anti-radiation missile | Very fast, knocks the radar offline     |
 | Mi-8MTPR-1 EW helicopter    | Stands off and jams a sector              |
@@ -243,7 +246,7 @@ The level-up card names what was built. The LTAMDS AESA upgrade adds rear arrays
 
 **Feedback:** every tactical event gets a sound, a mark on the scope and a line in the log. That covers detection, lock acquired (a tick and a flash as the brackets snap on), lock lost (amber), launches, hits, kills (credit popups), ARM and Iskander launches and intercepts, jammers coming on station and going down, decoys classified, raids starting and ending, and battery hits (a red damage popup).
 
-An enemy that reaches the base damages it and dies. When base HP hits 0, the game is over. Your best time, kills, level and credits earned are saved in `localStorage`. The game-over card has **COPY RESULT** (`C`), which copies a one-line result to paste into a chat. It also shows a **debrief**: kills by enemy type, each weapon's share of the damage, clean raids, ARMs evaded and radar hits.
+An enemy that reaches the base damages it and dies. When base HP hits 0, the game is over. Your best time, kills, level and credits earned are saved in `localStorage`. The game-over card has **COPY RESULT** (`C`), which copies a one-line result to paste into a chat. It also shows a **debrief**: kills by enemy type, each weapon's share of the damage dealt, the HP lost to each threat, clean raids, ARMs evaded and radar hits. A line over it names the threat that did the most damage and what to do about it next time.
 
 ## Roadmap
 
@@ -253,6 +256,8 @@ This section replaces the old `plan-mvp.md`, `plan.md` and `plan-frontline.md`; 
 - **MVP:** the core loop (detect → lock → shoot → credits → upgrade → base level → perks → game over), the upgrade shop, juice and sound, 2,000 pooled enemy instances.
 - **Green radar look:** wireframe models over a polar grid with a CRT pass. Replaced by the terrain view (below); it's in git history.
 - **Terrain and free building:** a fixed map (`terrain.ts`: river, woods, ponds, rock outcrops, roads, fields, hills) drawn as a lit 3D scene with shadows, trees and a day / night grade; solid vehicle and aircraft models flying at their own heights; an RTS camera (pan, rotate, zoom, minimap to jump); units built anywhere on open ground in a build zone that grows with the base, with a ghost that previews coverage.
+- **Onboarding and balance pass:** start screen matches the one-gun start; shop puts PERIMETER first before the radar, folds away what needs the radar or Patriot, and suggests a gun while unit slots are free; the balance bot builds and places units like a player; the first Su-34 strike carries one bomb; a late-game surge so every run ends; the debrief shows what hurt the battery.
+- **Random maps:** every run's terrain is generated from its seed (`terrain.ts` `setMap`), with the layout rules checked in `npm test`.
 - **Tactical look on the terrain:** the green phosphor HUD is back (monospace, corner-bracket frames, scanlines) over the terrain, which gets a part-green tactical grade and a faint range / bearing grid; NIGHT RAID turns it into a night-vision scope. Phones and tablets get a lighter pipeline (no real-time shadows or bloom, smaller ground texture, capped pixel ratio), and a WebGL failure shows a message instead of a blank page.
 - **Front line, steps 1–5:** the front and widening flank arcs, levels with raids and build windows, the AA MG start with the radar and Patriot as milestones, belt slots with fields of fire, crossfire, support units and unit HP, the coverage overlay (`O`), and Kh-101 cruise missiles with the IRIS-T SLM to stop them.
 
@@ -260,7 +265,7 @@ This section replaces the old `plan-mvp.md`, `plan.md` and `plan-frontline.md`; 
 - [ ] **Level card** at the end of each level: held or lost, what unlocks next, new directions (e.g. "MISSILES MAY NOW COME FROM ±60°"). Today there's only a banner and a log line.
 - [ ] **Build window as its own state:** slow motion, shop open, the build zone highlighted.
 - [ ] **Map polish:** draw the belts as dim dashed arcs and shade enemy territory beyond the front.
-- [ ] **Rebalance** with `npm run balance`. Known issues: FORTRESS (−15% fire rate) is weak with gun-heavy starts, and long runs now die to cruise missiles (LOGISTICS max run dropped from 15:00 to 6:56).
+- [ ] **Rebalance perks** with `npm run balance`: with the late-game surge the bots' runs end between about 30 and 50 minutes, so perks can be compared again.
 
 ### Placement extras
 - [ ] **Tier-3 branch** for guns: at the ZU-23 (the MG's top tier; MANTIS is its own unit), pick *AP rounds* against Mi-28s or *high rate* against swarms.
@@ -276,7 +281,7 @@ This section replaces the old `plan-mvp.md`, `plan.md` and `plan-frontline.md`; 
 - `sim.ts` never touches rendering; `render.ts` and `hud.ts` only read state. No per-frame allocation of meshes or DOM.
 - The daily op must stay deterministic: every spawn source draws from its own seeded stream.
 - Every off-axis attack is telegraphed with a warning and bearing. Players should lose to gaps in their cover, not to surprises.
-- Auto-place and the balance bots use the same `bestSpot()`, so the bots test real layouts. Where you can build comes from `terrain.ts`, which the sim reads too: it stays pure (no Three.js) and the same every run.
+- Auto-place and the balance bots use the same `bestSpot()`, so the bots test real layouts. Where you can build comes from `terrain.ts`, which the sim reads too: it stays pure (no Three.js) and the map is a function of the run's seed alone (its own random stream, so it never shifts the enemy schedule).
 - Keep the game runnable after every step. `npm test` and `npm run build` stay green, and new mechanics get cases in `sim.check.ts` and `balance.ts`.
 
 ## Project layout
@@ -284,7 +289,7 @@ This section replaces the old `plan-mvp.md`, `plan.md` and `plan-frontline.md`; 
 ```
 src/config.ts     every tunable number: enemies, weapons, upgrades, perks, difficulty
 src/sim.ts        pure game state + update(dt), no Three.js (testable in Node)
-src/terrain.ts    the map: ground types, heights, trees (pure, the sim uses it for building)
+src/terrain.ts    the map, generated from the run's seed: ground types, heights, trees (pure, the sim uses it for building)
 src/terrainPaint.ts paints the map for the 3D ground and the minimap
 src/render.ts     Three.js scene, reads state only
 src/hud.ts        DOM HUD, minimap, shop, overlays
