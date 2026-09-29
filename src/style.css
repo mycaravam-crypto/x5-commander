@@ -140,6 +140,7 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
   background: rgba(0, 10, 4, 0.55); padding: 0 4px; border-left: 1px solid var(--mid); }
 #labels div.on { display: block; }
 #labels div.mk { color: var(--hot); }
+#labels div.na { color: var(--alert); font-weight: bold; animation: blink 0.4s infinite alternate; }
 
 #help { bottom: 10px; left: 50%; transform: translateX(-50%); color: var(--mid); font-size: 11px; white-space: nowrap; }
 
