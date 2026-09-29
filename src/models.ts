@@ -118,6 +118,17 @@ export function enemyGeos(): Record<EnemyKind, THREE.BufferGeometry> {
         ...[-0.25, 0, 0.15].map(x => box(0.03, 0.16, 0.03, x, 0.22, s * 0.3)), // antenna blades
       ]),
     ),
+    // 9M120 Ataka: slim tube, pop-out cruciform wings at the tail.
+    atgm: merge(
+      tube(0.09, 0.09, 1.1, -0.1), nose(0.09, 0.3, 0.45),
+      ...[Math.PI / 4, -Math.PI / 4].map(a => wing([[-0.35, 0], [-0.5, 0.35], [-0.62, 0.35], [-0.62, 0]], 0.02).rotateX(a)),
+    ),
+    // KAB-500 with the UMPK kit: fat bomb body, long straight wings unfolded on top, X tail.
+    kab: merge(
+      tube(0.17, 0.17, 0.9, -0.05, 0, 0, 8), nose(0.17, 0.35, 0.4, 0, 8), tube(0.17, 0.08, 0.3, -0.65, 0, 0, 8),
+      box(0.3, 0.06, 0.12, 0, 0.18), wing([[0.08, 0], [0.04, 0.8], [-0.08, 0.8], [-0.08, 0]], 0.02, 0.22),
+      ...[Math.PI / 4, -Math.PI / 4].map(a => wing([[-0.55, 0], [-0.72, 0.36], [-0.8, 0.36], [-0.8, 0]], 0.02).rotateX(a)),
+    ),
   };
 }
 

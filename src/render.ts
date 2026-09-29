@@ -4,7 +4,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { ARENA_R, BASE_R, ENEMIES, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, SLOTS, slotXZ, FANS, GUNS, type EnemyKind } from './config.ts';
+import { ARENA_R, BASE_R, ENEMIES, MUNITIONS, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, SLOTS, slotXZ, FANS, GUNS, type EnemyKind } from './config.ts';
 import { enemyGeos, ROTORS, rotorPts } from './models.ts';
 import { emitting, focusBearing, flankArc, radarRange, radarSector, freeSlots, bestSlot, coverage, padStats, phase, shownKind, visible, type Shot, type State } from './sim.ts';
 
@@ -480,7 +480,7 @@ export function createRenderer() {
     bl.x[i] = x; bl.z[i] = z; bl.r[i] = r; bl.life[i] = bl.max[i] = life;
   }
 
-  const KILL_SHARDS: Record<EnemyKind, number> = { swarm: 3, scout: 4, drone: 6, tank: 12, elite: 20, decoy: 4, arm: 5, ew: 12, tbm: 10, cruise: 6 };
+  const KILL_SHARDS: Record<EnemyKind, number> = { swarm: 3, scout: 4, drone: 6, tank: 12, elite: 20, decoy: 4, arm: 5, ew: 12, tbm: 10, cruise: 6, atgm: 3, kab: 8 };
   function consume(s: State) {
     for (const e of s.events) {
       switch (e.k) {
@@ -519,6 +519,7 @@ export function createRenderer() {
         case 'arm': wave(e.x, e.z, 6, ALERT, 0.8, 1.5); break;
         case 'tbm': wave(e.x, e.z, 4, ALERT, 0.6); break;
         case 'cruise': wave(e.x, e.z, 4, ALERT, 0.6); break;
+        case 'release': wave(e.x, e.z, 2.5, ALERT, 0.4); break;
         case 'jam': wave(e.x, e.z, 8, ALERT, 1.2); break;
         case 'ident': wave(e.x, e.z, 3, MID, 0.4); break;
         case 'acquire': wave(e.x, e.z, 3.5, HOT, 0.25, 0.8); break; // brackets snap on
@@ -655,11 +656,12 @@ export function createRenderer() {
       if (e.kind === 'elite') b *= Math.sin(clock * 20 + e.id) > 0 ? 1 : 0.2; // hard strobe
       if (k === 'decoy') b *= 0.35; // classified: a ghost
       if (k === 'tbm') b *= Math.sin(clock * 30 + e.id) > 0 ? 1.4 : 0.5; // fast strobe
-      const col = k === 'arm' || k === 'tbm' || k === 'cruise' ? ALERT : e.locked ? HOT : BRIGHT; // missiles on the battery are amber
+      const col = MUNITIONS.includes(k) ? ALERT : e.locked ? HOT : BRIGHT; // missiles and bombs on the battery are amber
       const sz = e.size * VIS;
       dummy.position.set(e.x, sz * 0.6, e.z);
-      // Nose along the flight path; FPVs rock as they jink.
-      dummy.rotation.set(k === 'swarm' ? 0.25 * Math.sin(clock * 9 + e.id) : 0, -Math.atan2(e.vz, e.vx), 0);
+      // Nose along the flight path; FPVs rock as they jink, divers pitch down, helicopters dip the nose flying in.
+      const pitch = e.act === 'dive' ? -0.6 : (k === 'tank' || k === 'ew') && e.act !== 'hover' && !e.orbit ? -0.15 : 0;
+      dummy.rotation.set(k === 'swarm' ? 0.25 * Math.sin(clock * 9 + e.id) : 0, -Math.atan2(e.vz, e.vx), pitch);
       dummy.scale.setScalar(sz);
       dummy.updateMatrix();
       f.setMatrixAt(f.count++, dummy.matrix);
