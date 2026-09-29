@@ -1,4 +1,4 @@
-import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, altitude, buildR } from './config.ts';
+import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, altitude, buildR } from './config.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import type { Records } from './config.ts';
 import { beltOf, cost, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
@@ -6,6 +6,10 @@ import { beltOf, cost, emitting, flankArc, building, selectedPad, padStats, padN
 const $ = (id: string) => document.getElementById(id)!;
 const fmt = (n: number) => Math.floor(n).toLocaleString('en-US');
 const pad3 = (n: number) => String(Math.round(n)).padStart(3, '0');
+// What it's doing, for the threat board and the target card: ETA inbound, or what it's up to instead.
+const doing = (e: Enemy, dp = 0) => e.kind === 'ew' ? (e.orbit ? 'JAMMING' : 'INBOUND')
+  : e.act === 'egress' ? 'EGRESS' : e.act === 'hover' ? 'HOVER · ATGM' : e.act === 'loiter' ? 'LOITER'
+  : `ETA ${Math.max(0, (Math.hypot(e.x, e.z) - BASE_R) / e.speed).toFixed(dp)}s${e.act === 'dive' ? ' DIVE' : ''}`;
 const tag = (e: Enemy) => `TN${pad3(e.id % 1000)} ${ENEMIES[shownKind(e)].code}`; // track number + type
 const rgba = (c: number, a = 1) => `rgba(${c >> 16},${c >> 8 & 255},${c & 255},${a})`;
 const BOOT = ['PATRIOT BATTERY X5 EMPLACED', 'EPP-III POWER ..... OK', 'AN/MPQ-65 RADIATING', 'ECS FIRE CONTROL .. OK', 'PAC-3 MSE ON THE RAIL', 'WEAPONS FREE'];
@@ -243,7 +247,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     for (const e of s.enemies) {
       if (!visible(s, e)) continue;
       const x = px(e.x, e.z), y = py(e.x, e.z), r = 2 + e.size;
-      g.fillStyle = e.ided ? '#999' : e.kind === 'arm' || e.kind === 'tbm' || e.kind === 'cruise' ? rgba(PAL.alert) : '#ff4d3a';
+      g.fillStyle = e.ided ? '#999' : MUNITIONS.includes(e.kind) ? rgba(PAL.alert) : '#ff4d3a';
       g.beginPath(); g.arc(x, y, r / 2, 0, TAU); g.fill();
       if (e.locked) { g.strokeStyle = e.id === s.marked ? '#fff' : rgba(PAL.hot); g.strokeRect(x - r, y - r, r * 2, r * 2); }
     }
@@ -320,7 +324,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   // Urgency: damage it would do over the time it needs to get here. Jammers and ARMs rank by what they do instead.
   const urgency = (e: Enemy) => {
     const k = shownKind(e), d = Math.hypot(e.x, e.z), eta = Math.max(0.5, (d - BASE_R) / e.speed);
-    return k === 'ew' ? (e.orbit ? 4 : 1) : k === 'arm' ? 30 / eta : ENEMIES[k].dmg / eta;
+    return e.act === 'egress' ? 0.1 : k === 'ew' ? (e.orbit ? 4 : 1) : k === 'arm' ? 30 / eta : e.act === 'hover' ? ENEMIES[k].dmg / 4 : ENEMIES[k].dmg / eta;
   };
   function threatBoard(s: State) {
     const seen = s.enemies.filter(e => visible(s, e) && !e.ided);
@@ -330,7 +334,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const worst = top[0]?.[0] ?? 0;
     const h = !seen.length ? '' : `<small>THREATS · ${seen.length}</small> ${Object.entries(count).sort((a, b) => b[1]! - a[1]!).map(([c, n]) => `${n} ${c}`).join(' · ')}` +
       top.map(([u, e]) => { const d = Math.hypot(e.x, e.z), k = shownKind(e);
-        return `<div class="${u >= worst * 0.6 && u > 2 || k === 'arm' || k === 'tbm' || k === 'cruise' ? 'alert' : ''}${e.id === s.marked ? ' mk' : ''}">${e.locked ? '◆' : '◇'} ${ENEMIES[k].code} ${pad3(bearing(e.x, e.z))}° ${pad3(d)}m${k === 'ew' ? (e.orbit ? ' JAMMING' : '') : ` ETA ${Math.max(0, (d - BASE_R) / e.speed).toFixed(0)}s`}</div>`; }).join('');
+        return `<div class="${u >= worst * 0.6 && u > 2 || MUNITIONS.includes(k) ? 'alert' : ''}${e.id === s.marked ? ' mk' : ''}">${e.locked ? '◆' : '◇'} ${ENEMIES[k].code} ${pad3(bearing(e.x, e.z))}° ${pad3(d)}m ${doing(e)}</div>`; }).join('');
     if (h !== threatHtml) { threatHtml = h; threatEl.innerHTML = h; }
   }
 
@@ -417,7 +421,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     if (blindEl.innerHTML !== bl) blindEl.innerHTML = bl;
     const m = s.marked ? s.enemies.find(e => e.id === s.marked) : undefined;
     const d = m ? Math.hypot(m.x, m.z) : 0;
-    $('target').innerHTML = m ? `<b>${tag(m)}</b><br>${ENEMIES[shownKind(m)].name}<br>BRG ${pad3(bearing(m.x, m.z))} · RNG ${pad3(d)}m · ETA ${Math.max(0, (d - BASE_R) / m.speed).toFixed(1)}s<br>HP ${fmt(Math.max(0, m.hp))} / ${fmt(m.maxHp)}<b class="seg" style="--r:${Math.max(0, m.hp / m.maxHp)}"></b>` : '';
+    $('target').innerHTML = m ? `<b>${tag(m)}</b><br>${ENEMIES[shownKind(m)].name}<br>BRG ${pad3(bearing(m.x, m.z))} · RNG ${pad3(d)}m · ${doing(m, 1)}<br>HP ${fmt(Math.max(0, m.hp))} / ${fmt(m.maxHp)}<b class="seg" style="--r:${Math.max(0, m.hp / m.maxHp)}"></b>` : '';
     const hint = suggest(s);
     buyable = 0;
     for (const [id, b] of rows) {
@@ -497,7 +501,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       for (const e of s.events) {
         if (e.k === 'kill') {
           if (e.n) pop(project, e.x, e.z, `+${e.n}`, '');
-          if (e.kind === 'arm' || e.kind === 'tbm' || e.kind === 'cruise') log(`${ENEMIES[e.kind].code} INTERCEPTED BRG ${pad3(bearing(e.x, e.z))}`);
+          if (MUNITIONS.includes(e.kind!) && e.kind !== 'atgm') log(`${ENEMIES[e.kind!].code} INTERCEPTED BRG ${pad3(bearing(e.x, e.z))}`);
           else if (e.kind === 'ew') { say('JAMMER DOWN', 'info'); log(`JAMMER DOWN BRG ${pad3(bearing(e.x, e.z))} · SECTOR CLEAR`); }
           else if (e.kind === 'elite') log('SU-34 SPLASHED');
         }
@@ -513,6 +517,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
           log(`CRUISE MISSILE BRG ${pad3(bearing(e.x, e.z))} · TARGET ${u ? `${padName(u)} ${pad3(bearing(u.x, u.z))}°` : 'BATTERY'}`, 'alert');
           if (s.t - cruiseSaid > 4) { cruiseSaid = s.t; say('⚠ CRUISE MISSILE · IT GOES FOR YOUR UNITS', 'warn'); }
         }
+        else if (e.k === 'release') log(e.kind === 'kab' ? `SU-34 GLIDE BOMB RELEASE BRG ${pad3(bearing(e.x, e.z))}` : `MI-28 ATGM LAUNCH BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
+        else if (e.k === 'egress') log(`${ENEMIES[e.kind!].code} EGRESSING BRG ${pad3(bearing(e.x, e.z))}`);
         else if (e.k === 'tbm') { log(`BALLISTIC LAUNCH BRG ${pad3(bearing(e.x, e.z))}`, 'alert'); if (s.t - tbmSaid > 4) { tbmSaid = s.t; say('⚠ BALLISTIC MISSILE · PAC-3 ONLY', 'warn'); } }
         else if (e.k === 'radarDown') { say('⚠ RADAR HIT', 'warn'); log(`MPQ-65 HIT · OFFLINE ${(s.radarDownUntil - s.t).toFixed(0)}s`, 'alert'); }
         else if (e.k === 'radarMode') { acc = 1; const M = radarMode(s); log(`RADAR ${M.name} · RNG ${Math.round(radarRange(s))}m${M.lpi ? ' · ARMS BLIND >15m' : M.sector ? ' · ARM EXPOSURE HIGH' : ''}`, M.sector ? 'alert' : ''); }

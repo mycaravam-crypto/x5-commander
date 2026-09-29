@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
 import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State } from './sim.ts';
-import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC } from './config.ts';
+import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, HELO, LANCET } from './config.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
 const rng = { seed: 12345 };
@@ -63,7 +63,7 @@ ok((s.phase as string) === 'over', 'idle base eventually falls');
 s = quiet(); s.lv.aesa = 1; s.st = deriveStats(s.lv, []);
 for (let i = 0; i < 8; i++) spawnEnemy(s, 'tank', i / 8 * Math.PI * 2, 30).hp = 1e9;
 s.st.slots = 0;
-{ const seen = new Set<number>(); run(s, 12, () => { for (const e of s.enemies) if (visible(s, e)) seen.add(e.id); });
+{ const seen = new Set<number>(); run(s, 12, () => { for (const e of s.enemies) if (e.kind === 'tank' && visible(s, e)) seen.add(e.id); }); // not the ATGMs they fire
   ok(seen.size === 8, `AESA detects all round (${seen.size}/8)`); }
 
 // Iskander: only PAC-3 can touch it.
@@ -411,6 +411,39 @@ let armSeen = false;
 run(s, 5, () => { armSeen ||= s.enemies.some(e => e.kind === 'arm'); });
 ok(armSeen, 'Su-34 fires ARMs');
 
+// Each type flies like what it is.
+{
+  // Mi-28: stops at standoff, hovers firing ATGMs, then goes home without ever reaching the battery.
+  const g = quiet(); g.st.slots = 0; g.st.maxHp = g.hp = 1e9;
+  const h = spawnEnemy(g, 'tank', 0, 40); h.hp = 1e9;
+  let atgms = 0, closest = 99, hovered = false;
+  run(g, 60, () => {
+    atgms += g.events.filter(v => v.k === 'release' && v.kind === 'atgm').length;
+    if (g.enemies.includes(h)) { closest = Math.min(closest, Math.hypot(h.x, h.z)); hovered ||= h.act === 'hover'; }
+  });
+  ok(hovered && atgms === HELO.ammo && closest > HELO.standoff - 2 && !g.enemies.includes(h) && g.hp < g.st.maxHp, `Mi-28 hovers at standoff, fires its ATGMs and leaves (${atgms}, ${closest.toFixed(1)}m)`);
+  // Su-34: releases a glide bomb from standoff and turns for home; the bomb does the damage.
+  const q = quiet(); q.st.slots = 0; q.st.maxHp = q.hp = 1e9; toggleEmcon(q);
+  const su = spawnEnemy(q, 'elite', 0, 50); su.hp = 1e9;
+  let kab = false, egress = false;
+  run(q, 40, () => { kab ||= q.enemies.some(e => e.kind === 'kab'); egress ||= su.act === 'egress'; });
+  ok(kab && egress && !q.enemies.includes(su) && q.hp < q.st.maxHp && q.stats.kills.elite === undefined, 'Su-34 lobs a glide bomb and egresses');
+  // Lancet: circles out at LANCET.loiter searching, then dives.
+  const l = quiet(); l.st.slots = 0;
+  const la = spawnEnemy(l, 'scout', 0, 35); la.hp = 1e9;
+  const acts = new Set<string>();
+  run(l, 5 + LANCET.time, () => { if (l.enemies.includes(la)) acts.add(la.act); });
+  ok(acts.has('loiter') && acts.has('dive') && !l.enemies.includes(la), 'a Lancet loiters, then dives on the battery');
+  // Shahed: a steep, faster dive at the end.
+  const d = quiet(); const sh = spawnEnemy(d, 'drone', 0, 30); sh.hp = 1e9; const v0 = sh.speed; let vmax = 0;
+  run(d, 8, () => { if (d.enemies.includes(sh)) vmax = Math.max(vmax, Math.hypot(sh.vx, sh.vz)); });
+  ok(vmax > v0 * 1.5, 'a Shahed dives on the battery');
+  // Kh-101: routed off its launch bearing through a dogleg.
+  const c = quiet(); const cm = spawnEnemy(c, 'cruise', 0, 40); cm.hp = 1e9; let off = 0;
+  run(c, 3, () => { off = Math.max(off, Math.abs(Math.atan2(cm.z, cm.x))); });
+  ok(off > 0.3, 'a cruise missile flies a dogleg');
+}
+
 // Decoy: locked, classified, released, never locked again, harmless on arrival.
 s = quiet(); spawnEnemy(s, 'decoy', 0, 30); s.enemies[0].hp = 1e9;
 let ided = false, relocked = false;
@@ -464,7 +497,7 @@ ok(raidRun(0).includes('raidLeak'), 'leaked raid does not');
   for (let i = 0; i < 400 * 60 && stages < 2; i++) {
     const n = g.nextId, was = building(g);
     update(g, 1 / 60);
-    if (was && building(g) && g.enemies.some(e => e.id >= n && e.kind !== 'arm')) quietBuild = false;
+    if (was && building(g) && g.enemies.some(e => e.id >= n && !['arm', 'atgm', 'kab'].includes(e.kind))) quietBuild = false; // what aircraft still up fire is not a new contact
     for (const e of g.events) if (e.k === 'stage') { stages++; t0 = g.t; }
     g.events.length = 0;
   }
@@ -508,7 +541,7 @@ ok(raidRun(0).includes('raidLeak'), 'leaked raid does not');
   const off = (e: { x: number; z: number }) => Math.abs(((Math.atan2(e.z, e.x) - FRONT + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI);
   let seen = g.nextId, front = 0, wide = 0, early = 0;
   run(g, 900, () => {
-    for (const e of g.enemies) if (e.id >= seen && e.kind !== 'arm') {
+    for (const e of g.enemies) if (e.id >= seen && !['arm', 'atgm', 'kab'].includes(e.kind)) { // launched where their aircraft are
       if (ENEMIES[e.kind].flank) { ok(off(e) < flankArc(g.stage) + 0.2, `${e.kind} inside the flank arc`); if (off(e) > FRONT_ARC + 0.2) wide++; }
       else { ok(off(e) < FRONT_ARC + 0.2, `${e.kind} comes from the front (${off(e).toFixed(2)} rad)`); front++; }
       if (g.stage < 3) { ok(off(e) < FRONT_ARC + 0.2, `nothing off the front early (${e.kind} at ${g.t.toFixed(0)}s)`); early++; }

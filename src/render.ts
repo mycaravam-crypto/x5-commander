@@ -5,10 +5,11 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { ARENA_R, BASE_R, BUILD_MIN, ENEMIES, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, FANS, GUNS, MG_TIERS, PERIM, PAD_HP, altitude, buildR, type EnemyKind, type PerimKind } from './config.ts';
+import { ARENA_R, BASE_R, BUILD_MIN, ENEMIES, MUNITIONS, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, FANS, GUNS, MG_TIERS, PERIM, PAD_HP, altitude, buildR, type EnemyKind, type PerimKind } from './config.ts';
 import { emitting, focusBearing, flankArc, radarRange, radarSector, bestSpot, spotNear, selectedPad, coverage, padStats, phase, shownKind, visible, type Shot, type State } from './sim.ts';
 import { heightSampler, treeList, ROCKS, WATER_Y } from './terrain.ts';
 import { paintTerrain } from './terrainPaint.ts';
+import { enemyGeos, ROTORS } from './models.ts';
 
 const MAX_ENEMIES = 2000, MAX_LOCKS = 64, MAX_SHOTS = 600, MAX_SHARDS = 2500, MAX_WAVES = 64, MAX_BEAMS = 3000, MAX_FRONTS = 48, MAX_BLIPS = 1024, MAX_PUFFS = 600;
 const VIS = 1.6; // enemies drawn bigger than their hitbox so they read at a glance
@@ -64,38 +65,11 @@ const drape = (pts: number[], lift = 0.12) => {
 const arcPts = (r: number, a0: number, a1: number, n: number, cx = 0, cz = 0) =>
   Array.from({ length: n + 1 }, (_, i) => { const a = a0 + (a1 - a0) * i / n; return [cx + Math.cos(a) * r, cz + Math.sin(a) * r]; }).flat();
 
-// ---- enemy models: +x is the nose, about one unit long; merged into one geometry per type ----
-const G = {
-  box: (x: number, y: number, z: number) => new THREE.BoxGeometry(x, y, z),
-  tube: (r: number, len: number, seg = 8) => new THREE.CylinderGeometry(r, r, len, seg).rotateZ(Math.PI / 2), // along x
-  nose: (r: number, len: number) => new THREE.ConeGeometry(r, len, 8).rotateZ(-Math.PI / 2), // points +x
-  delta: (span: number, len: number, t = 0.04) => new THREE.CylinderGeometry(1, 1, t, 3).rotateY(Math.PI / 2).scale(len / 1.5, 1, span / 1.73), // apex +x
-  blob: (x: number, y: number, z: number) => new THREE.SphereGeometry(0.5, 10, 6).scale(x, y, z),
-};
-const at = (g: THREE.BufferGeometry, x = 0, y = 0, z = 0) => g.translate(x, y, z);
-const model = (...parts: THREE.BufferGeometry[]) => mergeGeometries(parts)!;
-const shahed = () => model(G.delta(1.3, 0.9), at(G.tube(0.09, 0.85), -0.05, 0.03), at(G.box(0.18, 0.18, 0.02), -0.35, 0.08, 0.62), at(G.box(0.18, 0.18, 0.02), -0.35, 0.08, -0.62));
-const missile = (r: number, len: number, fin: number) => model(at(G.tube(r, len), -0.1), at(G.nose(r, 0.35), len / 2 + 0.07),
-  at(G.box(0.2, fin, 0.02), -len / 2), at(G.box(0.2, 0.02, fin), -len / 2));
-const heli = (len: number, w: number) => model(G.blob(len * 0.55, w, w), at(G.tube(0.07, len * 0.7), -len * 0.55), at(G.box(0.25, 0.4, 0.03), -len * 0.9, 0.15),
-  at(G.box(0.3, 0.05, w * 1.7), 0, -0.05));
-const GEOS: Record<EnemyKind, THREE.BufferGeometry> = {
-  scout: model(at(G.tube(0.08, 1.1), -0.05), at(G.nose(0.08, 0.25), 0.62), at(G.box(0.22, 0.02, 0.9).rotateX(Math.PI / 4), 0.15), at(G.box(0.22, 0.02, 0.9).rotateX(-Math.PI / 4), 0.15),
-    at(G.box(0.2, 0.02, 0.7).rotateX(Math.PI / 4), -0.45), at(G.box(0.2, 0.02, 0.7).rotateX(-Math.PI / 4), -0.45)),
-  drone: shahed(),
-  decoy: shahed(), // same as the Shahed; only drawn apart once classified
-  swarm: model(G.box(0.34, 0.12, 0.24), G.box(1, 0.04, 0.06).rotateY(Math.PI / 4), G.box(1, 0.04, 0.06).rotateY(-Math.PI / 4),
-    ...[[0.35, 0.35], [0.35, -0.35], [-0.35, 0.35], [-0.35, -0.35]].map(([x, z]) => at(new THREE.CylinderGeometry(0.17, 0.17, 0.02, 10), x, 0.05, z))),
-  tank: heli(1.1, 0.42),
-  ew: model(heli(1.4, 0.55), at(G.box(0.4, 0.2, 0.9), 0.1, -0.1)),
-  elite: model(at(G.tube(0.12, 1.3), -0.05), at(G.nose(0.12, 0.45), 0.82), at(G.delta(1.5, 1), -0.2), at(G.delta(0.6, 0.35), -0.6, 0.02),
-    at(G.box(0.3, 0.35, 0.03).rotateX(0.25), -0.6, 0.2, 0.12), at(G.box(0.3, 0.35, 0.03).rotateX(-0.25), -0.6, 0.2, -0.12)),
-  arm: missile(0.07, 1.3, 0.35),
-  tbm: missile(0.13, 1.8, 0.4),
-  cruise: model(at(G.tube(0.08, 1.3), -0.05), at(G.nose(0.08, 0.3), 0.72), at(G.box(0.18, 0.02, 1)), at(G.box(0.18, 0.25, 0.02), -0.6, 0.12)),
-};
+// ---- enemy models (models.ts): +x is the nose; flat-shaded so the lit airframes read from above ----
+const GEOS = enemyGeos();
+for (const g of Object.values(GEOS)) g.computeVertexNormals();
 const KIND_COL: Record<EnemyKind, number> = {
-  scout: 0x6d7064, drone: 0x5f625b, decoy: 0x5f625b, swarm: 0x2e2f2c, tank: 0x4d5a3c, ew: 0x5a6446, elite: 0x7b8792, arm: 0xe2dfd4, tbm: 0xd6d6cb, cruise: 0xbabdb5,
+  scout: 0x6d7064, drone: 0x5f625b, decoy: 0x5f625b, swarm: 0x2e2f2c, tank: 0x4d5a3c, ew: 0x5a6446, elite: 0x7b8792, arm: 0xe2dfd4, tbm: 0xd6d6cb, cruise: 0xbabdb5, atgm: 0xd8d4c4, kab: 0x55584e,
 };
 
 const GRADE = {
@@ -488,7 +462,7 @@ export function createRenderer() {
 
   // ---- instanced pools ----
   // Enemies: lit models, tinted per type; a faint stalk and ring drop to the ground under each so you can read where it is.
-  const enemyMat = new THREE.MeshLambertMaterial();
+  const enemyMat = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide });
   const enemyMeshes = {} as Record<EnemyKind, THREE.InstancedMesh>;
   for (const k of KINDS) { const m = enemyMeshes[k] = instanced(GEOS[k], enemyMat, MAX_ENEMIES); m.castShadow = true; scene.add(m); }
   const rotors = faded(new THREE.CylinderGeometry(1, 1, 0.02, 20), MAX_ENEMIES, 0.35);
@@ -646,7 +620,7 @@ export function createRenderer() {
     bl.x[i] = x; bl.z[i] = z; bl.r[i] = r; bl.life[i] = bl.max[i] = life;
   }
 
-  const KILL_SHARDS: Record<EnemyKind, number> = { swarm: 4, scout: 6, drone: 8, tank: 16, elite: 24, decoy: 5, arm: 6, ew: 16, tbm: 12, cruise: 8 };
+  const KILL_SHARDS: Record<EnemyKind, number> = { swarm: 4, scout: 6, drone: 8, tank: 16, elite: 24, decoy: 5, arm: 6, ew: 16, tbm: 12, cruise: 8, atgm: 3, kab: 10 };
   function consume(s: State) {
     for (const e of s.events) {
       switch (e.k) {
@@ -689,6 +663,7 @@ export function createRenderer() {
         case 'level': gwave(0, 0, 40, 0xffe9a8, 1.2, 1.2); gwave(0, 0, 25, 0xffffff, 0.9); groundFlash = 0.4; break;
         case 'warning': gwave(0, 0, ARENA_R, ALERT, 1.5, 1.5); break;
         case 'arm': case 'tbm': case 'cruise': wave(e.x, groundY(e.x, e.z) + altitude(e.k as EnemyKind, e.x, e.z), e.z, e.k === 'arm' ? 6 : 4, ALERT, 0.8, 1.5); break;
+        case 'release': wave(e.x, airY(s, e.x, e.z), e.z, 2.5, ALERT, 0.4, 1.2); break;
         case 'jam': gwave(e.x, e.z, 8, ALERT, 1.2); break;
         case 'ident': gwave(e.x, e.z, 3, 0xcccccc, 0.4); break;
         case 'acquire': wave(e.x, airY(s, e.x, e.z), e.z, 3.5, C.friend, 0.25, 1.2); break; // brackets snap on
@@ -879,19 +854,22 @@ export function createRenderer() {
       const pos = ePos[ne++ % MAX_ENEMIES]; pos.x = e.x; pos.z = e.z; pos.y = y; byId.set(e.id, pos);
       const fade = e.locked ? 1 : Math.max(0.35, Math.min(1, (e.seenUntil - s.t) / 1.5));
       const heading = Math.atan2(e.vz, e.vx);
-      const pitch = e.kind === 'tbm' ? -0.9 : 0, bank = Math.sin(clock * 2 + e.wob) * 0.25 * ENEMIES[e.kind].wobble / 3;
+      // Nose along the flight path: divers and the Iskander pitch down, helicopters dip the nose flying in, FPVs rock as they jink.
+      const pitch = e.kind === 'tbm' ? -0.9 : e.act === 'dive' ? -0.6 : (k === 'tank' || k === 'ew') && e.act !== 'hover' && !e.orbit ? -0.15 : 0;
+      const bank = k === 'swarm' ? 0.25 * Math.sin(clock * 9 + e.id) : Math.sin(clock * 2 + e.wob) * 0.25 * ENEMIES[e.kind].wobble / 3;
       dummy.position.set(e.x, y, e.z);
       dummy.rotation.set(bank, -heading, pitch, 'YXZ');
       dummy.scale.setScalar(sz);
       dummy.updateMatrix();
       m.setMatrixAt(m.count, dummy.matrix);
       m.setColorAt(m.count++, tmpC.setHex(k === 'decoy' ? 0x9a9a9a : KIND_COL[k]).multiplyScalar(0.6 + 0.4 * fade));
-      if (k === 'tank' || k === 'ew') { // rotor disc
-        dummy.position.set(e.x, y + sz * 0.32, e.z); dummy.rotation.set(0, clock * 20, 0); dummy.scale.set(sz * 0.8, 1, sz * 0.8); dummy.updateMatrix();
+      const rotor = ROTORS[k];
+      if (rotor) { // spinning main rotor disc
+        dummy.position.set(e.x, y + rotor.y * sz, e.z); dummy.rotation.set(0, clock * 20, 0); dummy.scale.set(rotor.r * sz, 1, rotor.r * sz); dummy.updateMatrix();
         rotors.setMatrixAt(rotors.count, dummy.matrix); rotors.setColorAt(rotors.count, tmpC.setHex(0x222222)); rf.setX(rotors.count++, 0.8);
       }
       // Stalk and ground ring: red for a threat, amber for a missile on the battery, grey for a classified decoy.
-      const tc = k === 'decoy' ? 0x999999 : e.kind === 'arm' || e.kind === 'tbm' || e.kind === 'cruise' ? ALERT : C.threat;
+      const tc = k === 'decoy' ? 0x999999 : MUNITIONS.includes(e.kind) ? ALERT : C.threat;
       dummy.position.set(e.x, gy + 0.1, e.z); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, Math.max(0.01, alt - 0.1), 1); dummy.updateMatrix();
       stalks.setMatrixAt(stalks.count, dummy.matrix); stalks.setColorAt(stalks.count, tmpC.setHex(tc)); sf.setX(stalks.count++, 0.6 * fade);
       dummy.position.set(e.x, gy + 0.15, e.z); dummy.scale.setScalar(sz * 0.45); dummy.updateMatrix();
