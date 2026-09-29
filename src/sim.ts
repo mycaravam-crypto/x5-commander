@@ -1,9 +1,10 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, LEVEL_LEN, BUILD_TIME, BUILD_LOST, ELITE_FROM, PK_GROW, PK_MAX,
   ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, FANS, beltAt, buildR, BUILD_MIN, PAD_GAP, START_PAD, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty, BACKUP_RADAR,
+  DROPS, DROP_KINDS, DROP_LIFE, DROP_GRAB, DROP_MAX, DROP_HEAVY, CACHE, REPAIR_DROP, OVERDRIVE, MILESTONE, rank,
   RADAR_MODES, CRUISE_LOW, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   DIVE_SPEED, SHAHED_DIVE, LANCET, HELO, KAB_R, KAB_PAIR, EGRESS_SPEED, TBM_TERMINAL, CRUISE_DOGLEG, MUNITIONS,
-  type EnemyKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
+  type EnemyKind, type DropKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
 } from './config.ts';
 import { ground } from './terrain.ts';
 
@@ -39,11 +40,15 @@ export type Ev =
   | { k: 'raidStart'; x: number; z: number; name: string }
   | { k: 'raidClear' | 'raidLeak' | 'raidEnd' | 'build'; n: number }
   | { k: 'stage'; name: string }
+  | { k: 'upgrade'; id: string; n: number; star: boolean } // n: the upgrade's new level; star: it reached a new rank
+  | { k: 'drop'; x: number; z: number; drop: DropKind }
+  | { k: 'pickup'; x: number; z: number; drop: DropKind; n: number; id: string } // n: credits (cache); id: upgrade (tech)
   | { k: 'intercept'; x: number; z: number }
   | { k: 'padHit' | 'padDown' | 'padUp' | 'padSold' | 'padMoved'; x: number; z: number; n: number; kind: PerimKind }
   | { k: 'level' | 'warning' | 'buy' | 'placing' | 'lock' | 'over' | 'emcon' | 'radarDown' | 'aesa' | 'radarOnline' | 'pac3' | 'discipline' | 'radarMode' | 'killChain' | 'counterSead' | 'lastStand' };
 
 export type Phase = 'start' | 'play' | 'pause' | 'perk' | 'over';
+export interface Drop { id: number; k: DropKind; x: number; z: number; until: number; v: number } // v: the kill's reward (a cache scales with it)
 export interface Pad { k: PerimKind; x: number; z: number; a: number; slot: number; cd: number; belt: number; hp: number; tier: number; paid: number; down: boolean }
 
 // mulberry32: tiny seeded PRNG, so a seed replays the same schedule (daily op, tests).
@@ -90,6 +95,8 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     sweepSpeed: 0, // effective, after power throttling
     enemies: [] as Enemy[],
     shots: [] as Shot[],
+    drops: [] as Drop[], // salvage on the ground, waiting for a click
+    overdriveUntil: 0, // OVERDRIVE drop: fire rate up until then
     // Emplacements. a: facing (away from the base); belt: MG rounds left; tier: upgrades in place; paid: credits
     // sunk into it (for a sale); down: knocked out until repaired to half.
     perim: [] as Pad[],
@@ -117,7 +124,7 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     // The raid in the air: its id, aircraft left, objective still held, reward so far, bearing, objective, name.
     raidId: 0, raidLeft: 0, raidClean: true, raidReward: 0, raidA: 0, raidObj: 'battery' as RaidObjective, raidName: '',
     // debrief counters
-    stats: { kills: {} as Partial<Record<EnemyKind, number>>, dmg: {} as Record<string, number>, raids: 0, clean: 0, armsEvaded: 0, radarHits: 0 },
+    stats: { kills: {} as Partial<Record<EnemyKind, number>>, dmg: {} as Record<string, number>, raids: 0, clean: 0, armsEvaded: 0, radarHits: 0, drops: 0, recovered: 0 },
     mode: 0,
     marked: 0,
     discipline: 1, // index into DISCIPLINES, BALANCED
@@ -217,10 +224,16 @@ export function buy(s: State, id: string) {
     s.placing = { k: id as PerimKind, since: s.t, paid: c };
     s.events.push({ k: 'placing' });
   }
-  s.events.push({ k: 'buy' });
+  const n = s.lv[id], u = UPGRADES.find(u => u.id === id)!;
+  s.events.push({ k: 'upgrade', id, n, star: u.max === Infinity && !PERIM_KINDS.includes(id as PerimKind) && n % MILESTONE === 0 });
   purchased(s);
   return true;
 }
+// Buys to the next rank of an open-ended upgrade (0 when it has no ranks).
+export const toRank = (s: State, id: string) => {
+  const u = UPGRADES.find(u => u.id === id)!, n = s.lv[id] ?? 0;
+  return u.max === Infinity && !PERIM_KINDS.includes(id as PerimKind) ? (rank(n) + 1) * MILESTONE - n : 0;
+};
 // Every purchase counts toward the base level (upgrades in place too).
 function purchased(s: State) {
   const lvl = baseLevel(s.bought), up = lvl > s.level;
@@ -288,7 +301,7 @@ const nearAmmo = (s: State, p: Pad) => s.perim.some(q => q.k === 'ammo' && up(q)
 // What a unit fires with right now: its tier, the battery's weapon upgrades and perks, an ammo point in reach.
 export function padStats(s: State, p: Pad) {
   const w = p.k === 'mg' ? MG_TIERS[p.tier] : PERIM[p.k];
-  return { ...w, dmg: w.dmg * s.st.padDmg, rate: w.rate * s.st.padRate * (nearAmmo(s, p) ? AMMO_RATE : 1) };
+  return { ...w, dmg: w.dmg * s.st.padDmg, rate: w.rate * s.st.padRate * (nearAmmo(s, p) ? AMMO_RATE : 1) * (overdrive(s) ? OVERDRIVE.rate : 1) };
 }
 // A cruise missile goes for the unit you've sunk the most into (the nearest of equals), or the base if there's none.
 export function cruiseTarget(s: State, e: { x: number; z: number }) {
@@ -389,6 +402,53 @@ export function sellPad(s: State) {
   s.events.push({ k: 'padSold', x: p.x, z: p.z, n, kind: p.k });
   return true;
 }
+
+// ---------- salvage ----------
+
+// A kill of `kind` at (x, z) may leave salvage. `r` is the roll (Math.random: play decides kills, so this can't
+// be allowed near the seeded streams).
+export function rollDrop(s: State, kind: EnemyKind, x: number, z: number, r = Math.random) {
+  if (r() >= ENEMIES[kind].drop || s.drops.length >= DROP_MAX) return undefined;
+  const heavy = ENEMIES[kind].reward >= DROP_HEAVY, w = (k: DropKind) => DROPS[k].w * (heavy ? DROPS[k].heavy : 1);
+  let t = r() * DROP_KINDS.reduce((a, k) => a + w(k), 0), k: DropKind = 'cache';
+  for (const d of DROP_KINDS) { t -= w(d); if (t <= 0) { k = d; break; } }
+  return spawnDrop(s, k, x, z, ENEMIES[kind].reward);
+}
+export function spawnDrop(s: State, k: DropKind, x: number, z: number, v = 10) {
+  const d: Drop = { id: ++s.stats.drops, k, x, z, until: s.t + DROP_LIFE, v }; // own counter: enemy ids stay as they were
+  s.drops.push(d);
+  s.events.push({ k: 'drop', x, z, drop: k });
+  return d;
+}
+// Open-ended upgrades SALVAGED TECH can hand out: owned or buyable right now, never a pad.
+export const techPool = (s: State) => UPGRADES.filter(u => u.max === Infinity && !PERIM_KINDS.includes(u.id as PerimKind) && !lockReason(s, u.id)).map(u => u.id);
+// Click near salvage: recover it. Returns whether anything was picked up.
+export function collectDrop(s: State, x: number, z: number) {
+  if (s.phase !== 'play') return false;
+  let best: Drop | undefined, bd = DROP_GRAB * DROP_GRAB;
+  for (const d of s.drops) { const dd = (d.x - x) ** 2 + (d.z - z) ** 2; if (dd < bd) { bd = dd; best = d; } }
+  if (!best) return false;
+  s.drops.splice(s.drops.indexOf(best), 1);
+  s.stats.recovered++;
+  let n = 0, id = '';
+  switch (best.k) {
+    case 'cache': n = Math.round((CACHE.flat + CACHE.reward * best.v) * s.st.credits); s.credits += n; s.earned += n; break;
+    case 'ammo': s.ammo = s.st.ammoCap; break;
+    case 'power': s.power = s.st.powerCap; break;
+    case 'repair': s.hp = Math.min(s.st.maxHp, s.hp + s.st.maxHp * REPAIR_DROP); for (const p of s.perim) { p.hp = PAD_HP; p.down = false; } break;
+    case 'overdrive': s.overdriveUntil = Math.max(s.overdriveUntil, s.t) + OVERDRIVE.time; break;
+    case 'tech': {
+      // A free level: doesn't count toward the base level, like a doctrine's. Nothing open yet: credits instead.
+      const pool = techPool(s);
+      if (pool.length) { id = pool[Math.floor(Math.random() * pool.length)]; s.lv[id] = (s.lv[id] ?? 0) + 1; refreshStats(s); }
+      else { n = Math.round(200 * s.st.credits); s.credits += n; s.earned += n; }
+      break;
+    }
+  }
+  s.events.push({ k: 'pickup', x: best.x, z: best.z, drop: best.k, n, id });
+  return true;
+}
+export const overdrive = (s: State) => s.t < s.overdriveUntil;
 
 export function pickPerk(s: State, i: number) {
   if (s.phase !== 'perk' || !s.perkChoices[i]) return;
@@ -495,6 +555,7 @@ export function update(s: State, dt: number) {
     if (q) placePad(s, q.x, q.z);
   }
   moveShots(s, dt);
+  for (let i = s.drops.length - 1; i >= 0; i--) if (s.t >= s.drops[i].until) s.drops.splice(i, 1);
   const ls = lastStand(s);
   if (ls !== s.lastStand) { s.lastStand = ls; if (ls) s.events.push({ k: 'lastStand' }); }
   if (s.hp <= 0) { s.hp = 0; s.phase = 'over'; s.events.push({ k: 'over' }); }
@@ -972,7 +1033,7 @@ function fire(s: State, dt: number) {
   const open = (e: Enemy) => e === ic || e.incoming < e.hp * D.commit;
   const targets = ic ? [ic] : s.enemies.filter(e => e.locked && open(e));
   targets.sort((a, b) => (b.id === s.marked ? 1e12 : score(s, b)) - (a.id === s.marked ? 1e12 : score(s, a)));
-  const rate = D.rate * (ic ? INTERCEPT.rate : 1) * (lastStand(s) ? LAST_STAND.rate : 1);
+  const rate = D.rate * (ic ? INTERCEPT.rate : 1) * (lastStand(s) ? LAST_STAND.rate : 1) * (overdrive(s) ? OVERDRIVE.rate : 1);
   let wi = 0;
   for (const k of ['cannon', 'pulse', 'missile', 'rail'] as WeaponKind[]) {
     const w = s.st.weapons[k];
@@ -1100,6 +1161,7 @@ function damage(s: State, e: Enemy, dmg: number, src: string) {
   s.ammo = Math.min(s.st.ammoCap, s.ammo + s.st.scav);
   s.stats.kills[e.kind] = (s.stats.kills[e.kind] ?? 0) + 1;
   s.events.push({ k: 'kill', x: e.x, z: e.z, kind: e.kind, n: gain });
+  rollDrop(s, e.kind, e.x, e.z);
   if (s.st.chain) explode(s, e.x, e.z, 4, s.st.chain, 'CHAIN');
   if (s.st.counterSead && e.kind === 'arm') { s.power = Math.min(s.st.powerCap, s.power + s.st.powerCap * COUNTER_SEAD); s.events.push({ k: 'counterSead' }); }
   if (s.st.killChain && ++s.chainKills >= KILL_CHAIN.every) { s.chainKills = 0; s.chainUntil = s.t + KILL_CHAIN.time; s.events.push({ k: 'killChain' }); }

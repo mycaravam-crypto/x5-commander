@@ -1,4 +1,4 @@
-import { newGame, dailySeed, update, buy, pickPerk, markAt, placePad, movePad, selectPad, upgradePad, sellPad, toggleRelocate, cycleMode, cycleDiscipline, cycleRadarMode, aimFocus, emergencyIntercept, toggleEmcon, type State } from './sim.ts';
+import { newGame, dailySeed, update, buy, collectDrop, pickPerk, markAt, placePad, movePad, selectPad, upgradePad, sellPad, toggleRelocate, cycleMode, cycleDiscipline, cycleRadarMode, aimFocus, emergencyIntercept, toggleEmcon, type State } from './sim.ts';
 import { createRenderer } from './render.ts';
 import { createHud, loadBest } from './hud.ts';
 import { DOCTRINES } from './config.ts';
@@ -37,9 +37,10 @@ const canvas = document.querySelector('canvas')!;
 const tap = (cx: number, cy: number) => {
   const p = view.pick(cx, cy);
   if (!p || s.phase !== 'play') return;
-  // Building: the click says where. A move order: where the picked unit goes. Else pick a unit, else mark a contact.
+  // Building: the click says where. A move order: where the picked unit goes. Else recover salvage, else pick a unit, else mark a contact.
   if (s.placing) { placePad(s, p.x, p.z); return; }
   if (s.relocating) { movePad(s, p.x, p.z); return; }
+  if (collectDrop(s, p.x, p.z)) return; // salvage on the ground
   if (selectPad(s, p.x, p.z)) return;
   const c = view.pickContact(s, cx, cy) ?? p; // aircraft are drawn above their ground position
   markAt(s, c.x, c.z); aimFocus(s, p.x, p.z);
@@ -164,7 +165,7 @@ function frame(now: number) {
   const sweep0 = s.sweepA;
   for (let i = 0; i < speed; i++) update(s, dt);
   if (s.sweepA < sweep0) sfx.play('ping'); // sweep completed a revolution
-  for (const e of s.events) sfx.play(e.k);
+  for (const e of s.events) sfx.play(e.k, e as { n?: number; star?: boolean; drop?: string });
   view.inset(...hud.insets());
   view.render(s, dt);
   hud.update(s, dt, view.cameraYaw(), view.project, speed, view.target());

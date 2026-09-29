@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State } from './sim.ts';
-import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, HELO, LANCET } from './config.ts';
+import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive } from './sim.ts';
+import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, HELO, LANCET, MILESTONE, DROP_LIFE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP } from './config.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
 const rng = { seed: 12345 };
@@ -78,7 +78,8 @@ ok(s.stats.kills.tbm === 1, 'PAC-3 kills an Iskander');
 // Undetected enemy is never locked
 s = armed(newGame()); s.phase = 'play'; s.st.radarRange = 0;
 run(s, 20);
-ok(s.enemies.every(e => !e.locked || Math.hypot(e.x, e.z) < 19), 'radar sees nothing: locks only on what the eyes see');
+// Eyes: the battery's own, and every emplacement's (the starting MG sees PAD_EYES round itself).
+ok(s.enemies.every(e => !e.locked || Math.hypot(e.x, e.z) < VISUAL_R + 1 || s.perim.some(p => Math.hypot(p.x - e.x, p.z - e.z) < PAD_EYES + 1)), 'radar sees nothing: locks only on what the eyes see');
 
 // Upgrading bot survives longer than idle, triggers perk drafts, grows base
 const bot = () => {
@@ -672,6 +673,47 @@ const withPerk = (id: string) => { const g = quiet(); g.perks = [id]; g.st = der
 s = newGame(1, '', 'sensor');
 ok(s.lv.range === 1 && s.st.radar && s.st.weapons.cannon && !newGame(1).st.radar && s.bought === 0 && s.level === 1 && s.st.radarRange > newGame(1).st.radarRange, 'doctrine loadout: SENSOR NET starts with the radar and Patriot');
 ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies standard');
+
+// Ranks: every MILESTONE-th level of an open-ended upgrade is worth a free extra level; switches and pads have none.
+{
+  ok(deriveStats({ dmg: MILESTONE - 1 }, []).padDmg === 1 + 0.25 * (MILESTONE - 1) && deriveStats({ dmg: MILESTONE }, []).padDmg === 1 + 0.25 * (MILESTONE + 1), 'rank: +1 free level');
+  ok(deriveStats({ dmg: 2 * MILESTONE }, []).padDmg === 1 + 0.25 * (2 * MILESTONE + 2), 'every rank adds one');
+  const g = newGame(); g.phase = 'play'; g.credits = 1e9;
+  ok(toRank(g, 'hp') === MILESTONE && toRank(g, 'mg') === 0, 'pads have no ranks');
+  const stars: boolean[] = [];
+  for (let i = 0; i < MILESTONE; i++) { buy(g, 'hp'); for (const e of g.events) if (e.k === 'upgrade') stars.push(e.star); g.events.length = 0; if ((g.phase as string) === 'perk') pickPerk(g, 0); }
+  ok(stars.length === MILESTONE && stars.lastIndexOf(true) === MILESTONE - 1 && stars.indexOf(true) === MILESTONE - 1, 'the rank-up buy is flagged');
+  ok(g.st.maxHp >= (100 + 40 * (MILESTONE + 1)) * 0.6 && toRank(g, 'hp') === MILESTONE, 'rank counts in the stats, next rank 5 buys away');
+}
+
+// Salvage: rare drops on kills, clicked to recover, lost if left.
+{
+  const g = quiet(), always = () => 0, never = () => 0.999;
+  ok(!rollDrop(g, 'tank', 10, 0, never) && !rollDrop(g, 'decoy', 10, 0, always), 'drops are rare, decoys drop nothing');
+  const d = rollDrop(g, 'tank', 10, 0, always)!;
+  ok(d && g.drops.length === 1 && g.events.some(e => e.k === 'drop'), 'a kill can drop salvage');
+  ok(!collectDrop(g, 30, 0) && g.drops.length === 1, 'clicking far away misses it');
+  run(g, DROP_LIFE + 0.5);
+  ok(g.drops.length === 0, 'unclaimed salvage is lost');
+  const c0 = g.credits; spawnDrop(g, 'cache', 10, 0, 50);
+  ok(collectDrop(g, 11, 1) && g.credits - c0 === Math.round((CACHE.flat + CACHE.reward * 50) * g.st.credits) && g.drops.length === 0, 'cache pays credits');
+  g.ammo = 0; g.power = 0; spawnDrop(g, 'ammo', 0, 20); spawnDrop(g, 'power', 0, -20);
+  ok(collectDrop(g, 0, 20) && g.ammo === g.st.ammoCap && collectDrop(g, 0, -20) && g.power === g.st.powerCap, 'ammo and power refills');
+  g.hp = 10; spawnDrop(g, 'repair', 5, 5);
+  ok(collectDrop(g, 5, 5) && Math.abs(g.hp - (10 + g.st.maxHp * REPAIR_DROP)) < 1e-6, 'repair kit');
+  const bought = g.bought, lv = { ...g.lv }; spawnDrop(g, 'tech', 5, 5); collectDrop(g, 5, 5);
+  const got = Object.keys(g.lv).filter(k => g.lv[k] !== lv[k]);
+  ok(got.length === 1 && techPool(g).includes(got[0]) && g.bought === bought, 'tech: a free level of an open upgrade, no base-level progress');
+  const m = addPad(g, 'mg', 0), r0 = padStats(g, m).rate; spawnDrop(g, 'overdrive', 5, 5); collectDrop(g, 5, 5);
+  ok(overdrive(g) && Math.abs(padStats(g, m).rate - r0 * OVERDRIVE.rate) < 1e-9, 'overdrive: faster fire');
+  run(g, OVERDRIVE.time + 0.1); ok(!overdrive(g), 'overdrive wears off');
+  for (let i = 0; i < DROP_MAX + 5; i++) rollDrop(g, 'elite', i, 0, always);
+  ok(g.drops.length === DROP_MAX, 'drops are capped');
+  // Kills roll for drops at their rate (seeded Math.random here).
+  const h = quiet(); let n = 0;
+  for (let i = 0; i < 2000; i++) if (rollDrop(h, 'elite', 0, 0)) { n++; h.drops.length = 0; }
+  ok(Math.abs(n / 2000 - ENEMIES.elite.drop) < 0.05, `drop rate (${n}/2000)`);
+}
 
 // Debrief counters add up.
 {

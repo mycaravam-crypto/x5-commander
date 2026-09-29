@@ -99,7 +99,14 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #shop button .d { grid-column: 1 / -1; color: var(--mid); font-size: 10px; display: none; }
 #shop button:hover .d { display: block; }
 #shop button.pop { animation: pop 0.25s; }
-@keyframes pop { from { background: color-mix(in srgb, var(--hot) 50%, transparent); } }
+/* Ranks: a bar under each open-ended upgrade fills toward its next rank; the buy that reaches it gets a star. */
+#shop button { background-image: linear-gradient(var(--mid), var(--mid)); background-repeat: no-repeat; background-position: 6px 100%;
+  background-size: calc((100% - 12px) * var(--ms, 0)) 1px; }
+#shop button.rank .c::after { content: ' ★'; color: var(--alert); }
+.stat.lvp { position: relative; }
+.stat.lvp::after { content: ''; position: absolute; left: 0; bottom: -2px; height: 2px; width: calc(var(--r, 0) * 100%); background: var(--hot);
+  box-shadow: 0 0 6px var(--hot); transition: width 0.3s; }
+@keyframes pop { from { background-color: color-mix(in srgb, var(--hot) 50%, transparent); } }
 
 #bottom { bottom: 34px; left: 12px; width: 280px; display: flex; flex-direction: column; gap: 8px; }
 #target, #log { padding: 6px 10px; font-size: 11px; }
@@ -128,6 +135,9 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #popups div { position: absolute; color: var(--hot); font-weight: 700; font-size: 12px;
   transform: translate(-50%, -50%); opacity: 0; }
 #popups div.go { animation: float 0.8s ease-out; }
+#popups div.up { font-size: 11px; white-space: nowrap; animation-duration: 1.2s; }
+#popups div.up.star, #popups div.loot.star { color: var(--alert); text-shadow: 0 1px 3px #000; font-size: 15px; animation-duration: 1.8s; }
+#popups div.loot { white-space: nowrap; text-shadow: 0 1px 3px #000; font-size: 13px; animation-duration: 1.4s; }
 #popups div.dmg { color: var(--crit); font-size: 16px; }
 @keyframes float { from { opacity: 1; margin-top: 0; } to { opacity: 0; margin-top: -34px; } }
 

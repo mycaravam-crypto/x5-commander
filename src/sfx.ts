@@ -37,9 +37,9 @@ function noise(dur: number, vol = 0.08, freq = 1200) {
 }
 
 const last: Record<string, number> = {};
-const GAP: Record<string, number> = { gun: 0.07, shot: 0.05, beam: 0.06, hit: 0.04, kill: 0.04, detect: 0.25, missile: 0.08, baseHit: 0.1, arm: 0.5, tbm: 0.8, release: 0.3, ident: 0.1, acquire: 0.12, lost: 0.25 };
+const GAP: Record<string, number> = { drop: 0.2, pickup: 0.05, gun: 0.07, shot: 0.05, beam: 0.06, hit: 0.04, kill: 0.04, detect: 0.25, missile: 0.08, baseHit: 0.1, arm: 0.5, tbm: 0.8, release: 0.3, ident: 0.1, acquire: 0.12, lost: 0.25 };
 
-export function play(k: string) {
+export function play(k: string, e: { n?: number; star?: boolean; drop?: string } = {}) {
   if (!ctx || muted) return;
   const now = ctx.currentTime;
   if (now - (last[k] ?? -1) < (GAP[k] ?? 0)) return;
@@ -57,6 +57,14 @@ export function play(k: string) {
     case 'detect': tone(1760, 0.05, 'sine', 0.015); break;
     case 'lock': tone(880, 0.05, 'square', 0.03); tone(1320, 0.07, 'square', 0.03, 1320, 0.06); break;
     case 'buy': tone(660, 0.08, 'square', 0.03, 990); break;
+    case 'upgrade': { // climbs a semitone with every level of the upgrade, so a run of buys sounds like progress
+      const f = 520 * 2 ** (Math.min(e.n ?? 1, 24) / 12);
+      tone(f, 0.07, 'square', 0.03, f * 1.5); tone(f * 1.5, 0.1, 'triangle', 0.025, f * 1.5, 0.05);
+      if (e.star) [1, 1.26, 1.5, 2].forEach((m, i) => tone(f * m, 0.22, 'square', 0.035, f * m, 0.12 + i * 0.08)); // new rank: fanfare
+      break;
+    }
+    case 'drop': tone(2093, 0.08, 'sine', 0.025); tone(2637, 0.12, 'sine', 0.02, 2637, 0.07); break; // something glints
+    case 'pickup': (e.drop === 'tech' ? [523, 784, 1047, 1319, 1568] : [784, 1047, 1319]).forEach((f, i) => tone(f, 0.12, 'triangle', 0.045, f, i * 0.05)); break;
     case 'level': [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.18, 'square', 0.04, f, i * 0.09)); break;
     case 'warning': for (let i = 0; i < 3; i++) { tone(440, 0.2, 'sawtooth', 0.05, 440, i * 0.45); tone(330, 0.2, 'sawtooth', 0.05, 330, i * 0.45 + 0.22); } break;
     case 'arm': for (let i = 0; i < 5; i++) tone(2400, 0.045, 'square', 0.03, 2400, i * 0.08); break; // RWR launch warning

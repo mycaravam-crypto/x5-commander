@@ -1,7 +1,7 @@
-import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, altitude, buildR } from './config.ts';
+import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, altitude, buildR, DROPS, DROP_LIFE, MILESTONE, OVERDRIVE, rank } from './config.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import type { Records } from './config.ts';
-import { beltOf, cost, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
+import { beltOf, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const $ = (id: string) => document.getElementById(id)!;
 const fmt = (n: number) => Math.floor(n).toLocaleString('en-US');
@@ -46,6 +46,7 @@ const TIPS: Record<string, string> = {
   package: 'Attack package: several types covering each other. The log says which element to kill first; mark it.',
   placing: 'Click open ground inside the dashed build zone to build it (not on water, rock or woods): the green ghost shows its field of fire, the pulsing ring covers the most open sky. Guns shoot inside their field of fire (drawn on the ground), and a target inside two of them takes +20% crossfire damage. Click your units to upgrade, sell or move them [B]. O maps what your guns cover. WASD / arrows or middle-drag pan the camera.',
   padDown: 'FPVs and Lancets dive on units they fly close to, the forward line most of all. A unit that is down repairs to half before it fights again; the build window repairs everything.',
+  drop: `Salvage: a kill left something behind. Click it within ${DROP_LIFE}s to recover it: credits, a refill, a repair, overdrive, or a free upgrade from the heavy kills.`,
   level: 'Base level up: every level builds something that changes what the battery can do, plus a launcher and 2 perimeter pads. Pads fire on their own, without lock slots.',
 };
 const seenTips = (() => { try { return new Set<string>(JSON.parse(localStorage.getItem('x5-tips') ?? '[]')); } catch { return new Set<string>(); } })();
@@ -65,7 +66,7 @@ function debrief(s: State) {
   const dmg = Object.entries(S.dmg).sort((a, b) => b[1] - a[1])
     .map(([k, n]) => `<dt>${k}</dt><dd>${Math.round(n / total * 100)}%</dd>`).join('');
   return `<div class="debrief"><div><small>KILLS</small><dl>${kills || '<dt>none</dt>'}</dl></div><div><small>DAMAGE</small><dl>${dmg || '<dt>none</dt>'}</dl></div>
-    <div><small>OPS</small><dl><dt>RAIDS CLEAN</dt><dd>${S.clean} / ${S.raids}</dd><dt>ARMS EVADED</dt><dd>${S.armsEvaded}</dd><dt>RADAR HITS</dt><dd>${S.radarHits}</dd></dl></div></div>`;
+    <div><small>OPS</small><dl><dt>RAIDS CLEAN</dt><dd>${S.clean} / ${S.raids}</dd><dt>ARMS EVADED</dt><dd>${S.armsEvaded}</dd><dt>RADAR HITS</dt><dd>${S.radarHits}</dd><dt>SALVAGE</dt><dd>${S.recovered} / ${S.drops}</dd></dl></div></div>`;
 }
 
 export function createHud(actions: { buy(id: string): void; perk(i: number): void; pad(act: string): void; start(daily?: boolean): void; restart(): void; doctrine(i: number): void; look(x: number, z: number): void }) {
@@ -77,7 +78,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   for (const u of UPGRADES) {
     if (u.group !== group) shop.insertAdjacentHTML('beforeend', `<h4>${group = u.group}</h4>`);
     const b = document.createElement('button');
-    b.innerHTML = `<span>${u.name}</span><span class="lv"></span><span class="c"></span><span class="d">${u.desc}</span>`;
+    const ranks = u.max === Infinity && u.group !== 'PERIMETER';
+    b.innerHTML = `<span>${u.name}</span><span class="lv"></span><span class="c"></span><span class="d">${u.desc}${ranks ? ` · every ${MILESTONE}th level: rank up, +1 free level` : ''}</span>`;
     b.onclick = () => actions.buy(u.id);
     shop.append(b); rows.set(u.id, b);
   }
@@ -179,6 +181,23 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     el.className = cls; void el.offsetWidth; el.classList.add('go');
   };
 
+  const popAt = (px: number, py: number, text: string, cls: string) => {
+    const el = popups[nextPop = (nextPop + 1) % popups.length];
+    el.textContent = text; el.style.left = `${px}px`; el.style.top = `${py}px`;
+    el.className = cls; void el.offsetWidth; el.classList.add('go');
+  };
+  // What a purchase did, floating up off its shop row (or the battery, with the shop closed).
+  function upgradePop(project: Project, id: string, n: number, star: boolean) {
+    const u = UPGRADES.find(u => u.id === id)!, r = rows.get(id)!.getBoundingClientRect();
+    const text = star ? `★ RANK ${rank(n)} · +1 FREE LV` : u.max === 1 ? 'ONLINE' : u.group === 'PERIMETER' ? `+1 ${u.name.toUpperCase()}` : `LV ${n} · ${u.desc.split(' · ')[0].split(',')[0]}`;
+    if (r.width) popAt(r.left + r.width / 2, r.top + r.height / 2, text, star ? 'up star' : 'up');
+    else pop(project, 0, 0, text, star ? 'up star' : 'up');
+  }
+  const LOOT = (e: { drop: keyof typeof DROPS; n: number; id: string }) => ({
+    cache: `+${fmt(e.n)} CR`, ammo: 'INTERCEPTORS FULL', power: 'POWER FULL', repair: 'REPAIRED', overdrive: `OVERDRIVE ${OVERDRIVE.time}s`,
+    tech: e.id ? `+1 ${UPGRADES.find(u => u.id === e.id)!.name.toUpperCase()}` : `+${fmt(e.n)} CR`,
+  })[e.drop];
+
   // ---- minimap: the terrain from above, turned with the camera: build zone, your units, contacts, the radar.
   // Click it to look there. ----
   const cv = $('radar') as HTMLCanvasElement, g = cv.getContext('2d')!;
@@ -243,6 +262,9 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       g.fillStyle = p.down ? '#888' : rgba(PAL.hot); g.fillRect(x - 2.5, y - 2.5, 5, 5);
       if (p.slot === s.selected) { g.strokeStyle = '#fff'; g.strokeRect(x - 4.5, y - 4.5, 9, 9); }
     }
+    // Salvage on the ground: gold diamonds.
+    g.fillStyle = '#ffd966';
+    for (const d of s.drops) { const x = px(d.x, d.z), y = py(d.x, d.z); g.beginPath(); g.moveTo(x, y - 4); g.lineTo(x + 4, y); g.lineTo(x, y + 4); g.lineTo(x - 4, y); g.fill(); }
     // Contacts: red, missiles amber, a classified decoy grey; locked ones boxed.
     for (const e of s.enemies) {
       if (!visible(s, e)) continue;
@@ -357,6 +379,9 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const st = s.st;
     set('credits', fmt(s.credits)); set('phase', phaseName(s)); set('time', clock(s.t));
     set('kills', fmt(s.kills)); set('level', String(s.level));
+    { // progress to the next base level: 1.5*(L-1)*L purchases reach level L (config.baseLevel)
+      const lo = 1.5 * (s.level - 1) * s.level, hi = 1.5 * s.level * (s.level + 1), r = String(Math.round(Math.max(0, s.bought - lo) / (hi - lo) * 20) / 20);
+      const el = $('level').parentElement!; if (el.style.getPropertyValue('--r') !== r) el.style.setProperty('--r', r); }
     const comboOn = s.combo >= 3 && s.t - s.lastKill < COMBO_WINDOW;
     set('combo', comboOn ? `COMBO x${s.combo}  +${Math.round(Math.min(s.combo, COMBO_CAP) * COMBO_BONUS * 100)}%` : '');
     bar('hpBar', s.hp / st.maxHp, s.hp / st.maxHp < 0.3); set('hpTxt', `${fmt(s.hp)} / ${fmt(st.maxHp)}`);
@@ -391,6 +416,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       ['INTERCEPT <kbd>[SPC]</kbd>', interceptActive(s) ? '<span class="hot">ENGAGING</span>' : (w => w ? `<span class="${w.endsWith('s') ? 'dim' : 'alert'}">${w}</span>` : '<span class="hot">READY</span>')(interceptBlock(s))],
       ['// BATTERY', ''],
       ['PERIMETER', `${s.perim.length} / ${perimSlots(s.level)} pads`],
+      ...overdrive(s) ? [['OVERDRIVE', `<span class="hot">+${Math.round((OVERDRIVE.rate - 1) * 100)}% RATE ${Math.ceil(s.overdriveUntil - s.t)}s</span>`]] : [],
       ...ffSpeed > 1 ? [['SPEED <kbd>[X]</kbd>', `<span class="hot">${ffSpeed}×</span>`]] : [],
       ...s.placing ? [['PAD', `<span class="hot">CLICK GROUND · ${Math.max(0, PLACE_TIME - (s.t - s.placing.since)).toFixed(0)}s</span>`]] : [],
       ...s.raid ? [['RAID', `<span class="alert">${pad3(bearing(Math.cos(s.raid.a), Math.sin(s.raid.a)))}° T-${Math.max(0, s.raid.at - s.t).toFixed(0)}s</span>`]]
@@ -427,7 +453,10 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     for (const [id, b] of rows) {
       const c = cost(s, id), lv = s.lv[id] ?? 0;
       b.classList.toggle('hint', id === hint);
-      const why = lockReason(s, id), lvT = lv ? `LV ${lv}` : '', cT = why || (c === Infinity ? 'MAX' : fmt(c));
+      const why = lockReason(s, id), tr = toRank(s, id), lvT = lv ? `LV ${lv}${tr && rank(lv) ? ` ★${rank(lv)}` : ''}` : '', cT = why || (c === Infinity ? 'MAX' : fmt(c));
+      const ms = tr ? String((MILESTONE - tr) / MILESTONE) : '0'; // progress to the next rank, as a bar under the row
+      if (b.style.getPropertyValue('--ms') !== ms) b.style.setProperty('--ms', ms);
+      b.classList.toggle('rank', tr === 1 && !why);
       if (b.children[1].textContent !== lvT) b.children[1].textContent = lvT; // write only on change: no DOM churn at 10 Hz
       if (b.children[2].textContent !== cT) b.children[2].textContent = cT;
       b.classList.toggle('can', s.credits >= c);
@@ -549,6 +578,17 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         else if (e.k === 'pac3') { say('PATRIOT ONLINE', 'info'); log('PAC-3 MSE ONLINE · ENGAGING LOCKS'); }
         else if (e.k === 'aesa') { say('LTAMDS ONLINE · 360° STARE', 'info'); log('AESA ONLINE · SWEEP RETIRED'); }
         else if (e.k === 'level') { const b = baseLevelInfo(s.level); say(`LV ${s.level} · ${b.name}`, 'info'); log(`BATTERY LV ${s.level} · ${b.name} · ${b.desc}`); }
+        else if (e.k === 'upgrade') {
+          acc = 1; upgradePop(project, e.id, e.n, e.star);
+          if (e.star) { const u = UPGRADES.find(u => u.id === e.id)!; say(`★ ${u.name.toUpperCase()} · RANK ${rank(e.n)}`, 'info'); log(`${u.name.toUpperCase()} RANK ${rank(e.n)} · +1 FREE LEVEL`); }
+        }
+        else if (e.k === 'drop') { pop(project, e.x, e.z, `▼ ${DROPS[e.drop].name}`, 'loot'); log(`SALVAGE · ${DROPS[e.drop].name} BRG ${pad3(bearing(e.x, e.z))} · CLICK TO RECOVER`); }
+        else if (e.k === 'pickup') {
+          const t = LOOT(e);
+          pop(project, e.x, e.z, t, e.drop === 'tech' ? 'loot star' : 'loot');
+          log(`RECOVERED ${DROPS[e.drop].name} · ${t}`);
+          if (e.drop === 'tech' || e.drop === 'overdrive') say(`${DROPS[e.drop].name} · ${t}`, 'info');
+        }
         else if (e.k === 'buy' || e.k === 'discipline') { acc = 1; if (e.k === 'discipline') log(`FIRE DISCIPLINE · ${DISCIPLINES[s.discipline].name}`); }
         else if (e.k === 'intercept') { say('EMERGENCY INTERCEPT', 'info'); log(`INTERCEPT ${pad3(bearing(e.x, e.z))} · ALL WEAPONS · ${INTERCEPT.time}s`, 'alert'); acc = 1; }
       }
