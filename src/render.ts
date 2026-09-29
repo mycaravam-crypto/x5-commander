@@ -20,7 +20,7 @@ const { mid: MID, bright: BRIGHT, hot: HOT, alert: ALERT } = PAL;
 // Scene colours: the palette is for the HUD and overlays; the world has its own.
 const C = {
   olive: 0x56633a, oliveL: 0x6f7c49, dark: 0x25271f, metal: 0xb9beb0, sand: 0xa89668, concrete: 0x8d8a80, wreck: 0x3a3833,
-  fire: 0xffa640, flash: 0xfff1c0, smoke: 0x55534d, threat: 0xff5a44, friend: 0x7fd8ff, sky: 0xaec8d8, night: 0x0c1420,
+  fire: 0xffa640, flash: 0xfff1c0, smoke: 0x55534d, threat: 0xff5a44, friend: 0x4dff9a, sky: 0x9fb2ae, night: 0x06140c,
 };
 const hGrid = heightSampler(WORLD_R, 240);
 export const groundY = (x: number, z: number) => hGrid(x, z);
@@ -73,27 +73,38 @@ const KIND_COL: Record<EnemyKind, number> = {
 };
 
 const GRADE = {
-  // blind: 0 = radar up, ~0.3 = EMCON, 1 = radar knocked out (drained colour, a little snow). night: 0..1 blue grade.
-  uniforms: { tDiffuse: { value: null }, time: { value: 0 }, blind: { value: 0 } },
+  // The tactical look over the lit terrain: colour pulled part way toward a green monochrome, like a targeting
+  // display. nvg: 0..1, NIGHT RAID turns it into a night-vision scope. blind: 0 = radar up, ~0.3 = EMCON,
+  // 1 = radar knocked out (drained colour, a little snow).
+  uniforms: { tDiffuse: { value: null }, time: { value: 0 }, blind: { value: 0 }, nvg: { value: 0 } },
   vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
   fragmentShader: `
-    uniform sampler2D tDiffuse; uniform float time, blind; varying vec2 vUv;
+    uniform sampler2D tDiffuse; uniform float time, blind, nvg; varying vec2 vUv;
     void main() {
       vec2 c = vUv - 0.5;
       vec3 col = texture2D(tDiffuse, vUv).rgb;
-      float n = fract(sin(dot(vUv * 913.0 + fract(time), vec2(12.9898, 78.233))) * 43758.5453);
-      col = mix(col, vec3(dot(col, vec3(0.3, 0.6, 0.1))) * vec3(1.0, 0.85, 0.8), blind * 0.6);
-      col += (n - 0.5) * 0.12 * blind;
-      col *= 1.0 - 0.55 * dot(c, c);
+      float l = dot(col, vec3(0.3, 0.6, 0.1));
+      col = mix(col, l * vec3(0.8, 1.05, 0.85), 0.35);
+      col = mix(col, min(vec3(1.0), l * 2.6) * vec3(0.35, 1.0, 0.5), nvg * 0.85);
+      float n = fract(sin(dot(floor(vUv * 700.0) + fract(time) * 37.0, vec2(12.9898, 78.233))) * 43758.5453);
+      col = mix(col, vec3(l) * vec3(1.0, 0.85, 0.8), blind * 0.6);
+      col += (n - 0.5) * (0.12 * blind + 0.08 * nvg);
+      col *= 1.0 - 0.7 * dot(c, c);
       gl_FragColor = vec4(col, 1.0);
     }`,
 };
 
+// Phones and tablets get a lighter pipeline: no real-time shadows (the ground has them baked in), no bloom,
+// a smaller ground texture and mesh, and a capped pixel ratio. The full one is several times the GPU memory
+// and fill rate, and was enough to lose the WebGL context on phones.
+const LITE = matchMedia('(pointer: coarse)').matches || innerWidth * innerHeight < 800 * 600;
+
 export function createRenderer() {
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
-  const coarse = matchMedia('(pointer: coarse)').matches;
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-  renderer.shadowMap.enabled = true;
+  const coarse = LITE;
+  // No antialias on the canvas itself: the scene is drawn into the composer's target, so MSAA goes there.
+  const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, coarse ? 1.5 : 2));
+  renderer.shadowMap.enabled = !coarse;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
@@ -103,9 +114,10 @@ export function createRenderer() {
   scene.background = sky;
   scene.fog = new THREE.Fog(C.sky, 120, 230);
   const camera = new THREE.PerspectiveCamera(38, 1, 1, 800);
-  const composer = new EffectComposer(renderer);
+  const target = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: coarse ? 0 : 4 });
+  const composer = new EffectComposer(renderer, target);
   composer.addPass(new RenderPass(scene, camera));
-  composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.45, 0.35, 0.92));
+  if (!coarse) composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.45, 0.35, 0.92));
   composer.addPass(new OutputPass());
   const grade = new ShaderPass(GRADE);
   composer.addPass(grade);
@@ -134,10 +146,10 @@ export function createRenderer() {
   let night = 0;
 
   // ---- terrain: one draped mesh, painted once; water, trees, rocks and a few farms ----
-  const tex = new THREE.CanvasTexture(paintTerrain(coarse ? 1024 : 1536, WORLD_R));
+  const tex = new THREE.CanvasTexture(paintTerrain(coarse ? 768 : 1536, WORLD_R));
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  const SEG = coarse ? 160 : 240;
+  tex.anisotropy = Math.min(coarse ? 4 : 16, renderer.capabilities.getMaxAnisotropy());
+  const SEG = coarse ? 128 : 240;
   const groundGeo = new THREE.PlaneGeometry(WORLD_R * 2, WORLD_R * 2, SEG, SEG).rotateX(-Math.PI / 2);
   { const p = groundGeo.attributes.position; for (let i = 0; i < p.count; i++) p.setY(i, groundY(p.getX(i), p.getZ(i))); groundGeo.computeVertexNormals(); }
   const groundMat = new THREE.MeshLambertMaterial({ map: tex });
@@ -199,6 +211,21 @@ export function createRenderer() {
   let zoneLine: THREE.Line | null = null, zoneKey = -1;
   const zoneMat = lineMat(0xffffff, 0.35, true), innerLine = groundLine(arcPts(BUILD_MIN, 0, TAU, 64), lineMat(0xffffff, 0.3, true), true);
   scene.add(innerLine);
+  // Tactical grid: range rings every 10 m and bearing spokes every 30°, faint phosphor green laid over the ground.
+  {
+    const pts: number[] = [], seg = (x0: number, z0: number, x1: number, z1: number) => pts.push(x0, z0, x1, z1);
+    for (let r = 20; r <= ARENA_R; r += 10) for (let i = 0; i < 96; i++) {
+      const a0 = i / 96 * TAU, a1 = (i + 1) / 96 * TAU;
+      seg(Math.cos(a0) * r, Math.sin(a0) * r, Math.cos(a1) * r, Math.sin(a1) * r);
+    }
+    for (let i = 0; i < 12; i++) {
+      const a = i / 12 * TAU;
+      for (let r = 12; r < ARENA_R; r += 4) seg(Math.cos(a) * r, Math.sin(a) * r, Math.cos(a) * (r + 4), Math.sin(a) * (r + 4));
+    }
+    const grid = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(drape(pts, 0.1), 3)), lineMat(PAL.bright, 0.16));
+    (grid.material as THREE.LineBasicMaterial).toneMapped = false;
+    grid.renderOrder = 1; scene.add(grid);
+  }
   // Eyesight (no radar) or radar range, and the tracking range, as rings that follow the ground.
   const ringGeo = () => new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(129 * 3), 3));
   const rangeRing = new THREE.Line(ringGeo(), lineMat(C.friend, 0.55)), trackRing = new THREE.Line(ringGeo(), lineMat(C.friend, 0.22));
@@ -1083,7 +1110,7 @@ export function createRenderer() {
         a.clearUpdateRanges(); a.addUpdateRange(0, Math.max(n, 1) * k); a.needsUpdate = true;
       }
     }
-    grade.uniforms.time.value = clock;
+    grade.uniforms.time.value = clock; grade.uniforms.nvg.value = night;
     const blind = s.phase !== 'play' && s.phase !== 'pause' ? 0 : s.t < s.radarDownUntil ? 1 : s.emcon ? 0.3 : 0;
     grade.uniforms.blind.value += (blind - grade.uniforms.blind.value) * Math.min(1, dt * 6);
     composer.render(dt);
