@@ -23,7 +23,7 @@ export const FRONT = -Math.PI / 2, FRONT_ARC = 25 * Math.PI / 180;
 const DEG = Math.PI / 180;
 export const bearing = (x: number, z: number) => ((Math.atan2(z, x) * 180 / Math.PI) % 360 + 360) % 360;
 
-export type EnemyKind = 'scout' | 'drone' | 'swarm' | 'tank' | 'elite' | 'decoy' | 'arm' | 'ew' | 'tbm';
+export type EnemyKind = 'scout' | 'drone' | 'swarm' | 'tank' | 'elite' | 'decoy' | 'arm' | 'ew' | 'tbm' | 'cruise';
 
 export interface EnemyType {
   hp: number; speed: number; dmg: number; reward: number;
@@ -32,6 +32,7 @@ export interface EnemyType {
   pack: number; wobble: number;
   flank?: boolean; // long-range: may come round the flanks (see FRONT)
   pacOnly?: boolean; // only PAC-3 hit-to-kill can stop it
+  low?: boolean; // hugs the ground: radar only sees it inside CRUISE_LOW of its range (eyes as usual)
 }
 
 export const ENEMIES: Record<EnemyKind, EnemyType> = {
@@ -45,9 +46,12 @@ export const ENEMIES: Record<EnemyKind, EnemyType> = {
   arm: { name: 'Kh-31P anti-radiation missile', code: 'KH-31P', hp: 4, speed: 10, dmg: 5, reward: 15, size: 0.8, sig: 0.55, glow: 1.2, pack: 2, wobble: 0 },
   // Big radar return, very fast, hits hard. Nothing but PAC-3 touches it.
   tbm: { name: 'Iskander-M ballistic missile', code: 'ISKANDER', hp: 5, speed: 12, dmg: 25, reward: 60, size: 1, sig: 1.6, glow: 1.3, pack: 1, wobble: 0, pacOnly: true, flank: true },
+  // Low, fast and weaving, and it goes for your most valuable unit instead of the base (see sim.cruiseTarget).
+  cruise: { name: 'Kh-101 cruise missile', code: 'KH-101', hp: 6, speed: 8, dmg: 15, reward: 40, size: 1, sig: 0.35, glow: 1.1, pack: 1, wobble: 2, flank: true, low: true },
   ew: { name: 'Mi-8MTPR-1 EW helicopter', code: 'MI-8PR', hp: 60, speed: 2.5, dmg: 0, reward: 80, size: 1.8, sig: 1.6, glow: 1, pack: 1, wobble: 0 },
 };
 export const KINDS = Object.keys(ENEMIES) as EnemyKind[];
+export const CRUISE_LOW = 0.6; // share of radar range a low flyer is seen at (the radar horizon)
 
 // Each level adds a kind of problem rather than just more HP:
 // 1 learn the systems · 2 mixed threats · 3 jammers + decoys · 4 SEAD · 5 heavy coordinated raids ·
@@ -60,7 +64,7 @@ export const LEVELS: { name: string; w: Partial<Record<EnemyKind, number>>; pk?:
   { name: 'MIXED THREATS', w: { scout: 2, drone: 3, swarm: 1, tank: 0.5 }, rate: 0.6 },
   { name: 'EW SCREEN', w: { scout: 2, drone: 3, swarm: 1, tank: 0.7, decoy: 1.5, ew: 0.15 }, pk: 0.05, rate: 0.8 },
   { name: 'SEAD', w: { scout: 1, drone: 3, swarm: 1, tank: 1, decoy: 2, elite: 0.15, arm: 0.3, ew: 0.15 }, pk: 0.07, arc: 60 * DEG },
-  { name: 'COORDINATED RAID', w: { scout: 2, drone: 3, swarm: 2, tank: 1.5, elite: 0.3, decoy: 1.5, arm: 0.2, ew: 0.1, tbm: 0.15 }, pk: 0.1, arc: 120 * DEG },
+  { name: 'COORDINATED RAID', w: { scout: 2, drone: 3, swarm: 2, tank: 1.5, elite: 0.3, decoy: 1.5, arm: 0.2, ew: 0.1, tbm: 0.15, cruise: 0.3 }, pk: 0.1, arc: 120 * DEG },
 ];
 export const PK_GROW = 0.02, PK_MAX = 0.25;
 
@@ -87,7 +91,7 @@ export const MODS: Mod[] = [
   { name: 'LULL', desc: 'fewer raiders, clear skies · rebuild', spawn: 0.6, sig: 1.2 },
   { name: 'JAMMING STORM', desc: 'EW helicopters inbound', w: { ew: 0.8 } },
   { name: 'SWARM TIDE', desc: 'many more, much weaker', spawn: 1.5, hp: 0.6, w: { swarm: 4, decoy: 2 } },
-  { name: 'SEAD WAVE', desc: 'strike aircraft and ARMs', w: { arm: 0.8, elite: 0.3 } },
+  { name: 'SEAD WAVE', desc: 'strike aircraft, ARMs and cruise missiles', w: { arm: 0.8, elite: 0.3, cruise: 0.4 } },
 ];
 
 // Raids: every level ends with one, a named group from one bearing (`from`: first level index it can be drawn at).
@@ -111,6 +115,7 @@ export const RAIDS: { name: string; from: number; g: Partial<Record<EnemyKind, n
   { name: 'SWARM ASSAULT', from: 2, g: { ew: 1, swarm: 3, drone: 4 } },
   { name: 'SATURATION STRIKE', from: 4, g: { decoy: 2, ew: 1, scout: 5, tank: 2 } },
   { name: 'ISKANDER SALVO', from: 4, g: { tbm: 3 } },
+  { name: 'CRUISE SALVO', from: 4, g: { cruise: 3 } },
 ];
 
 // Radar threats. ARMs home on the radar while it radiates, and a hit takes it offline. EMCON [F] silences it:
@@ -221,6 +226,7 @@ export const UPGRADES: Upgrade[] = [
   U('PERIMETER', 'mg', '12.7mm AA MG', 60, 1.5, Infinity, 'belt-fed gun on what it can see, short range · +1 emplacement'),
   U('PERIMETER', 'mantis', 'MANTIS 35mm C-RAM', 150, 1.35, Infinity, 'fast gun, short range · +1 emplacement', 2),
   U('PERIMETER', 'stinger', 'Stinger Team', 220, 1.35, Infinity, 'MANPADS, mid range homing · +1 emplacement', 3),
+  U('PERIMETER', 'iris', 'IRIS-T SLM', 350, 1.4, Infinity, 'medium-range SAM, all round, takes on missiles first · +1 emplacement', 5, R),
   U('PERIMETER', 'jammer', 'EW Jammer', 300, 1.4, Infinity, 'slows contacts nearby, drains power · +1 emplacement', 4),
   U('PERIMETER', 'observer', 'Observer Post', 100, 1.4, Infinity, 'sees 28m round itself, for every gun · +1 emplacement', 2),
   U('PERIMETER', 'ammo', 'Ammo Point', 120, 1.4, Infinity, 'guns within 10m: +25% fire rate, belts reload twice as fast · +1 emplacement', 2),
@@ -229,9 +235,9 @@ export const UPGRADES: Upgrade[] = [
 // Perimeter emplacements (pads) sit on fixed slots and engage any contact that can be seen (by eye or radar)
 // inside their range and field of fire, without using a lock slot. Support units don't shoot: they boost the
 // units round them. Where a unit goes decides what it covers, what it risks and what it boosts.
-export type PerimKind = 'mg' | 'mantis' | 'stinger' | 'jammer' | 'observer' | 'ammo';
-export const PERIM_KINDS: PerimKind[] = ['mg', 'mantis', 'stinger', 'jammer', 'observer', 'ammo'];
-export const GUNS: PerimKind[] = ['mg', 'mantis', 'stinger']; // units that shoot: fields of fire, crossfire
+export type PerimKind = 'mg' | 'mantis' | 'stinger' | 'iris' | 'jammer' | 'observer' | 'ammo';
+export const PERIM_KINDS: PerimKind[] = ['mg', 'mantis', 'stinger', 'iris', 'jammer', 'observer', 'ammo'];
+export const GUNS: PerimKind[] = ['mg', 'mantis', 'stinger', 'iris']; // units that shoot: fields of fire, crossfire
 // Visual spotting, radar or not: anything this close to the base, or to an emplacement, is seen. NIGHT RAID x VISUAL_DARK.
 export const VISUAL_R = 18, PAD_EYES = 15, VISUAL_DARK = 0.6; // m (an emplacement sees as far as the MG reaches)
 export const MG_BELT = { rounds: 40, reload: 3 }; // the MG feeds from its own belt, not the interceptor pool; s to reload
@@ -254,12 +260,13 @@ export const slotXZ = (i: number) => ({ x: Math.cos(SLOTS[i].a) * BELT_R[SLOTS[i
 export const perimSlots = (level: number) => SLOTS.filter(s => s.lv <= level).length;
 
 // Field of fire: half-width around the unit's facing (away from the base). Math.PI = all round.
-export const FANS: Record<PerimKind, number> = { mg: 60 * DEG, mantis: Math.PI, stinger: 90 * DEG, jammer: Math.PI, observer: Math.PI, ammo: Math.PI };
+export const FANS: Record<PerimKind, number> = { mg: 60 * DEG, mantis: Math.PI, stinger: 90 * DEG, iris: Math.PI, jammer: Math.PI, observer: Math.PI, ammo: Math.PI };
 export const CROSSFIRE = 0.2; // +damage on a target inside another gun's field of fire too
 export const PERIM = {
   mg: { dmg: 1.5, rate: 6, range: 15, ammo: 0, power: 0 },
   mantis: { dmg: 1.2, rate: 10, range: 16, ammo: 0.15, power: 0 },
   stinger: { dmg: 7, rate: 0.8, range: 26, ammo: 1, power: 0 },
+  iris: { dmg: 10, rate: 0.5, range: 30, ammo: 2, power: 0 }, // IRIS-T SLM: medium-range SAM, missiles first
   jammer: { dmg: 0, rate: 0, range: 18, ammo: 0, power: 1.2 }, // power/s while anything is in range
   observer: { dmg: 0, rate: 0, range: 0, ammo: 0, power: 0 },
   ammo: { dmg: 0, rate: 0, range: 0, ammo: 0, power: 0 },

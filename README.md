@@ -21,7 +21,6 @@ Other scripts:
 |-----------------|-----------------------------------------------------------|
 | `npm run build` | Type-checks, then builds a static site into `dist/`        |
 | `npm test`      | Runs a headless check of the game simulation in Node       |
-| `npm run balance` | Bots play many seeds; survival per doctrine and perk     |
 | `npm run bench` | Times the simulation under a heavy swarm (e.g. `npm run bench -- 2000`) |
 | `npm run balance [seeds] [cap-s]` | Bots play many seeded runs; median survival per doctrine and per perk |
 
@@ -111,7 +110,7 @@ Detected enemies are locked, up to your number of **lock slots**. A lock holds a
 | Leonidas HPM (microwave) | Power        | Huge hit, affects everything along the line             |
 
 ### Perimeter defenses: building the line
-Perimeter pads (units): **12.7 mm AA MGs** (from the start), **MANTIS 35mm C-RAM** (base level 2, fast gun, short range), **Stinger teams** (level 3, homing, mid range), **EW jammers** (level 4, slow nearby contacts, drain power), and two support units from level 2: the **observer post** (sees 28 m round itself, for every gun) and the **ammo point** (guns within 10 m fire 25% faster and reload their belts twice as fast). Units engage any contact that can be seen, by eye or radar, inside their range and **field of fire**, without using a lock slot.
+Perimeter pads (units): **12.7 mm AA MGs** (from the start), **MANTIS 35mm C-RAM** (base level 2, fast gun, short range), **Stinger teams** (level 3, homing, mid range), **EW jammers** (level 4, slow nearby contacts, drain power), the **IRIS-T SLM** (level 5, needs the radar: a medium-range SAM, 30 m all round, that takes on missiles before anything else), and two support units from level 2: the **observer post** (sees 28 m round itself, for every gun) and the **ammo point** (guns within 10 m fire 25% faster and reload their belts twice as fast). Units engage any contact that can be seen, by eye or radar, inside their range and **field of fire**, without using a lock slot.
 
 **Slots.** Units go on fixed slots in three belts facing the front, plus an inner ring. Base level 1 opens 2 slots in depth on the front axis (one holds the starting MG); more open with each base level, up to 16:
 
@@ -152,9 +151,9 @@ A run is a string of **levels**. Each one is 60 s of waves, then the level's **r
 2. **MIXED THREATS:** FPV swarms and the first Mi-28s.
 3. **EW SCREEN:** decoys and jammer helicopters, and the first attack packages.
 4. **SEAD:** Su-34s and anti-radiation missiles. From here, every level has a Su-34 strike package halfway through its waves.
-5. **COORDINATED RAID:** heavy mixed raids and Iskanders.
+5. **COORDINATED RAID:** heavy mixed raids, Iskanders and cruise missiles.
 
-After COORDINATED RAID, every level adds a **condition** on top of that mix, and attack packages get more likely each time. The conditions loop in this order: **NIGHT RAID** (contacts fade twice as fast), **GROUND CLUTTER** (−30% detection), **LULL** (a breather to rebuild), **JAMMING STORM** (more jammer helicopters), **SWARM TIDE** (many more, weaker enemies) and **SEAD WAVE** (strike aircraft and ARMs). Each strike package is announced with a *STRIKE AIRCRAFT* warning.
+After COORDINATED RAID, every level adds a **condition** on top of that mix, and attack packages get more likely each time. The conditions loop in this order: **NIGHT RAID** (contacts fade twice as fast), **GROUND CLUTTER** (−30% detection), **LULL** (a breather to rebuild), **JAMMING STORM** (more jammer helicopters), **SWARM TIDE** (many more, weaker enemies) and **SEAD WAVE** (strike aircraft, ARMs and cruise missiles). Each strike package is announced with a *STRIKE AIRCRAFT* warning.
 
 **Attack packages:** from the EW SCREEN level on, some spawns are a package instead of a single pack: several types flying in together from one bearing, each covering another's weakness. The log names the element to kill first.
 
@@ -174,7 +173,7 @@ An EW helicopter in a package is an **escort**: it goes in first and holds stati
    - **Lost:** no bonus, and only an **8 s build window**.
    Either way, the level ends when the last aircraft of the raid is gone.
 
-Raids include SHAHED WAVE, LANCET PACK, FPV SWARM, DECOY SCREEN, HELO ASSAULT, ISKANDER SALVO and the package raids SWARM ASSAULT, SEAD STRIKE (led by a Su-34) and SATURATION STRIKE. An escort jammer flies with its raid but doesn't count toward it; ARMs a raid's Su-34 launches do.
+Raids include SHAHED WAVE, LANCET PACK, FPV SWARM, DECOY SCREEN, HELO ASSAULT, ISKANDER SALVO, CRUISE SALVO and the package raids SWARM ASSAULT, SEAD STRIKE (led by a Su-34) and SATURATION STRIKE. An escort jammer flies with its raid but doesn't count toward it; ARMs a raid's Su-34 launches do.
 
 Spawn rate, HP and damage grow **logarithmically** with play time, and raid size with the level: each doubling adds about the same threat. A strong battery can keep going indefinitely.
 
@@ -189,6 +188,7 @@ Spawn rate, HP and damage grow **logarithmically** with play time, and raid size
 | Kh-31P anti-radiation missile | Very fast, knocks the radar offline     |
 | Mi-8MTPR-1 EW helicopter    | Stands off and jams a sector              |
 | Iskander-M ballistic missile | Very fast, big radar return, hits hard. **Only PAC-3 can hit it** |
+| Kh-101 cruise missile       | Fast, low and weaving, can come from the flanks. **Goes for your most valuable unit** (the one you've spent the most on) and knocks it out in one hit; the base only when no unit is up. Flies under the radar horizon: radar sees it only within 60% of its range. Every launch is announced with its bearing and target |
 
 ### The battery
 The base is laid out like a Patriot site. Every base level builds something that changes what it can do, plus an M903 launcher once you have the Patriot (up to 8), and 2 more perimeter pads:
@@ -218,6 +218,38 @@ The level-up card names what was built. The LTAMDS AESA upgrade adds rear arrays
 
 An enemy that reaches the base damages it and dies. When base HP hits 0, the game is over. Your best time, kills, level and credits earned are saved in `localStorage`. The game-over card has **COPY RESULT** (`C`), which copies a one-line result to paste into a chat. It also shows a **debrief**: kills by enemy type, each weapon's share of the damage, clean raids, ARMs evaded and radar hits.
 
+## Roadmap
+
+This section replaces the old `plan-mvp.md`, `plan.md` and `plan-frontline.md`; they are still in git history.
+
+### Shipped
+- **MVP:** the core loop (detect → lock → shoot → credits → upgrade → base level → perks → game over), the upgrade shop, juice and sound, 2,000 pooled enemy instances.
+- **Green radar look:** one green palette (`PAL` in `config.ts`) with amber for warnings and red for critical, wireframe models with bloom and a CRT pass, a polar grid, sweep afterglow and blip ghosts, segmented bars, the system log, the boot sequence and the sweep ping.
+- **Front line, steps 1–5:** the front and widening flank arcs, levels with raids and build windows, the AA MG start with the radar and Patriot as milestones, belt slots with fields of fire, crossfire, support units and unit HP, the coverage overlay (`O`), and Kh-101 cruise missiles with the IRIS-T SLM to stop them.
+
+### Next: finish the front line (step 6)
+- [ ] **Level card** at the end of each level: held or lost, what unlocks next, new directions (e.g. "MISSILES MAY NOW COME FROM ±60°"). Today there's only a banner and a log line.
+- [ ] **Build window as its own state:** slow motion, shop open, free slots highlighted.
+- [ ] **Map polish:** draw the belts as dim dashed arcs and shade enemy territory beyond the front.
+- [ ] **Rebalance** with `npm run balance`. Known issues: FORTRESS (−15% fire rate) is weak with gun-heavy starts, and long runs now die to cruise missiles (LOGISTICS max run dropped from 15:00 to 6:56).
+
+### Placement extras
+- [ ] **Tier-3 branch** for guns: at the ZU-23 (the MG's top tier; MANTIS is its own unit), pick *AP rounds* against Mi-28s or *high rate* against swarms.
+- [ ] **Slot preview while placing:** each free slot shows the field of fire it would add and how much open threat arc it closes.
+- [ ] **Power node** (with the energy weapons, level 7+): laser and HPM draw power only within its reach, so it decides where they can go.
+- [ ] **Terrain tags** (optional): *ridge* (+20% range, drones go for it first), *treeline* (never targeted, −15% range), *road* (half build cost, fast resupply). Waits until after step 6: it adds a lot of balance surface.
+
+### Later ideas
+- A front that moves back after a held level, giving more depth for the next one.
+- Achievements, more arenas, boss enemies, music.
+
+### Ground rules for any change
+- `sim.ts` never touches rendering; `render.ts` and `hud.ts` only read state. No per-frame allocation of meshes or DOM.
+- The daily op must stay deterministic: every spawn source draws from its own seeded stream.
+- Every off-axis attack is telegraphed with a warning and bearing. Players should lose to gaps in their cover, not to surprises.
+- Auto-place and the balance bots use the same `bestSlot()`, so the bots test real layouts.
+- Keep the game runnable after every step. `npm test` and `npm run build` stay green, and new mechanics get cases in `sim.check.ts` and `balance.ts`.
+
 ## Project layout
 
 ```
@@ -230,7 +262,6 @@ src/main.ts       boot, input, main loop
 src/sim.check.ts  `npm test` self-check
 src/balance.ts    `npm run balance` bot survival
 src/bench.ts      `npm run bench` sim timing under load
-src/balance.ts    `npm run balance` bot survey
 ```
 
 To rebalance the game, edit `src/config.ts`. Built with TypeScript, Vite and Three.js.

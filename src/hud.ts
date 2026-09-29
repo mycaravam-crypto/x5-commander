@@ -32,6 +32,7 @@ const TIPS: Record<string, string> = {
   intercept: 'Emergency intercept: every weapon on one threat for a few seconds. Long cooldown, costs power.',
   raid: 'Raid inbound: you have a few seconds to prepare. Set radar, fire discipline and priority before it arrives. The raid ends the level. Hold the objective for the bonus and a full build window; lose it and the build window is short.',
   warning: 'Su-34s are tough and fire anti-radiation missiles at a radiating radar. Click one to focus fire on it.',
+  cruise: 'Cruise missile: low and fast, it weaves in on your most valuable unit and knocks it out. Radar only sees it close in. Guns near that unit, a MANTIS or an IRIS-T SLM (base level 5) stop it.',
   arm: 'ARM launch: it homes on your radar. [F] EMCON before it gets close (you lose every lock), or [V] to LPI: ARMs only find you inside 15m.',
   radarMode: 'Radar mode [V]: ACTIVE all round · FOCUSED searches the bearing you click, further and faster, but draws ARMs · LPI is hard for ARMs to find but sees less.',
   tbm: 'Ballistic missile: only PAC-3 can hit it. Keep interceptors in stock and a lock slot free.',
@@ -225,7 +226,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       const rel = ((Math.atan2(e.z, e.x) - a0) % TAU + TAU) % TAU;
       if (!e.locked && !aesa && !(swept < 1 && rel <= swept)) continue;
       const x = px(e.x, e.z), y = py(e.x, e.z), r = 1.5 + e.size;
-      g.fillStyle = e.kind === 'arm' || e.kind === 'tbm' ? rgba(PAL.alert) : rgba(e.locked ? PAL.hot : PAL.bright, Math.min(1, ENEMIES[shownKind(e)].glow) * (e.ided ? 0.35 : 1));
+      g.fillStyle = e.kind === 'arm' || e.kind === 'tbm' || e.kind === 'cruise' ? rgba(PAL.alert) : rgba(e.locked ? PAL.hot : PAL.bright, Math.min(1, ENEMIES[shownKind(e)].glow) * (e.ided ? 0.35 : 1));
       g.fillRect(x - r / 2, y - r / 2, r, r);
       if (e.locked) { g.strokeStyle = rgba(e.id === s.marked ? PAL.hot : PAL.mid); g.strokeRect(x - r, y - r, r * 2, r * 2); }
     }
@@ -276,7 +277,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   }
 
   // ---- text (throttled) ----
-  let ffSpeed = 1, acc = 1, lastPhase = '', armSaid = -99, tbmSaid = -99;
+  let ffSpeed = 1, acc = 1, lastPhase = '', armSaid = -99, tbmSaid = -99, cruiseSaid = -99;
   const set = (id: string, v: string) => { const el = $(id); if (el.textContent !== v) el.textContent = v; };
   const bar = (id: string, r: number, crit = false) => { const el = $(id); el.style.setProperty('--r', String(Math.round(Math.max(0, Math.min(1, r)) * 20) / 20)); el.classList.toggle('crit', crit); };
 
@@ -309,7 +310,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const worst = top[0]?.[0] ?? 0;
     const h = !seen.length ? '' : `<small>THREATS · ${seen.length}</small> ${Object.entries(count).sort((a, b) => b[1]! - a[1]!).map(([c, n]) => `${n} ${c}`).join(' · ')}` +
       top.map(([u, e]) => { const d = Math.hypot(e.x, e.z), k = shownKind(e);
-        return `<div class="${u >= worst * 0.6 && u > 2 || k === 'arm' || k === 'tbm' ? 'alert' : ''}${e.id === s.marked ? ' mk' : ''}">${e.locked ? '◆' : '◇'} ${ENEMIES[k].code} ${pad3(bearing(e.x, e.z))}° ${pad3(d)}m${k === 'ew' ? (e.orbit ? ' JAMMING' : '') : ` ETA ${Math.max(0, (d - BASE_R) / e.speed).toFixed(0)}s`}</div>`; }).join('');
+        return `<div class="${u >= worst * 0.6 && u > 2 || k === 'arm' || k === 'tbm' || k === 'cruise' ? 'alert' : ''}${e.id === s.marked ? ' mk' : ''}">${e.locked ? '◆' : '◇'} ${ENEMIES[k].code} ${pad3(bearing(e.x, e.z))}° ${pad3(d)}m${k === 'ew' ? (e.orbit ? ' JAMMING' : '') : ` ETA ${Math.max(0, (d - BASE_R) / e.speed).toFixed(0)}s`}</div>`; }).join('');
     if (h !== threatHtml) { threatHtml = h; threatEl.innerHTML = h; }
   }
 
@@ -471,7 +472,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       for (const e of s.events) {
         if (e.k === 'kill') {
           if (e.n) pop(project, e.x, e.z, `+${e.n}`, '');
-          if (e.kind === 'arm' || e.kind === 'tbm') log(`${ENEMIES[e.kind].code} INTERCEPTED BRG ${pad3(bearing(e.x, e.z))}`);
+          if (e.kind === 'arm' || e.kind === 'tbm' || e.kind === 'cruise') log(`${ENEMIES[e.kind].code} INTERCEPTED BRG ${pad3(bearing(e.x, e.z))}`);
           else if (e.kind === 'ew') { say('JAMMER DOWN', 'info'); log(`JAMMER DOWN BRG ${pad3(bearing(e.x, e.z))} · SECTOR CLEAR`); }
           else if (e.kind === 'elite') log('SU-34 SPLASHED');
         }
@@ -481,6 +482,11 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         else if (e.k === 'arm') {
           log(`ARM LAUNCH BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
           if (s.t - armSaid > 3 && !s.emcon) { armSaid = s.t; say('⚠ ARM INBOUND · [F] EMCON', 'warn'); }
+        }
+        else if (e.k === 'cruise') {
+          const u = s.perim.find(p => p.slot === e.n);
+          log(`CRUISE MISSILE BRG ${pad3(bearing(e.x, e.z))} · TARGET ${u ? `${padName(u)} ${pad3(bearing(u.x, u.z))}°` : 'BATTERY'}`, 'alert');
+          if (s.t - cruiseSaid > 4) { cruiseSaid = s.t; say('⚠ CRUISE MISSILE · IT GOES FOR YOUR UNITS', 'warn'); }
         }
         else if (e.k === 'tbm') { log(`BALLISTIC LAUNCH BRG ${pad3(bearing(e.x, e.z))}`, 'alert'); if (s.t - tbmSaid > 4) { tbmSaid = s.t; say('⚠ BALLISTIC MISSILE · PAC-3 ONLY', 'warn'); } }
         else if (e.k === 'radarDown') { say('⚠ RADAR HIT', 'warn'); log(`MPQ-65 HIT · OFFLINE ${(s.radarDownUntil - s.t).toFixed(0)}s`, 'alert'); }
@@ -523,7 +529,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
           if (s.stage && arc > flankArc(s.stage - 1)) log(`DRONES + MISSILES NOW FROM ${arc >= Math.PI ? 'ANY DIRECTION' : `FRONT ±${Math.round(arc * 180 / Math.PI)}°`}`, 'alert'); }
         lastPhase = pn;
       }
-      if (s.phase === 'start') { lastPhase = ''; armSaid = tbmSaid = -99; }
+      if (s.phase === 'start') { lastPhase = ''; armSaid = tbmSaid = cruiseSaid = -99; }
       drawRadar(s, yaw, dt);
       placeLabels(s, project);
       raidArrow(s, project);
