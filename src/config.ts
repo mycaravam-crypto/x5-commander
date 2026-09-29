@@ -62,6 +62,14 @@ export const KINDS = Object.keys(ENEMIES) as EnemyKind[];
 // airspace over real terrain. A ballistic missile and a glide bomb come down as they close.
 const ALT: Record<EnemyKind, number> = { scout: 4, drone: 5.5, swarm: 2.5, tank: 3.5, elite: 9, decoy: 5.5, arm: 7, ew: 5, tbm: 0, cruise: 1.6, atgm: 2.5, kab: 0 };
 export const altitude = (k: EnemyKind, x: number, z: number) => k === 'tbm' ? 1 + Math.min(22, Math.hypot(x, z) * 0.35) : k === 'kab' ? 1 + Math.min(8, Math.hypot(x, z) * 0.25) : ALT[k];
+// Drawn height of a contact in flight: a diver (Shahed, Gerbera, Lancet) comes down over its last stretch onto
+// the battery instead of arriving at cruise height. The rest fly their type's height.
+export function flightAlt(e: { kind: EnemyKind; x: number; z: number; act: string }) {
+  const a = altitude(e.kind, e.x, e.z);
+  if (e.act !== 'dive') return a;
+  const from = e.kind === 'scout' ? LANCET.loiter : SHAHED_DIVE;
+  return a * Math.max(0.15, Math.min(1, (Math.hypot(e.x, e.z) - BASE_R) / (from - BASE_R)));
+}
 
 // Rare drops: a kill sometimes leaves salvage on the ground (chance per kind: ENEMIES.drop). Click it within
 // DROP_LIFE s to recover it; unclaimed salvage is lost. Heavy kills (reward >= DROP_HEAVY) roll TECH more often.
@@ -91,6 +99,17 @@ export const KAB_FIRST = 1; // bombs a Su-34 carries on the SEAD level, where it
 export const EGRESS_SPEED = 1.4; // aircraft heading home, out of the arena (no reward, but no more harm)
 export const TBM_TERMINAL = { r: 25, jink: 2.5 }; // Iskander: m out it starts its evasive manoeuvres, their size
 export const CRUISE_DOGLEG = 0.7; // rad off its launch bearing a Kh-101 routes through before turning in on its target
+// How hard each type manoeuvres (sim.steer). Fixed wings swing their heading at up to `turn` rad/s; rotorcraft and
+// quadcopters (`hover`) ease their whole velocity toward the one they want, so they slow into a hover and sidestep.
+// `acc`: how fast speed (or, hovering, velocity) closes on what's wanted, per s. Homing on a unit or a waypoint
+// manoeuvres HOMING_BOOST x harder, and inside HOMING_SNAP m it flies straight at it, so nothing circles its target.
+export const AGILITY: Record<EnemyKind, { turn: number; acc: number; hover?: boolean }> = {
+  scout: { turn: 2.6, acc: 3 }, drone: { turn: 1.4, acc: 2.5 }, decoy: { turn: 1.4, acc: 2.5 }, swarm: { turn: 0, acc: 7, hover: true },
+  tank: { turn: 0, acc: 1.5, hover: true }, ew: { turn: 0, acc: 1.3, hover: true }, elite: { turn: 0.9, acc: 1.2 },
+  arm: { turn: 0, acc: 0 }, // flies its own seeker (sim.steerArm)
+  tbm: { turn: 1.6, acc: 3 }, cruise: { turn: 2.4, acc: 2.5 }, atgm: { turn: 4, acc: 4 }, kab: { turn: 1.2, acc: 1.5 },
+};
+export const HOMING_BOOST = 3, HOMING_SNAP = 2;
 
 // Each level adds a kind of problem rather than just more HP:
 // 1 learn the systems · 2 mixed threats · 3 jammers + decoys · 4 SEAD · 5 heavy coordinated raids ·
