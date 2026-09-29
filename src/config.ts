@@ -23,40 +23,59 @@ export const FRONT = -Math.PI / 2, FRONT_ARC = 25 * Math.PI / 180;
 const DEG = Math.PI / 180;
 export const bearing = (x: number, z: number) => ((Math.atan2(z, x) * 180 / Math.PI) % 360 + 360) % 360;
 
-export type EnemyKind = 'scout' | 'drone' | 'swarm' | 'tank' | 'elite' | 'decoy' | 'arm' | 'ew' | 'tbm' | 'cruise' | 'atgm' | 'kab';
+export type EnemyKind = 'scout' | 'drone' | 'swarm' | 'tank' | 'elite' | 'decoy' | 'arm' | 'ew' | 'tbm' | 'cruise' | 'atgm' | 'kab'
+  | 'recon' | 'ka52' | 'hyper' | 'mald';
 
 export interface EnemyType {
   hp: number; speed: number; reward: number;
   dmg: number; // on impact; for the Mi-28 and Su-34, which don't ram, what their weapons carry (the threat board ranks by it)
   name: string; code: string; // display name + short label code
-  size: number; sig: number; glow: number; // glow: brightness on PAL.bright (tank/elite also blink, see render.ts)
+  size: number; glow: number; // glow: brightness on PAL.bright (tank/elite also blink, see render.ts)
+  sig: number; // radar cross-section: detection chance x per look
+  ir: number; // heat signature: IR seekers (Stinger, IRIS-T SLM) hit x (1 + IR_SEEKER * (ir - 1)); cold electric drones low, jets and helicopters high
+  alt: number; // m it flies over the ground: under RADAR_HORIZON.full the radar sees it only closer in (drawn at it too)
   pack: number; wobble: number;
+  packs?: [number, number]; // a normal spawn brings between these many (groups and raids fly `pack`, so briefings add up)
   flank?: boolean; // long-range: may come round the flanks (see FRONT)
   pacOnly?: boolean; // only PAC-3 hit-to-kill can stop it
-  low?: boolean; // hugs the ground: radar only sees it inside CRUISE_LOW of its range (eyes as usual)
+  ballistic?: boolean; // comes down steeply from high up (TERMINAL): the height it's drawn at grows with range
+  mimic?: EnemyKind; // a decoy: flies, shows and is announced as this type until fire control classifies it (DECOY_ID)
   drop: number; // chance a kill leaves salvage behind (see DROPS)
 }
 
 export const ENEMIES: Record<EnemyKind, EnemyType> = {
-  scout: { name: 'Lancet-3 loitering munition', code: 'LANCET', hp: 3, speed: 7, dmg: 3, reward: 6, size: 0.8, sig: 0.6, glow: 1, pack: 1, wobble: 3, drop: 0.02 },
-  drone: { name: 'Shahed-136 one-way attack drone', code: 'SHAHED', hp: 8, speed: 4, dmg: 6, reward: 10, size: 1.1, sig: 0.9, glow: 0.8, pack: 1, wobble: 0.6, flank: true, drop: 0.03 },
-  swarm: { name: 'FPV strike swarm', code: 'FPV', hp: 2, speed: 5.5, dmg: 2, reward: 3, size: 0.5, sig: 0.45, glow: 0.6, pack: 6, wobble: 1.5, drop: 0.008 },
-  tank: { name: 'Mi-28NM attack helicopter', code: 'MI-28', hp: 45, speed: 1.8, dmg: 20, reward: 50, size: 2, sig: 1.4, glow: 1, pack: 1, wobble: 0, drop: 0.12 },
-  elite: { name: 'Su-34 strike fighter', code: 'SU-34', hp: 160, speed: 3.5, dmg: 40, reward: 200, size: 2.4, sig: 1.2, glow: 1.5, pack: 1, wobble: 1, drop: 0.4 },
+  scout: { name: 'Lancet-3 loitering munition', code: 'LANCET', hp: 3, speed: 7, dmg: 3, reward: 6, size: 0.8, sig: 0.6, ir: 0.5, alt: 4, glow: 1, pack: 1, wobble: 3, drop: 0.02 },
+  drone: { name: 'Shahed-136 one-way attack drone', code: 'SHAHED', hp: 8, speed: 4, dmg: 6, reward: 10, size: 1.1, sig: 0.9, ir: 0.8, alt: 5.5, glow: 0.8, pack: 1, wobble: 0.6, flank: true, drop: 0.03 },
+  // Tiny, cold and right on the treetops: under the radar horizon and easily masked, so eyes usually see them first.
+  swarm: { name: 'FPV strike swarm', code: 'FPV', hp: 2, speed: 5.5, dmg: 2, reward: 3, size: 0.5, sig: 0.4, ir: 0.4, alt: 1.8, glow: 0.6, pack: 6, packs: [4, 8], wobble: 1.5, drop: 0.008 },
+  tank: { name: 'Mi-28NM attack helicopter', code: 'MI-28', hp: 45, speed: 1.8, dmg: 20, reward: 50, size: 2, sig: 1.4, ir: 1.4, alt: 3.5, glow: 1, pack: 1, wobble: 0, drop: 0.12 },
+  elite: { name: 'Su-34 strike fighter', code: 'SU-34', hp: 160, speed: 3.5, dmg: 40, reward: 200, size: 2.4, sig: 1.2, ir: 1.6, alt: 9, glow: 1.5, pack: 1, wobble: 1, drop: 0.4 },
   // Looks exactly like a Shahed (bigger radar return, even) until the ECS classifies it. Harmless, worthless.
-  decoy: { name: 'Gerbera decoy drone', code: 'DECOY', hp: 5, speed: 3.8, dmg: 0, reward: 0, size: 1.1, sig: 1.1, glow: 0.8, pack: 3, wobble: 0.6, flank: true, drop: 0 }, // flies with the Shaheds, so it can't give them away
-  arm: { name: 'Kh-31P anti-radiation missile', code: 'KH-31P', hp: 4, speed: 10, dmg: 5, reward: 15, size: 0.8, sig: 0.55, glow: 1.2, pack: 2, wobble: 0, drop: 0.03 },
+  decoy: { name: 'Gerbera decoy drone', code: 'DECOY', hp: 5, speed: 3.8, dmg: 0, reward: 0, size: 1.1, sig: 1.1, ir: 0.7, alt: 5.5, glow: 0.8, pack: 3, wobble: 0.6, flank: true, mimic: 'drone', drop: 0 }, // flies with the Shaheds, so it can't give them away
+  arm: { name: 'Kh-31P anti-radiation missile', code: 'KH-31P', hp: 4, speed: 10, dmg: 5, reward: 15, size: 0.8, sig: 0.55, ir: 1.3, alt: 7, glow: 1.2, pack: 2, wobble: 0, drop: 0.03 },
   // Big radar return, very fast, hits hard. Nothing but PAC-3 touches it.
-  tbm: { name: 'Iskander-M ballistic missile', code: 'ISKANDER', hp: 5, speed: 12, dmg: 25, reward: 60, size: 1, sig: 1.6, glow: 1.3, pack: 1, wobble: 0, pacOnly: true, flank: true, drop: 0.1 },
+  tbm: { name: 'Iskander-M ballistic missile', code: 'ISKANDER', hp: 5, speed: 12, dmg: 25, reward: 60, size: 1, sig: 1.6, ir: 1.5, alt: 0, glow: 1.3, pack: 1, wobble: 0, pacOnly: true, flank: true, ballistic: true, drop: 0.1 },
   // Low, fast and weaving, and it goes for your most valuable unit instead of the base (see sim.cruiseTarget).
-  cruise: { name: 'Kh-101 cruise missile', code: 'KH-101', hp: 6, speed: 8, dmg: 15, reward: 40, size: 1, sig: 0.35, glow: 1.1, pack: 1, wobble: 2, flank: true, low: true, drop: 0.08 },
-  ew: { name: 'Mi-8MTPR-1 EW helicopter', code: 'MI-8PR', hp: 60, speed: 2.5, dmg: 0, reward: 80, size: 1.8, sig: 1.6, glow: 1, pack: 1, wobble: 0, drop: 0.3 },
-  // Launched by other enemies, never spawned on their own: the Mi-28's anti-tank missiles, the Su-34's glide bomb.
-  atgm: { name: '9M120 Ataka anti-tank missile', code: 'ATAKA', hp: 3, speed: 9, dmg: 6, reward: 4, size: 0.6, sig: 0.4, glow: 1.2, pack: 1, wobble: 0, drop: 0 },
-  kab: { name: 'KAB-500 glide bomb (UMPK kit)', code: 'KAB', hp: 35, speed: 4.5, dmg: 40, reward: 20, size: 1, sig: 0.9, glow: 1, pack: 1, wobble: 0, drop: 0 },
+  // Follows the terrain under the radar horizon, then jinks and pops up over its target (CRUISE_TERMINAL).
+  cruise: { name: 'Kh-101 cruise missile', code: 'KH-101', hp: 6, speed: 8, dmg: 15, reward: 40, size: 1, sig: 0.35, ir: 1, alt: 1.2, glow: 1.1, pack: 1, wobble: 2, flank: true, drop: 0.08 },
+  ew: { name: 'Mi-8MTPR-1 EW helicopter', code: 'MI-8PR', hp: 60, speed: 2.5, dmg: 0, reward: 80, size: 1.8, sig: 1.6, ir: 1.4, alt: 5, glow: 1, pack: 1, wobble: 0, drop: 0.3 },
+  // Launched by other enemies, never spawned on their own: the Mi-28's and Ka-52's anti-tank missiles, the Su-34's glide bomb.
+  atgm: { name: '9M120 Ataka anti-tank missile', code: 'ATAKA', hp: 3, speed: 9, dmg: 6, reward: 4, size: 0.6, sig: 0.4, ir: 1.2, alt: 2.5, glow: 1.2, pack: 1, wobble: 0, drop: 0 },
+  kab: { name: 'KAB-500 glide bomb (UMPK kit)', code: 'KAB', hp: 35, speed: 4.5, dmg: 40, reward: 20, size: 1, sig: 0.9, ir: 0.5, alt: 0, glow: 1, pack: 1, wobble: 0, drop: 0 },
+  // High, slow, big on radar, cold. Does no harm itself, but while it circles on station everything in its sector
+  // is spotted for: hits harder and finds your units from further out (RECON). Kill it and the sector goes blind.
+  recon: { name: 'Orlan-10 reconnaissance drone', code: 'ORLAN', hp: 12, speed: 2.4, dmg: 0, reward: 45, size: 1.3, sig: 1.5, ir: 0.5, alt: 11, glow: 0.8, pack: 1, wobble: 0.3, flank: true, drop: 0.15 },
+  // Comes round the flank, settles into a masked hover at standoff and pops up to fire ATGM pairs at your units
+  // (the battery if none is in reach). Easy to see while it flies in and settles; hard once it's masked (KA52).
+  ka52: { name: 'Ka-52 Alligator attack helicopter', code: 'KA-52', hp: 55, speed: 2.4, dmg: 20, reward: 70, size: 2, sig: 1.3, ir: 1.4, alt: 4, glow: 1, pack: 1, wobble: 0, flank: true, drop: 0.15 },
+  // Kinzhal: an Iskander that comes in higher and faster, speeding up in the dive. Late war, PAC-3 only.
+  hyper: { name: 'Kh-47M2 Kinzhal aeroballistic missile', code: 'KINZHAL', hp: 5, speed: 15, dmg: 35, reward: 90, size: 1.1, sig: 1.2, ir: 1.8, alt: 0, glow: 1.5, pack: 1, wobble: 0, pacOnly: true, flank: true, ballistic: true, drop: 0.12 },
+  // An old Kh-55 with no warhead, fired among the Kh-101s: reads as one on radar and on the warning net until
+  // classified, soaking locks and interceptors. It dives on a unit like the real thing, and does nothing.
+  mald: { name: 'Kh-55 decoy cruise missile (inert)', code: 'KH-55', hp: 5, speed: 7.5, dmg: 0, reward: 0, size: 1, sig: 0.45, ir: 0.9, alt: 1.2, glow: 1.1, pack: 1, wobble: 2, flank: true, mimic: 'cruise', drop: 0 },
 };
 // Kills that matter get a bigger blast, a camera shake, a banner and a sound of their own (hud, render, sfx).
-export const BIG_KILLS: Partial<Record<EnemyKind, string>> = { elite: 'SU-34 SPLASHED', ew: 'JAMMER DOWN', tbm: 'BALLISTIC INTERCEPTED' };
+export const BIG_KILLS: Partial<Record<EnemyKind, string>> = { elite: 'SU-34 SPLASHED', ew: 'JAMMER DOWN', tbm: 'BALLISTIC INTERCEPTED', hyper: 'KINZHAL INTERCEPTED', ka52: 'ALLIGATOR DOWN' };
 export const BIG_KILL_SHAKE = 0.5;
 // Critical-state warnings on the HUD (hud.warnings): shares of capacity a resource is critical below. sweep: radar
 // speed share while power starves it; waiting: contacts in tracking range waiting for a lock while every slot is
@@ -65,20 +84,31 @@ export const WARN = { hp: 0.3, power: 0.15, ammo: 0.15, sweep: 0.6, waiting: 2, 
 // Sound: default volumes (0..1, the player's own are saved) and the music's tempo, calm and in a raid.
 export const AUDIO = { sfx: 0.8, music: 0.35, bpm: 84, raidBpm: 108 };
 // Munitions heading for the battery: drawn amber, their launches and intercepts logged.
-export const MUNITIONS: EnemyKind[] = ['arm', 'tbm', 'cruise', 'atgm', 'kab'];
+export const MUNITIONS: EnemyKind[] = ['arm', 'tbm', 'cruise', 'atgm', 'kab', 'hyper', 'mald'];
 export const KINDS = Object.keys(ENEMIES) as EnemyKind[];
-// Drawing only: how high each type flies over the ground (m). The sim is flat; this lets the view read as an
-// airspace over real terrain. A ballistic missile and a glide bomb come down as they close.
-const ALT: Record<EnemyKind, number> = { scout: 4, drone: 5.5, swarm: 2.5, tank: 3.5, elite: 9, decoy: 5.5, arm: 7, ew: 5, tbm: 0, cruise: 1.6, atgm: 2.5, kab: 0 };
-export const altitude = (k: EnemyKind, x: number, z: number) => k === 'tbm' ? 1 + Math.min(22, Math.hypot(x, z) * 0.35) : k === 'kab' ? 1 + Math.min(8, Math.hypot(x, z) * 0.25) : ALT[k];
-// Drawn height of a contact in flight: a diver (Shahed, Gerbera, Lancet) comes down over its last stretch onto
-// the battery instead of arriving at cruise height. The rest fly their type's height.
-export function flightAlt(e: { kind: EnemyKind; x: number; z: number; act: string }) {
+// How high a contact flies over the ground (m): its type's `alt`, except that a ballistic missile or glide bomb
+// comes down as it closes. The radar horizon goes by it (RADAR_HORIZON), and the view draws it.
+export const altitude = (k: EnemyKind, x: number, z: number) => ENEMIES[k].ballistic ? 1 + Math.min(TERMINAL[k]?.apex ?? 22, Math.hypot(x, z) * 0.35)
+  : k === 'kab' ? 1 + Math.min(8, Math.hypot(x, z) * 0.25) : ENEMIES[k].alt;
+// Height of a contact in flight: a diver (Shahed, Gerbera, Lancet) comes down over its last stretch onto the
+// battery instead of arriving at cruise height; a cruise missile pops up over its target to dive on it; a Ka-52
+// hovers masked behind the trees, and rises only to fire. The rest fly their type's height.
+export function flightAlt(e: { kind: EnemyKind; x: number; z: number; act: string; pop?: number }) {
   const a = altitude(e.kind, e.x, e.z);
+  if (e.kind === 'ka52' && e.act === 'hover') return (e.pop ?? 0) > 0 ? a : KA52.maskAlt;
   if (e.act !== 'dive') return a;
+  if (ENEMIES[e.kind].mimic === 'cruise' || e.kind === 'cruise') return a + CRUISE_TERMINAL.pop;
   const from = e.kind === 'scout' ? LANCET.loiter : SHAHED_DIVE;
   return a * Math.max(0.15, Math.min(1, (Math.hypot(e.x, e.z) - BASE_R) / (from - BASE_R)));
 }
+// Radar horizon: a contact flying under `full` m is only seen inside min..1 of radar range, in proportion to its
+// height (a Kh-101 at ~64%, an FPV at ~73%). Masking: one under `alt` m over woods or a rock outcrop is hidden
+// in the clutter, detection chance x `sig` (TRML-4D backup too; eyes as usual).
+export const RADAR_HORIZON = { full: 3.5, min: 0.45 };
+export const horizon = (alt: number) => Math.min(1, RADAR_HORIZON.min + (1 - RADAR_HORIZON.min) * alt / RADAR_HORIZON.full);
+export const MASK = { alt: 2, sig: 0.4 };
+// IR seekers (Stinger, IRIS-T SLM): how much a target's heat signature (ENEMIES.ir) moves their damage.
+export const IR_SEEKER = 0.35;
 
 // Rare drops: a kill sometimes leaves salvage on the ground (chance per kind: ENEMIES.drop). Click it within
 // DROP_LIFE s to recover it; unclaimed salvage is lost. Heavy kills (reward >= DROP_HEAVY) roll TECH more often.
@@ -97,7 +127,6 @@ export const DROP_LIFE = 12, DROP_GRAB = 4.5, DROP_MAX = 12, DROP_HEAVY = 50; //
 export const CACHE = { reward: 6, flat: 40 }; // credits: 6x the kill's reward + 40
 export const REPAIR_DROP = 0.3; // share of max HP a repair kit restores
 export const OVERDRIVE = { time: 12, rate: 1.5 };
-export const CRUISE_LOW = 0.6; // share of radar range a low flyer is seen at (the radar horizon)
 // How each type flies (sim.moveEnemies). Speeds are x the type's own.
 export const DIVE_SPEED = 1.7; // terminal dive: Shaheds (and the Gerberas copying them), Lancets
 export const SHAHED_DIVE = 10; // m from the battery a Shahed pitches over into its dive
@@ -106,7 +135,28 @@ export const HELO = { standoff: 26, every: 4, ammo: 4 }; // Mi-28: m out it hove
 export const KAB_R = 32, KAB_PAIR = 2; // m out a Su-34 releases its glide bombs (and how many), then turns for home
 export const KAB_FIRST = 1; // bombs a Su-34 carries on the SEAD level, where it's new: one, so the first strike teaches instead of ending the run
 export const EGRESS_SPEED = 1.4; // aircraft heading home, out of the arena (no reward, but no more harm)
-export const TBM_TERMINAL = { r: 25, jink: 2.5 }; // Iskander: m out it starts its evasive manoeuvres, their size
+// Ballistic missiles: m out they start their terminal manoeuvres, their size, speed x in the dive, and the height
+// they're drawn coming down from.
+export const TERMINAL: Partial<Record<EnemyKind, { r: number; jink: number; boost: number; apex: number }>> = {
+  tbm: { r: 25, jink: 2.5, boost: 1, apex: 22 },
+  hyper: { r: 30, jink: 1.2, boost: 1.4, apex: 30 }, // Kinzhal: less weave, far more speed
+};
+export const TBM_TERMINAL = TERMINAL.tbm!;
+// Kh-101 (and the Kh-55 decoy): inside `r` m of its target it jinks `jink` hard, speeds up x`speed` and pops up
+// `pop` m to dive on it.
+export const CRUISE_TERMINAL = { r: 12, jink: 1.6, speed: 1.2, pop: 2.5 };
+// Ka-52: m out it settles at, s it takes to settle before the first salvo (the moment to kill it), s between
+// salvos, ATGMs per salvo and in all, s it stays popped up after firing, m it hovers at masked, m of strafe
+// sideways, m its ATGMs reach a unit from, and how much harder an ATGM hits a unit than its damage says.
+export const KA52 = { standoff: 30, settle: 4, every: 5, salvo: 2, ammo: 6, pop: 1.5, maskAlt: 1.2, strafe: 0.5, reach: 32, padHit: 2.5 };
+// FPV swarm: normal spawns bring ENEMIES.swarm.packs (4-8). Each FPV hunts the most isolated unit within `seek` m
+// of it (fewest other guns covering its spot, at most `isolated`), diving on it at DIVE_SPEED. A unit on high
+// ground is spotted TERRAIN.high.dive x further; the treeline hides it. No isolated unit in reach: the base.
+export const SWARM = { seek: 8, isolated: 1 };
+// Orlan-10: m out it circles at, s it stays on station before heading home, rad half-width of the sector it spots
+// for (round its own bearing, so the sector moves as it circles), damage x on impacts in that sector, unit search
+// range x for Lancets and FPVs in it.
+export const RECON = { orbit: 38, time: 40, arc: 0.5, dmg: 1.25, seek: 1.6 };
 export const CRUISE_DOGLEG = 0.7; // rad off its launch bearing a Kh-101 routes through before turning in on its target
 // How hard each type manoeuvres (sim.steer). Fixed wings swing their heading at up to `turn` rad/s; rotorcraft and
 // quadcopters (`hover`) ease their whole velocity toward the one they want, so they slow into a hover and sidestep.
@@ -117,6 +167,7 @@ export const AGILITY: Record<EnemyKind, { turn: number; acc: number; hover?: boo
   tank: { turn: 0, acc: 1.5, hover: true }, ew: { turn: 0, acc: 1.3, hover: true }, elite: { turn: 0.9, acc: 1.2 },
   arm: { turn: 0, acc: 0 }, // flies its own seeker (sim.steerArm)
   tbm: { turn: 1.6, acc: 3 }, cruise: { turn: 2.4, acc: 2.5 }, atgm: { turn: 4, acc: 4 }, kab: { turn: 1.2, acc: 1.5 },
+  recon: { turn: 0.8, acc: 1 }, ka52: { turn: 0, acc: 1.8, hover: true }, hyper: { turn: 1.2, acc: 3 }, mald: { turn: 2.4, acc: 2.5 },
 };
 export const HOMING_BOOST = 3, HOMING_SNAP = 2;
 
@@ -124,6 +175,8 @@ export const HOMING_BOOST = 3, HOMING_SNAP = 2;
 // 1 learn the guns · 2 FPV swarms · 3 helicopters and decoys · 4 Shaheds round the flanks (the radar's moment) ·
 // 5 cruise missiles and jammers · 6 SEAD: Su-34s, ARMs and Iskanders (the Patriot's job) ·
 // 7+ conditions on top, with attack packages ever more likely (PK_GROW per loop, up to PK_MAX).
+// New threats come in on top of what a level already teaches, and only from 5 on, so levels 1-4 play as before:
+// Orlan-10 spotters and Kh-55 decoys with the cruise missiles, Ka-52s round the flanks at SEAD, Kinzhals in the loop.
 // Spawn weights per level; the last entry repeats. pk: chance a spawn event is an attack package instead.
 // rate: spawn rate x, so the opening levels can be held by guns alone (default 1).
 // arc: half-width around FRONT that flank threats can come from (default FRONT_ARC; every direction after the last level).
@@ -132,8 +185,8 @@ export const LEVELS: { name: string; desc: string; w: Partial<Record<EnemyKind, 
   { name: 'FPV SWARMS', desc: 'FPV swarms join the Lancets and Shaheds', w: { scout: 2, drone: 3, swarm: 1 }, rate: 0.6 },
   { name: 'HELICOPTERS', desc: 'Mi-28 attack helicopters and decoys', w: { scout: 2, drone: 3, swarm: 1, tank: 0.6, decoy: 1.2 }, rate: 0.8 },
   { name: 'FLANKS', desc: 'Shaheds from the flanks, and the first attack packages', w: { scout: 1.5, drone: 4, swarm: 1, tank: 0.8, decoy: 1.5 }, pk: 0.05, arc: 60 * DEG },
-  { name: 'EW AND CRUISE', desc: 'cruise missiles going for your units, jammer helicopters', w: { scout: 2, drone: 3, swarm: 1.5, tank: 1, decoy: 1.5, ew: 0.15, cruise: 0.3 }, pk: 0.07, arc: 120 * DEG },
-  { name: 'SEAD', desc: 'Su-34s, anti-radiation missiles and Iskanders', w: { scout: 2, drone: 3, swarm: 2, tank: 1.5, elite: 0.25, decoy: 1.5, arm: 0.3, ew: 0.1, tbm: 0.15, cruise: 0.3 }, pk: 0.1, arc: 120 * DEG },
+  { name: 'EW AND CRUISE', desc: 'cruise missiles going for your units, jammers, and Orlan-10 spotters', w: { scout: 2, drone: 3, swarm: 1.5, tank: 1, decoy: 1.5, ew: 0.15, cruise: 0.3, recon: 0.15, mald: 0.1 }, pk: 0.07, arc: 120 * DEG },
+  { name: 'SEAD', desc: 'Su-34s, ARMs, Iskanders, and Ka-52s round the flanks', w: { scout: 2, drone: 3, swarm: 2, tank: 1.5, elite: 0.25, decoy: 1.5, arm: 0.3, ew: 0.1, tbm: 0.15, cruise: 0.3, recon: 0.2, ka52: 0.3, mald: 0.15 }, pk: 0.1, arc: 120 * DEG },
 ];
 export const PK_GROW = 0.02, PK_MAX = 0.25;
 // Past the scripted levels, jammer helicopters get likelier every level too (spawn weight), up to EW_MAX.
@@ -178,6 +231,13 @@ export const PACKAGES: Package[] = [
     why: 'two jammers blank the sector while cruise missiles slip in low behind the decoys' },
   { name: 'MIXED STRIKE', from: 7, g: { tank: 1, swarm: 2, cruise: 1, arm: 1 }, first: 'tank',
     why: 'cruise and ARM launches pull your guns and the radar away while the Mi-28 hovers' },
+  { name: 'SPOTTED STRIKE', from: 4, g: { recon: 1, scout: 3, swarm: 1 }, first: 'recon',
+    why: 'the Orlan-10 spots for the Lancets and FPVs: they find your units from further out and hit harder' },
+  { name: 'FLANK HUNTERS', from: 5, g: { ka52: 1, recon: 1, drone: 2 }, first: 'ka52',
+    why: 'the Ka-52 settles masked on the flank and picks off your units once the Orlan-10 has found them' },
+  // Saturation: many cheap, a few that matter. The cheap ones soak locks and ammo so the expensive ones get through.
+  { name: 'SATURATION SALVO', from: 6, g: { swarm: 2, decoy: 2, drone: 3, mald: 2, cruise: 1, tbm: 1 }, first: 'cruise',
+    why: 'FPVs, Gerberas and Kh-55 decoys soak locks while the Kh-101 and the Iskander go for what matters' },
 ];
 
 // After the last scripted level, each level brings a new condition on top of SEAD's mix, looping in order.
@@ -189,9 +249,11 @@ export const MODS: Mod[] = [
   { name: 'LULL', desc: 'fewer raiders, clear skies · rebuild', spawn: 0.6, sig: 1.2 },
   { name: 'JAMMING STORM', desc: 'EW helicopters inbound', w: { ew: 0.8 } },
   { name: 'SWARM TIDE', desc: 'many more, much weaker', spawn: 1.5, hp: 0.6, w: { swarm: 4, decoy: 2 } },
-  { name: 'SEAD WAVE', desc: 'strike aircraft, ARMs and cruise missiles', w: { arm: 0.8, elite: 0.3, cruise: 0.4 } },
-  { name: 'EW OFFENSIVE', desc: 'jammers, decoys and cruise missiles · -15% detection', sig: 0.85, w: { ew: 0.5, decoy: 1.5, cruise: 0.3 } },
-  { name: 'COMBINED ARMS', desc: 'helicopters, swarms and cruise missiles together', w: { tank: 1, swarm: 1.5, scout: 1, cruise: 0.3 } },
+  { name: 'SEAD WAVE', desc: 'strike aircraft, ARMs, cruise missiles and Kinzhals', w: { arm: 0.8, elite: 0.3, cruise: 0.4, hyper: 0.08 } },
+  { name: 'EW OFFENSIVE', desc: 'jammers, decoys and cruise missiles · -15% detection', sig: 0.85, w: { ew: 0.5, decoy: 1.5, cruise: 0.3, mald: 0.4 } },
+  { name: 'COMBINED ARMS', desc: 'helicopters, swarms and cruise missiles together', w: { tank: 1, ka52: 0.5, swarm: 1.5, scout: 1, cruise: 0.3 } },
+  { name: 'EYES IN THE SKY', desc: 'Orlan-10 spotters over every raid', w: { recon: 0.6, scout: 1, swarm: 1 } },
+  { name: 'HYPERSONIC', desc: 'Kinzhals among the Iskanders', w: { hyper: 0.12, tbm: 0.1 } },
 ];
 
 // Raids: every level ends with one, a named group from one bearing (`from`: first level index it can be drawn at).
@@ -218,6 +280,9 @@ export const RAIDS: { name: string; from: number; g: Partial<Record<EnemyKind, n
   { name: 'CRUISE SALVO', from: 4, g: { cruise: 3 } },
   { name: 'EW BARRAGE', from: 7, g: { ew: 2, cruise: 2, decoy: 3, drone: 3, scout: 3 } },
   { name: 'COMBINED STRIKE', from: 8, g: { elite: 1, tank: 2, swarm: 2, cruise: 2 } },
+  { name: 'ALLIGATOR HUNT', from: 5, g: { ka52: 2, recon: 1, swarm: 2 } },
+  { name: 'SATURATION WAVE', from: 7, g: { swarm: 3, decoy: 2, drone: 4, mald: 2, cruise: 2, tbm: 1 } },
+  { name: 'HYPERSONIC STRIKE', from: 9, g: { hyper: 2, tbm: 1, mald: 2 } },
 ];
 
 // Radar threats. ARMs home on the radar while it radiates, and a hit takes it offline. EMCON [F] silences it:

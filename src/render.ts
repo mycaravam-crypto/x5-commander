@@ -73,6 +73,7 @@ const GEOS = enemyGeos();
 for (const g of Object.values(GEOS)) g.computeVertexNormals();
 const KIND_COL: Record<EnemyKind, number> = {
   scout: 0x6d7064, drone: 0x5f625b, decoy: 0x5f625b, swarm: 0x2e2f2c, tank: 0x4d5a3c, ew: 0x5a6446, elite: 0x7b8792, arm: 0xe2dfd4, tbm: 0xd6d6cb, cruise: 0xbabdb5, atgm: 0xd8d4c4, kab: 0x55584e,
+  recon: 0x8a8f86, ka52: 0x46503a, hyper: 0xdcdcd2, mald: 0xbabdb5,
 };
 
 const GRADE = {
@@ -705,8 +706,8 @@ export function createRenderer() {
     bl.x[i] = x; bl.z[i] = z; bl.r[i] = r; bl.life[i] = bl.max[i] = life;
   }
 
-  const WRECKS: EnemyKind[] = ['scout', 'drone', 'decoy', 'tank', 'ew', 'elite'];
-  const KILL_SHARDS: Record<EnemyKind, number> = { swarm: 4, scout: 6, drone: 8, tank: 16, elite: 24, decoy: 5, arm: 6, ew: 16, tbm: 12, cruise: 8, atgm: 3, kab: 10 };
+  const WRECKS: EnemyKind[] = ['scout', 'drone', 'decoy', 'tank', 'ew', 'elite', 'recon', 'ka52'];
+  const KILL_SHARDS: Record<EnemyKind, number> = { swarm: 4, scout: 6, drone: 8, tank: 16, elite: 24, decoy: 5, arm: 6, ew: 16, tbm: 12, cruise: 8, atgm: 3, kab: 10, recon: 8, ka52: 18, hyper: 14, mald: 6 };
   function consume(s: State) {
     for (const e of s.events) {
       switch (e.k) {
@@ -763,7 +764,8 @@ export function createRenderer() {
         case 'warning': gwave(0, 0, ARENA_R, ALERT, 1.5, 1.5); break;
         case 'arm': case 'tbm': case 'cruise': wave(e.x, groundY(e.x, e.z) + altitude(e.k as EnemyKind, e.x, e.z), e.z, e.k === 'arm' ? 6 : 4, ALERT, 0.8, 1.5); break;
         case 'release': wave(e.x, airY(s, e.x, e.z), e.z, 2.5, ALERT, 0.4, 1.2); break;
-        case 'jam': gwave(e.x, e.z, 8, ALERT, 1.2); break;
+        case 'jam': case 'spot': gwave(e.x, e.z, 8, ALERT, 1.2); break;
+        case 'settle': wave(e.x, airY(s, e.x, e.z), e.z, 3, ALERT, 0.6, 1.5); break;
         case 'ident': { // classified: a grey ring collapses on it and it goes dim
           const y = airY(s, e.x, e.z);
           wave(e.x, y, e.z, 4, 0xcccccc, 0.5, 1.5); gwave(e.x, e.z, 3, 0xcccccc, 0.6); shards(e.x, e.z, 5, 0xbbbbbb, 4, 0.4, y, 1.2);
@@ -991,7 +993,7 @@ export function createRenderer() {
       dummy.scale.setScalar(sz);
       dummy.updateMatrix();
       m.setMatrixAt(m.count, dummy.matrix);
-      m.setColorAt(m.count++, tmpC.setHex(k === 'decoy' ? 0x9a9a9a : KIND_COL[k]).multiplyScalar(0.6 + 0.4 * fade));
+      m.setColorAt(m.count++, tmpC.setHex(ENEMIES[k].mimic ? 0x9a9a9a : KIND_COL[k]).multiplyScalar(0.6 + 0.4 * fade));
       if (play) exhaust(e, f, sz, dt);
       const rotor = ROTORS[k];
       if (rotor) { // spinning main rotor disc
@@ -999,7 +1001,7 @@ export function createRenderer() {
         rotors.setMatrixAt(rotors.count, dummy.matrix); rotors.setColorAt(rotors.count, tmpC.setHex(0x222222)); rf.setX(rotors.count++, 0.8);
       }
       // Stalk and ground ring: red for a threat, amber for a missile on the battery, grey for a classified decoy.
-      const tc = k === 'decoy' ? 0x999999 : MUNITIONS.includes(e.kind) ? ALERT : C.threat;
+      const tc = ENEMIES[k].mimic ? 0x999999 : MUNITIONS.includes(k) ? ALERT : C.threat;
       dummy.position.set(e.x, gy + 0.1, e.z); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, Math.max(0.01, alt - 0.1), 1); dummy.updateMatrix();
       stalks.setMatrixAt(stalks.count, dummy.matrix); stalks.setColorAt(stalks.count, tmpC.setHex(tc)); sf.setX(stalks.count++, 0.6 * fade);
       dummy.position.set(e.x, gy + 0.15, e.z); dummy.scale.setScalar(sz * 0.45); dummy.updateMatrix();
@@ -1223,7 +1225,7 @@ export function createRenderer() {
     f.frame = frameNo;
     if (play && dt > 0) {
       const y0 = f.y, h0 = f.h, ease = (r: number) => 1 - Math.exp(-r * dt);
-      f.y += (want - f.y) * ease(e.kind === 'tbm' ? 14 : 6);
+      f.y += (want - f.y) * ease(ENEMIES[e.kind].ballistic ? 14 : e.kind === 'ka52' ? 2.5 : 6); // a Ka-52 rises and sinks, it doesn't jump
       if (course !== undefined) f.h += angDiff(course, f.h) * ease(heli ? 2.5 : 7);
       const vy = (f.y - y0) / dt, yaw = angDiff(f.h, h0) / dt;
       f.acc += ((hs - f.hs) / dt - f.acc) * ease(4); f.hs = hs;
@@ -1235,7 +1237,7 @@ export function createRenderer() {
       } else {
         // Coordinated turns: roll into the turn with the turn rate; nose along the flight path.
         bank = clamp(yaw * (e.kind === 'swarm' ? 0.12 : 0.35) * Math.max(1, hs / 4), 1.1);
-        pitch = e.kind === 'tbm' ? -0.9 : clamp(Math.atan2(vy, Math.max(hs, 0.5)) * 1.2, 1.1);
+        pitch = ENEMIES[e.kind].ballistic ? -0.9 : clamp(Math.atan2(vy, Math.max(hs, 0.5)) * 1.2, 1.1);
       }
       f.bank += (bank - f.bank) * ease(5); f.pitch += (pitch - f.pitch) * ease(5);
     }
@@ -1247,6 +1249,8 @@ export function createRenderer() {
     arm: { w: 0.18, life: 1.3, shade: 0.9, flame: 0.8 },
     tbm: { w: 0.35, life: 2.6, shade: 1, flame: 1.4 },
     cruise: { w: 0.14, life: 0.8, shade: 0.85, flame: 0.5 },
+    mald: { w: 0.14, life: 0.8, shade: 0.85, flame: 0.5 },
+    hyper: { w: 0.3, life: 2.2, shade: 1, flame: 1.8 },
     atgm: { w: 0.12, life: 0.8, shade: 0.9, flame: 0.5 },
   };
   const TRAIL_STEP = LITE ? 1.2 : 0.6; // m between smoke segments: trail cost goes with distance flown, not frame rate
