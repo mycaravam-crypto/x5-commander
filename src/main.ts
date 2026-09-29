@@ -1,6 +1,6 @@
-import { newGame, dailySeed, update, buy, collectDrop, pickPerk, markAt, placePad, movePad, selectPad, upgradePad, sellPad, skipBuild, building, toggleRelocate, cycleMode, cycleDiscipline, cycleRadarMode, aimFocus, emergencyIntercept, toggleEmcon, type State } from './sim.ts';
+import { newGame, dailySeed, parseCode, parseResult, update, buy, collectDrop, pickPerk, markAt, placePad, movePad, selectPad, upgradePad, sellPad, skipBuild, building, toggleRelocate, cycleMode, cycleDiscipline, cycleRadarMode, aimFocus, emergencyIntercept, toggleEmcon, type State } from './sim.ts';
 import { createRenderer } from './render.ts';
-import { createHud, loadBest } from './hud.ts';
+import { createHud, loadBest, boardAdd } from './hud.ts';
 import { DOCTRINES, BUILD_SLOW } from './config.ts';
 import * as sfx from './sfx.ts';
 
@@ -42,6 +42,18 @@ const doctrine = (i: number) => {
   try { localStorage.setItem('x5-doctrine', d.id); } catch { /* storage blocked: skip */ }
   s = newGame(s.seed, '', d.id); // same map, new loadout
 };
+// Start screen: load a friend's seed code (or their whole result line) to fly the same map and raids. A daily op's
+// result line also puts their time on that day's board, to beat.
+function playCode() {
+  if (s.phase !== 'start') return;
+  const text = prompt('Paste a seed code (X5-…) or a friend\'s result line:');
+  const c = text ? parseCode(text) : null;
+  if (!c) { if (text) alert('No seed code found in that.'); return; }
+  if (c.kind === 'run') { s = newGame(c.seed, '', openDoc(c.doctrine)); return; }
+  const r = parseResult(text!);
+  if (r) boardAdd(c.daily, { time: r.time, kills: r.kills, who: 'RIVAL' });
+  s = newGame(dailySeed(c.daily), c.daily);
+}
 // Start screen: roll another map (and schedule) for a normal run.
 const reroll = () => { if (s.phase === 'start') s = newGame(undefined, '', s.doctrine); };
 const hud = createHud({
@@ -52,6 +64,7 @@ const hud = createHud({
   resume: () => { if (s.phase === 'pause') s.phase = 'play'; },
   setting: (k, v) => { if (k === 'cov') setCov(v); else if (k === 'sfx' || k === 'music') sfx.setVolume(k, v); },
   settings: () => ({ ...sfx.volume, cov }),
+  code: playCode,
   start, restart, menu, doctrine,
 });
 // Coverage overlay: off, faint (to leave on) or full; cycled with [O] and remembered between runs.
@@ -151,6 +164,7 @@ function key(code: string) {
     case 'KeyF': toggleEmcon(s); break;
     case 'KeyV': cycleRadarMode(s); break;
     case 'KeyM': sfx.toggleMute(); break;
+    case 'KeyS': playCode(); break; // start screen only (in play, S pans)
     case 'KeyR': if (s.phase === 'over') restart(); break;
     case 'KeyC': if (s.phase === 'over') hud.share(); break;
     case 'KeyX': speed = 3 - speed; break;

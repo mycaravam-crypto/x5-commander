@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, buy, skipBuild, cruiseTarget, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive, noAmmo } from './sim.ts';
-import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, TERRAIN, AMMO_RELOAD, GUNS, HELO, LANCET, MILESTONE, DROP_LIFE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE, VETERANCY, TRAINING, TRAINING_BUILD } from './config.ts';
+import { newGame, update, stageInfo, spawnGroupAt, seedCode, parseCode, parseResult, buy, skipBuild, cruiseTarget, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive, noAmmo } from './sim.ts';
+import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, TERRAIN, AMMO_RELOAD, GUNS, HELO, LANCET, MILESTONE, DROP_LIFE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE, VETERANCY, TRAINING, TRAINING_BUILD, DOCTRINES, RAIDS, EW_MAX } from './config.ts';
 import { site, PONDS, ROCKS, FARMS, mapSeed, openShare, OPEN_MIN, ground, riverZ, RIVER_W } from './terrain.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
@@ -32,8 +32,10 @@ const run = (s: State, secs: number, each?: () => void) => {
 
 // A battery that has bought its radar and Patriot, for the checks on what those do.
 const armed = (g: State) => { g.lv.radar = g.lv.pac3 = 1; g.st = deriveStats(g.lv, g.perks, g.level); return g; };
-// One thing at a time: no random spawns, strike packages or raids. Armed, and without the starting MG.
-const quiet = () => { const g = armed(newGame()); g.phase = 'play'; g.spawnAcc = -1e9; g.nextElite = 1e9; g.nextRaid = 1e9; g.perim.length = 0; return g; };
+// One thing at a time: no random spawns, strike packages or raids. Armed, and without the starting MG. On a fixed
+// map where every reference spot (SPOT, below) is open ground, so a change to how many randoms earlier checks draw
+// can't land a check's unit on water or rock.
+const quiet = () => { const g = armed(newGame(1)); g.phase = 'play'; g.spawnAcc = -1e9; g.nextElite = 1e9; g.nextRaid = 1e9; g.perim.length = 0; return g; };
 
 // Reference spots on open ground, by belt and degrees off the front (the old fixed slots, still used by the checks).
 const SPOT: [number, number][] = [[17, 0], [11, 0], [17, -25], [17, 25], [30, 0], [30, -15], [30, 15], [11, -90], [11, 90], [11, -150], [11, 150], [17, -50], [11, 180], [30, -30], [30, 30], [17, 50]];
@@ -829,6 +831,41 @@ ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies stan
   ok(h.seed === g.seed, 'training flies the same map every time');
 }
 
+// Doctrines: the starting loadout, and a trade that holds all run, through level-ups and perks.
+{
+  const std = newGame(9), str = newGame(9, '', 'strike'), log = newGame(9, '', 'logistics'), sen = newGame(9, '', 'sensor');
+  ok(Math.abs(str.st.maxHp - std.st.maxHp * 0.75) < 1e-9, 'FORWARD STRIKE: less HP from the start');
+  str.phase = 'play'; str.credits = 1e6; for (let i = 0; i < 4; i++) buy(str, 'hp'); pickPerk(str, 0);
+  const plain = deriveStats(str.lv, str.perks, str.level);
+  ok(str.level >= 2 && Math.abs(str.st.maxHp - plain.maxHp * 0.75) < 1e-9 && str.st.padDmg > plain.padDmg * 1.14, 'FORWARD STRIKE: its trade holds after level-ups');
+  ok(cost(log, 'hp') === Math.round(60 * DOCTRINES.find(d => d.id === 'logistics')!.price!) && cost(std, 'hp') === 60, 'LOGISTICS: upgrades cost less');
+  ok(sen.st.radarRange > deriveStats(sen.lv, []).radarRange * 1.14 && sen.st.padDmg < std.st.padDmg, 'SENSOR NET: sees further, hits softer');
+  ok(newGame(9, '2026-01-01', 'strike').st.maxHp === std.st.maxHp, 'daily ops fly STANDARD, trade-free');
+}
+
+// Late game: jammers get likelier every level past the script, new packages and raids join the mix.
+{
+  const ew = (i: number) => stageInfo(i).w.ew ?? 0, last = LEVELS.length;
+  ok(ew(last + 1) > ew(last) && ew(last + 40) <= (LEVELS[last - 1].w.ew ?? 0) + EW_MAX + 1e-9 + 0.8, 'EW pressure grows, capped');
+  ok(PACKAGES.some(p => p.from >= 6) && RAIDS.some(r => r.from >= 7), 'late packages and raids');
+  const g = quiet(); g.stage = 8;
+  const jam = spawnGroupAt(g, { ew: 2, cruise: 1 }, FRONT, 1).filter(e => e.kind === 'ew');
+  ok(jam.length === 2 && Math.abs(jam[0].hold - jam[1].hold) > EW_ARC, 'two escort jammers stand side by side');
+}
+
+// Share codes: a normal run's code replays its seed and doctrine; a daily op's is its date; found inside a result line too.
+{
+  for (const seed of [1, -1, 123456789, -2147483648, 2147483647]) for (const doctrine of ['standard', 'strike']) {
+    const c = parseCode(seedCode({ seed, daily: '', doctrine }));
+    ok(c?.kind === 'run' && c.seed === seed && c.doctrine === doctrine, `seed code round trip (${seed} ${doctrine})`);
+  }
+  const g = newGame(dailySeed('2026-09-29'), '2026-09-29'), c = parseCode(`some text ${seedCode(g)} more`);
+  ok(c?.kind === 'daily' && c.daily === '2026-09-29', 'daily code');
+  const r = parseResult(`X5 COMMANDER · DAILY OP 2026-09-29 · 12:34 · 1,234 kills · lv 7 · 3/5 clean raids · ${seedCode(g)}`);
+  ok(r && r.time === 754 && r.kills === 1234 && r.code.kind === 'daily' && r.code.daily === '2026-09-29', 'a result line parses');
+  ok(parseCode('nothing here') === null && parseCode('X5-ZZZZZZZZ-0') === null, 'junk has no code');
+}
+
 // Debrief counters add up.
 {
   const dealt = Object.values(b.stats.dmg).reduce((a, x) => a + x, 0);
@@ -836,7 +873,7 @@ ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies stan
   ok(killed === b.kills && dealt > 0 && b.stats.dmg['PAC-3'] > 0, `debrief (${killed}/${b.kills})`);
   const L = b.stats.levels, unitKills = Object.values(b.stats.units).reduce((a, u) => a + u.kills, 0);
   const over = (b.phase as string) === 'over';
-  ok(L.length === b.stage + (over ? 1 : 0) && L.every((l, i) => (l.end === 'fell') === (over && i === L.length - 1)), `a line per level, 'fell' only where it fell (${L.length} lines, stage ${b.stage})`);
+  ok(L.length === b.stage + (over || building(b) ? 1 : 0) && L.every((l, i) => (l.end === 'fell') === (over && i === L.length - 1)), `a line per level, 'fell' only where it fell (${L.length} lines, stage ${b.stage})`);
   ok(L.reduce((a, l) => a + l.kills, 0) === b.stats.lvKills, 'level kills add up');
   ok(Math.abs(L.reduce((a, l) => a + l.hp, 0) - b.stats.lvHp) < 1e-6, 'level HP lost adds up');
   const f = newGame(5); f.phase = 'play'; run(f, 1500);

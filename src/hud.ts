@@ -3,7 +3,7 @@ import { play as sound } from './sfx.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import { mapSeed } from './terrain.ts';
 import type { Records } from './config.ts';
-import { beltOf, stageInfo, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, noAmmo, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
+import { seedCode, beltOf, stageInfo, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, noAmmo, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const $ = (id: string) => document.getElementById(id)!;
 const fmt = (n: number) => Math.floor(n).toLocaleString('en-US');
@@ -25,6 +25,28 @@ export function loadBest(): Best {
   try { return JSON.parse(localStorage.getItem('x5-best')!) ?? { time: 0, kills: 0, level: 0, earned: 0 }; }
   catch { return { time: 0, kills: 0, level: 0, earned: 0 }; }
 }
+
+// The daily board: per date, the best runs flown here (YOU) and friends' pasted result lines (RIVAL), best first.
+// Kept for the last BOARD_DAYS dates, BOARD_TOP runs each.
+type Entry = { time: number; kills: number; who: 'YOU' | 'RIVAL' };
+const BOARD_DAYS = 14, BOARD_TOP = 5;
+function loadBoard(): Record<string, Entry[]> {
+  try { return JSON.parse(localStorage.getItem('x5-board')!) ?? {}; } catch { return {}; }
+}
+// Adds a run to a date's board; returns its place (0-based), or -1 if it didn't make the board.
+export function boardAdd(date: string, e: Entry) {
+  const b = loadBoard(), day = [...b[date] ?? []];
+  if (e.who === 'RIVAL' && day.some(x => x.who === 'RIVAL' && x.time === e.time && x.kills === e.kills)) return -1; // pasted twice
+  day.push(e); day.sort((a, c) => c.time - a.time || c.kills - a.kills);
+  b[date] = day.slice(0, BOARD_TOP);
+  for (const d of Object.keys(b).sort().slice(0, -BOARD_DAYS)) delete b[d];
+  try { localStorage.setItem('x5-board', JSON.stringify(b)); } catch { /* storage blocked: skip */ }
+  return b[date].indexOf(e);
+}
+const boardHtml = (date: string, mine = -1) => {
+  const day = loadBoard()[date] ?? [];
+  return day.length ? `<div class="board"><small>DAILY BOARD · ${date}</small><ol>${day.map((e, i) => `<li class="${i === mine ? 'hot' : e.who === 'RIVAL' ? 'dim' : ''}"><span>${e.who}</span><span>${clock(e.time)}</span><span>${fmt(e.kills)} kills</span></li>`).join('')}</ol></div>` : '';
+};
 
 type Daily = { date: string; time: number; kills: number };
 function loadDaily(date: string): Daily {
@@ -78,11 +100,11 @@ const helpHtml = () => `<div class="help"><div><small>SYSTEMS</small><dl>${HELP_
   <div><small>KEYS</small><dl>${HELP_KEYS.map(([k, v]) => `<dt><kbd>${k}</kbd></dt><dd>${v}</dd>`).join('')}</dl></div></div>`;
 
 // One line to paste in a chat.
-export const resultLine = (s: State) => `X5 COMMANDER · ${s.training ? 'TRAINING' : s.daily ? `DAILY OP ${s.daily}` : `${DOCTRINES.find(d => d.id === s.doctrine)!.name} RUN`} · ${clock(s.t)} · ${fmt(s.kills)} kills · lv ${s.level} · ${s.stats.clean}/${s.stats.raids} clean raids`;
+export const resultLine = (s: State) => `X5 COMMANDER · ${s.training ? 'TRAINING' : s.daily ? `DAILY OP ${s.daily}` : `${DOCTRINES.find(d => d.id === s.doctrine)!.name} RUN`} · ${clock(s.t)} · ${fmt(s.kills)} kills · lv ${s.level} · ${s.stats.clean}/${s.stats.raids} clean raids${s.training ? '' : ` · ${seedCode(s)}`}`;
 
 const docsHtml = (s: State, best: Best) => DOCTRINES.map((d, i) => {
   const open = d.unlock(best);
-  return `<button class="perk frame${d.id === s.doctrine ? ' sel' : ''}${open ? '' : ' locked'}" data-a="doc${i}"><b>${d.name}</b><span>${open ? d.desc : `LOCKED · ${d.need}`}</span><kbd>[${i + 1}]</kbd></button>`;
+  return `<button class="perk frame${d.id === s.doctrine ? ' sel' : ''}${open ? '' : ' locked'}" data-a="doc${i}"><b>${d.name}</b><span>${open ? d.desc : `LOCKED · ${d.need}`}</span>${open ? `<em>ALL RUN · ${d.run}</em>` : ''}<kbd>[${i + 1}]</kbd></button>`;
 }).join('');
 
 // After the run: what to do next time about the threat that did the most damage.
@@ -127,7 +149,7 @@ function debrief(s: State) {
 }
 
 export function createHud(actions: { buy(id: string): void; perk(i: number): void; pad(act: string): void; start(mode?: 'daily' | 'training'): void; restart(): void; resume(): void; menu(): void; doctrine(i: number): void; look(x: number, z: number): void;
-  setting(k: string, v: number): void; settings(): { sfx: number; music: number; cov: number } }) {
+  setting(k: string, v: number): void; settings(): { sfx: number; music: number; cov: number }; code(): void }) {
   for (const [k, v] of Object.entries(PAL)) document.documentElement.style.setProperty(`--${k}`, rgba(v));
 
   // ---- shop (built once) ----
@@ -175,6 +197,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     if (a === 'start') actions.start();
     else if (a === 'daily') actions.start('daily');
     else if (a === 'training') actions.start('training');
+    else if (a === 'code') actions.code();
     else if (a === 'menu') actions.menu();
     else if (a === 'resume') actions.resume();
     else if (a === 'resetTips') resetTips((e.target as HTMLElement).closest('button'));
@@ -197,7 +220,12 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const key = s.phase + s.perkChoices.join();
     // Doctrine picks only redraw their row, so the boot text doesn't replay.
     if (key === shownPhase && s.phase === 'start' && s.doctrine !== shownDoc) { shownDoc = s.doctrine; overlay.querySelector('.docs')!.innerHTML = docsHtml(s, loadBest()); }
-    if (s.phase === 'start' && s.seed !== shownSeed) { shownSeed = s.seed; const m = overlay.querySelector('.mapline'); if (m) m.textContent = `MAP ${mapName(s.seed)} · [N] NEW MAP`; }
+    if (s.phase === 'start' && s.seed !== shownSeed) {
+      shownSeed = s.seed; const m = overlay.querySelector('.mapline');
+      if (m) m.textContent = s.daily ? `DAILY OP ${s.daily} LOADED · ${seedCode(s)} · [SPACE] TO FLY IT` : `MAP ${mapName(s.seed)} · SEED ${seedCode(s)} · [N] NEW MAP`;
+      const b = overlay.querySelector('.boardslot'); // a loaded op shows its own day's board
+      if (b) b.innerHTML = boardHtml(s.daily || new Date().toISOString().slice(0, 10));
+    }
     if (key === shownPhase) return;
     shownDoc = s.doctrine;
     shownPhase = key;
@@ -218,7 +246,9 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       ${trained() ? '' : '<p class="hot">NEW HERE? A 3-MINUTE DRILL: EYES, RADAR, ARMS, DECOYS</p><button class="btn hotbtn" data-a="training">TRAINING [T]</button><br>'}
       <button class="btn" data-a="start">DEPLOY [SPACE]</button> <button class="btn" data-a="daily">DAILY OP [D]</button>${trained() ? ' <button class="btn" data-a="training">TRAINING [T]</button>' : ''}
       <p><button class="link" data-a="resetTips">RESET TIPS</button></p>
-      <p class="dim">Daily op: same raid for everyone today. ${(d => d.time ? `Your best today · ${clock(d.time)} · ${fmt(d.kills)} kills` : 'Not flown yet today.')(loadDaily(new Date().toISOString().slice(0, 10)))}</p></div></div>`;
+      <p class="dim">Daily op: same raid for everyone today. ${(d => d.time ? `Your best today · ${clock(d.time)} · ${fmt(d.kills)} kills` : 'Not flown yet today.')(loadDaily(new Date().toISOString().slice(0, 10)))}</p>
+      <div class="boardslot"></div>
+      <p><button class="link" data-a="code">PLAY A SEED [S]</button> <span class="dim">· a friend's seed code or result line: same map, same raids</span></p></div></div>`;
     else if (s.phase === 'pause') html = `<div class="card menu"><h2>PAUSED</h2>
       <button class="btn" data-a="resume">RESUME [P]</button> <button class="btn" data-a="menu">QUIT TO MENU</button>
       ${settingsHtml()}
@@ -246,12 +276,14 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         const d = loadDaily(s.daily), rec = s.t > d.time;
         if (rec) try { localStorage.setItem('x5-daily', JSON.stringify({ date: s.daily, time: s.t, kills: s.kills })); } catch { /* storage blocked: skip */ }
         daily = `<p class="${rec ? 'hot' : 'dim'}">DAILY OP ${s.daily} · ${rec ? 'NEW BEST TODAY ★' : `today's best ${clock(d.time)}`}</p>`;
+        daily += boardHtml(s.daily, boardAdd(s.daily, { time: s.t, kills: s.kills, who: 'YOU' }));
       }
       const unlocked = DOCTRINES.filter(d => !d.unlock(best) && d.unlock(merged as Best)).map(d => `<p class="hot">DOCTRINE UNLOCKED · ${d.name}</p>`).join('');
       html = `<div class="card"><h1 class="alert">BATTERY LOST</h1>${daily}${unlocked}
         <div class="score">${row('SURVIVED', 'time', clock)}${row('KILLS', 'kills', fmt)}${row('BASE LEVEL', 'level', String)}${row('CREDITS EARNED', 'earned', fmt)}</div>
         ${debrief(s)}
         <p class="dim">perks: ${s.perks.map(id => PERKS.find(p => p.id === id)!.name).join(' · ') || 'none'}</p>
+        <p class="dim">SEED <span class="hot">${seedCode(s)}</span> · the result line carries it: friends fly the same ${s.daily ? 'op' : 'map and raids'}</p>
         <button class="btn" data-a="restart">REDEPLOY [R]</button> <button class="btn" data-a="share">COPY RESULT [C]</button></div>`;
     }
     overlay.innerHTML = html;

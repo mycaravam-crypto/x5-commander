@@ -1,5 +1,5 @@
 import {
-  ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, LEVEL_LEN, BUILD_TIME, BUILD_LOST, ELITE_FROM, PK_GROW, PK_MAX,
+  ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, LEVEL_LEN, BUILD_TIME, BUILD_LOST, ELITE_FROM, PK_GROW, PK_MAX, EW_GROW, EW_MAX,
   TERRAIN, ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, FANS, beltAt, buildR, BUILD_MIN, PAD_GAP, START_PAD, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, VETERANCY, vetRank, deriveStats, difficulty, BACKUP_RADAR,
   BIG_KILLS, BIG_KILL_SHAKE, DROPS, DROP_KINDS, DROP_LIFE, DROP_GRAB, DROP_MAX, DROP_HEAVY, CACHE, REPAIR_DROP, OVERDRIVE, MILESTONE, rank,
   RADAR_MODES, CRUISE_LOW, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
@@ -61,6 +61,23 @@ export function rand(r: { seed: number }) {
 }
 // Same seed for everyone on the same (UTC) day.
 export const dailySeed = (date: string) => [...date].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619), 2166136261);
+// Share codes. A normal run is its seed and doctrine (same map, same schedule, same loadout): X5-<seed base 36>-<doctrine #>.
+// A daily op is its date: X5-D20260929. A code is found anywhere in the text, so a whole result line works too.
+export function seedCode(s: { seed: number; daily: string; doctrine: string }) {
+  return s.daily ? `X5-D${s.daily.replaceAll('-', '')}` : `X5-${(s.seed >>> 0).toString(36).toUpperCase()}-${Math.max(0, DOCTRINES.findIndex(d => d.id === s.doctrine))}`;
+}
+export type Code = { kind: 'run'; seed: number; doctrine: string } | { kind: 'daily'; daily: string };
+export function parseCode(text: string): Code | null {
+  const d = /X5-D(\d{4})(\d{2})(\d{2})\b/i.exec(text);
+  if (d) return { kind: 'daily', daily: `${d[1]}-${d[2]}-${d[3]}` };
+  const n = /X5-([0-9A-Z]{1,7})-(\d)\b/i.exec(text), seed = n ? parseInt(n[1], 36) : NaN;
+  return n && seed <= 0xFFFFFFFF ? { kind: 'run', seed: seed | 0, doctrine: DOCTRINES[+n[2]]?.id ?? 'standard' } : null;
+}
+// A friend's pasted result line (hud.resultLine): its code, time survived and kills, for the daily board.
+export function parseResult(text: string) {
+  const code = parseCode(text), m = / · (\d+):(\d{2}) · ([\d,]+) kills/.exec(text);
+  return code && m ? { code, time: +m[1] * 60 + +m[2], kills: +m[3].replaceAll(',', '') } : null;
+}
 
 // The seed drives two separate streams: the spawn schedule and the perk drafts. Everything that depends on
 // how you play (detection rolls, launches) uses Math.random, so it can't shift the schedule.
@@ -92,7 +109,7 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     level: 1,
     perks: [] as string[],
     perkChoices: [] as string[],
-    st: deriveStats(doc.lv, []),
+    st: deriveStats(doc.lv, [], 1, doc.id),
     hp: 0,
     power: 0,
     ammo: 0,
@@ -165,7 +182,8 @@ export function stageInfo(i: number) {
   if (i < LEVELS.length) return { ...LEVELS[i], mod: NO_MOD };
   const last = LEVELS[LEVELS.length - 1], mod = MODS[(i - LEVELS.length) % MODS.length], w = { ...last.w };
   for (const [k, v] of Object.entries(mod.w ?? {}) as [EnemyKind, number][]) w[k] = (w[k] ?? 0) + v;
-  const loop = i - LEVELS.length; // packages get likelier every level past the scripted ones
+  const loop = i - LEVELS.length; // packages and jammers get likelier every level past the scripted ones
+  w.ew = (w.ew ?? 0) + Math.min(EW_MAX, EW_GROW * (loop + 1));
   return { name: mod.name, desc: mod.desc, w, mod, pk: Math.min(PK_MAX, (last.pk ?? 0) + PK_GROW * (loop + 1)), arc: Math.PI };
 }
 // Half-width around FRONT that flank threats can come from in level i.
@@ -219,7 +237,7 @@ export const lockReason = (s: State, id: string) => {
 
 export const cost = (s: State, id: string) => {
   const u = UPGRADES.find(u => u.id === id)!;
-  return (s.lv[id] ?? 0) >= u.max || lockReason(s, id) ? Infinity : Math.round(u.base * u.mult ** (s.lv[id] ?? 0));
+  return (s.lv[id] ?? 0) >= u.max || lockReason(s, id) ? Infinity : Math.round(u.base * u.mult ** (s.lv[id] ?? 0) * (DOCTRINES.find(d => d.id === s.doctrine)!.price ?? 1));
 };
 
 export function buy(s: State, id: string) {
@@ -478,7 +496,7 @@ export function pickPerk(s: State, i: number) {
 
 function refreshStats(s: State) {
   const oldMax = s.st.maxHp;
-  s.st = deriveStats(s.lv, s.perks, s.level);
+  s.st = deriveStats(s.lv, s.perks, s.level, s.doctrine);
   // Keep HP ratio when max changes, but hull upgrades also heal the added amount.
   s.hp = Math.min(s.st.maxHp, s.hp + Math.max(0, s.st.maxHp - oldMax));
   s.power = Math.min(s.power, s.st.powerCap);
@@ -577,7 +595,12 @@ export function update(s: State, dt: number) {
   const ls = lastStand(s);
   if (ls !== s.lastStand) { s.lastStand = ls; if (ls) s.events.push({ k: 'lastStand' }); }
   if (s.training) s.hp = Math.max(1, s.hp); // training can't be lost
-  if (s.hp <= 0) { s.hp = 0; s.phase = 'over'; logLevel(s, 'fell'); s.events.push({ k: 'over' }); }
+  if (s.hp <= 0) {
+    s.hp = 0; s.phase = 'over';
+    if (building(s)) s.stats.levels[s.stats.levels.length - 1].end = 'fell'; // between levels: the one just fought
+    else logLevel(s, 'fell');
+    s.events.push({ k: 'over' });
+  }
 }
 
 export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2, rnd = Math.random) {
@@ -611,17 +634,23 @@ function spawnGroup(s: State, g: Partial<Record<EnemyKind, number>>, a: number, 
   const id = s.nextPkg++, out: Enemy[] = [];
   let row = 0;
   for (const [kind, n] of Object.entries(g) as [EnemyKind, number][]) {
-    for (let i = 0; i < groupCount(kind, n, scale); i++, row++) for (let j = 0; j < ENEMIES[kind].pack; j++) {
+    const count = groupCount(kind, n, scale);
+    for (let i = 0; i < count; i++, row++) for (let j = 0; j < ENEMIES[kind].pack; j++) {
       const e = spawnEnemy(s, kind, a + (rw() - 0.5) * 0.35, ARENA_R + 2 + row * 1.5 + rw() * 2, rw);
       e.pkg = id;
       // The escort goes in ahead, on the axis, so it's on station jamming before the package is in radar range.
-      if (kind === 'ew') { e.hold = a; e.x = Math.cos(a) * (EW_ORBIT + 6); e.z = Math.sin(a) * (EW_ORBIT + 6); }
+      // Two or more stand side by side, their sectors edge to edge, but never further off the front than the group.
+      if (kind === 'ew') {
+        const lim = Math.max(FRONT_ARC, Math.abs(angDiff(a, FRONT))), h = FRONT + Math.max(-lim, Math.min(lim, angDiff(a + (i - (count - 1) / 2) * EW_ARC * 1.6, FRONT)));
+        e.hold = h; e.x = Math.cos(h) * (EW_ORBIT + 6); e.z = Math.sin(h) * (EW_ORBIT + 6);
+      }
       out.push(e);
     }
   }
   return out;
 }
 
+export const spawnGroupAt = (s: State, g: Partial<Record<EnemyKind, number>>, a: number, scale: number) => spawnGroup(s, g, a, scale, Math.random); // for the checks
 // The level's raid has resolved: build window, then the next level.
 // The debrief's line for the level in progress: how long it took, kills, HP lost, and how it ended.
 function logLevel(s: State, end: 'held' | 'lost' | 'fell') {
