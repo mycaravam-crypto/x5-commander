@@ -49,6 +49,9 @@ b { font-weight: 600; }
 #raidcard .obj { color: var(--hot); text-shadow: var(--glow); }
 #raidcard.brief { animation: raidpulse 0.8s steps(1) infinite; }
 @keyframes raidpulse { 50% { border-color: var(--alert); } }
+#raidcard.build { --c: var(--hot); border-color: color-mix(in srgb, var(--hot) 45%, transparent); color: var(--bright); pointer-events: auto; }
+#raidcard.build small { color: var(--mid); }
+#raidcard.build button { font: inherit; font-size: 10px; color: var(--hot); background: transparent; border: 1px solid var(--mid); padding: 3px 7px; margin-top: 5px; cursor: pointer; }
 body.raid #top, body.raid #left { --c: var(--alert); border-color: color-mix(in srgb, var(--alert) 35%, transparent); }
 
 /* Radar state: knocked out = red, can't be missed; EMCON = a quieter amber reminder. */

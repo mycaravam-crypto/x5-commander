@@ -44,6 +44,17 @@ export function ground(x: number, z: number): Ground {
   if (z > 12 && fbm(x * 0.03 + 7, z * 0.03 + 91) > 0.55) return 'field';
   return 'grass';
 }
+// What a building spot's ground is worth (see TERRAIN in config.ts). High ground: up against a rock outcrop, the
+// only rise inside the build zone. Treeline: open ground at the edge of the woods, under cover. Road: on a road.
+export type Site = '' | 'high' | 'treeline' | 'road';
+export const HIGH_R = 2.5, TREELINE_R = 2.5; // m past a rock's edge that counts as high ground; m to the woods for cover
+export function site(x: number, z: number): Site {
+  const g = ground(x, z);
+  if (g === 'road') return 'road';
+  if (ROCKS.some(q => (x - q.x) ** 2 + (z - q.z) ** 2 < (q.r + HIGH_R) ** 2)) return 'high';
+  for (let k = 0; k < 8; k++) if (ground(x + Math.cos(k * Math.PI / 4) * TREELINE_R, z + Math.sin(k * Math.PI / 4) * TREELINE_R) === 'forest') return 'treeline';
+  return '';
+}
 // Tree density 0..1 for scenery (render places trees where it's > 0).
 export const trees = (x: number, z: number) => ground(x, z) === 'forest' ? step(0.6, 0.72, forestness(x, z)) : 0;
 

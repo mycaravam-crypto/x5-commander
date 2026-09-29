@@ -1,12 +1,12 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, LEVEL_LEN, BUILD_TIME, BUILD_LOST, ELITE_FROM, PK_GROW, PK_MAX,
-  ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, FANS, beltAt, buildR, BUILD_MIN, PAD_GAP, START_PAD, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty, BACKUP_RADAR,
+  LOOP_PRESS, LOOP_HP, TERRAIN, ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, FANS, beltAt, buildR, BUILD_MIN, PAD_GAP, START_PAD, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty, BACKUP_RADAR,
   DROPS, DROP_KINDS, DROP_LIFE, DROP_GRAB, DROP_MAX, DROP_HEAVY, CACHE, REPAIR_DROP, OVERDRIVE, MILESTONE, rank,
   RADAR_MODES, CRUISE_LOW, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   DIVE_SPEED, SHAHED_DIVE, LANCET, HELO, KAB_R, KAB_PAIR, EGRESS_SPEED, TBM_TERMINAL, CRUISE_DOGLEG, MUNITIONS,
   type EnemyKind, type DropKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
 } from './config.ts';
-import { ground } from './terrain.ts';
+import { ground, site, type Site } from './terrain.ts';
 
 export interface Enemy {
   id: number; kind: EnemyKind; x: number; z: number; vx: number; vz: number;
@@ -49,7 +49,7 @@ export type Ev =
 
 export type Phase = 'start' | 'play' | 'pause' | 'perk' | 'over';
 export interface Drop { id: number; k: DropKind; x: number; z: number; until: number; v: number } // v: the kill's reward (a cache scales with it)
-export interface Pad { k: PerimKind; x: number; z: number; a: number; slot: number; cd: number; belt: number; hp: number; tier: number; paid: number; down: boolean }
+export interface Pad { k: PerimKind; x: number; z: number; a: number; slot: number; cd: number; belt: number; hp: number; tier: number; paid: number; down: boolean; site: Site }
 
 // mulberry32: tiny seeded PRNG, so a seed replays the same schedule (daily op, tests).
 export function rand(r: { seed: number }) {
@@ -148,14 +148,16 @@ const AESA_SPIN = 1.2; // rad/s, cosmetic
 const pick = <T>(r: { seed: number }, a: T[]) => a[Math.floor(rand(r) * a.length)];
 export const visible = (s: State, e: Enemy) => e.locked || e.seenUntil > s.t;
 const NO_MOD: Mod = { name: '', desc: '' };
-// Scripted levels first, then COORDINATED RAID's mix under a looping condition, with flank threats from every direction.
+// Scripted levels first, then SEAD's mix under a looping condition, with flank threats from every direction, pressing
+// harder every level (LOOP_PRESS).
 export const phase = (s: State) => stageInfo(s.stage);
 export function stageInfo(i: number) {
   if (i < LEVELS.length) return { ...LEVELS[i], mod: NO_MOD };
   const last = LEVELS[LEVELS.length - 1], mod = MODS[(i - LEVELS.length) % MODS.length], w = { ...last.w };
   for (const [k, v] of Object.entries(mod.w ?? {}) as [EnemyKind, number][]) w[k] = (w[k] ?? 0) + v;
   const loop = i - LEVELS.length; // packages get likelier every level past the scripted ones
-  return { name: mod.name, w, mod, pk: Math.min(PK_MAX, (last.pk ?? 0) + PK_GROW * (loop + 1)), arc: Math.PI };
+  return { name: mod.name, desc: mod.desc, w, mod, pk: Math.min(PK_MAX, (last.pk ?? 0) + PK_GROW * (loop + 1)), arc: Math.PI,
+    rate: 1 + LOOP_PRESS * (loop + 1), hp: LOOP_HP ** (loop + 1) };
 }
 // Half-width around FRONT that flank threats can come from in level i.
 export const flankArc = (i: number) => Math.max(FRONT_ARC, stageInfo(i).arc ?? 0);
@@ -259,7 +261,7 @@ export function draft(s: State) {
 // ---------- emplacements ----------
 
 function putPad(s: State, k: PerimKind, x: number, z: number, paid: number) {
-  s.perim.push({ k, x, z, a: Math.atan2(z, x), slot: s.padSeq++, cd: 0, belt: MG_BELT.rounds, hp: PAD_HP, tier: 0, paid, down: false });
+  s.perim.push({ k, x, z, a: Math.atan2(z, x), slot: s.padSeq++, cd: 0, belt: MG_BELT.rounds, hp: PAD_HP, tier: 0, paid, down: false, site: site(x, z) });
 }
 // Why a unit can't stand at (x, z), or '' if it can. `self`: the unit being moved (its own spot doesn't count).
 export function buildBlock(s: State, x: number, z: number, self = -1) {
@@ -294,6 +296,8 @@ export function spotNear(s: State, x: number, z: number, self = -1) {
   return best;
 }
 const up = (p: Pad) => !p.down;
+// Range and eyes x for a unit on this ground: further from high ground, shorter from the treeline.
+const siteRange = (t: Site) => t === 'high' ? TERRAIN.high.range : t === 'treeline' ? TERRAIN.treeline.range : 1;
 // Inside the unit's range and field of fire.
 export const covers = (p: { x: number; z: number; a: number; k: PerimKind }, x: number, z: number, range: number) =>
   (x - p.x) ** 2 + (z - p.z) ** 2 <= range * range && Math.abs(angDiff(Math.atan2(z - p.z, x - p.x), p.a)) <= FANS[p.k];
@@ -301,16 +305,17 @@ const nearAmmo = (s: State, p: Pad) => s.perim.some(q => q.k === 'ammo' && up(q)
 // What a unit fires with right now: its tier, the battery's weapon upgrades and perks, an ammo point in reach.
 export function padStats(s: State, p: Pad) {
   const w = p.k === 'mg' ? MG_TIERS[p.tier] : PERIM[p.k];
-  return { ...w, dmg: w.dmg * s.st.padDmg, rate: w.rate * s.st.padRate * (nearAmmo(s, p) ? AMMO_RATE : 1) * (overdrive(s) ? OVERDRIVE.rate : 1) };
+  return { ...w, range: w.range * siteRange(p.site), dmg: w.dmg * s.st.padDmg, rate: w.rate * s.st.padRate * (nearAmmo(s, p) ? AMMO_RATE : 1) * (overdrive(s) ? OVERDRIVE.rate : 1) };
 }
 // A gun that's up but can't fire: the interceptor pool is short of a round for it (MGs feed from their belts).
 export const noAmmo = (s: State, p: Pad) => GUNS.includes(p.k) && up(p) && s.ammo < padStats(s, p).ammo;
-// A cruise missile goes for the unit you've sunk the most into (the nearest of equals), or the base if there's none.
+// A cruise missile goes for the unit you've sunk the most into (the nearest of equals; one on high ground stands out,
+// one at the treeline it can't find), or the base if there's none.
 export function cruiseTarget(s: State, e: { x: number; z: number }) {
   let best: Pad | undefined, bv = -Infinity;
   for (const p of s.perim) {
-    if (p.down) continue;
-    const v = p.paid * 1000 - Math.hypot(p.x - e.x, p.z - e.z);
+    if (p.down || p.site === 'treeline') continue;
+    const v = (p.paid + (p.site === 'high' ? TERRAIN.high.value : 0)) * 1000 - Math.hypot(p.x - e.x, p.z - e.z);
     if (v > bv) { bv = v; best = p; }
   }
   return best;
@@ -332,7 +337,7 @@ export function spotScore(s: State, k: PerimKind, x: number, z: number) {
   if (k === 'ammo') return guns.filter(q => (q.x - x) ** 2 + (q.z - z) ** 2 <= AMMO_R ** 2).length + 0.01 * Math.hypot(x, z);
   if (k === 'observer') return guns.filter(q => (q.x - x) ** 2 + (q.z - z) ** 2 <= OBSERVER_EYES ** 2).length + 0.05 * Math.hypot(x, z);
   // Bearings across the threat arc: one it covers that nothing covers yet is worth 1, crossfire on a covered one 0.3.
-  const range = k === 'mg' ? MG_TIERS[0].range : PERIM[k].range, arc = Math.min(Math.PI, Math.max(FRONT_ARC, flankArc(s.stage)) + 0.2);
+  const range = (k === 'mg' ? MG_TIERS[0].range : PERIM[k].range) * siteRange(site(x, z)), arc = Math.min(Math.PI, Math.max(FRONT_ARC, flankArc(s.stage)) + 0.2);
   const gr = guns.map(q => padStats(s, q).range);
   let score = 0;
   for (let i = 0; i <= 24; i++) {
@@ -381,11 +386,13 @@ export function toggleRelocate(s: State) { s.relocating = !s.relocating && !!sel
 export function movePad(s: State, x: number, z: number) {
   const p = selectedPad(s), q = p && spotNear(s, x, z, p.slot);
   if (!p || !q) return false;
-  Object.assign(p, { x: q.x, z: q.z, a: Math.atan2(q.z, q.x), cd: building(s) ? 0 : MOVE_TIME });
+  Object.assign(p, { x: q.x, z: q.z, a: Math.atan2(q.z, q.x), cd: building(s) ? 0 : MOVE_TIME, site: site(q.x, q.z) });
   s.relocating = false;
   s.events.push({ k: 'padMoved', x: p.x, z: p.z, n: building(s) ? 0 : MOVE_TIME, kind: p.k });
   return true;
 }
+// Done building: start the next level now.
+export function skipBuild(s: State) { if (building(s) && s.phase === 'play') s.buildUntil = s.t; }
 export function upgradePad(s: State) {
   const p = selectedPad(s), c = p ? padUpgradeCost(p) : Infinity;
   if (!p || s.credits < c || s.phase !== 'play') return false;
@@ -565,7 +572,7 @@ export function update(s: State, dt: number) {
 
 export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2, rnd = Math.random) {
   const T = ENEMIES[kind], d = difficulty(s.t);
-  const hp = T.hp * d.hp * (phase(s).mod.hp ?? 1), speed = T.speed * d.speed * (0.9 + rnd() * 0.2);
+  const L = phase(s), hp = T.hp * d.hp * (L.mod.hp ?? 1) * ('hp' in L ? L.hp ?? 1 : 1), speed = T.speed * d.speed * (0.9 + rnd() * 0.2);
   const x = Math.cos(a) * r, z = Math.sin(a) * r;
   s.enemies.push({
     id: s.nextId++, kind, x, z, vx: -Math.cos(a) * speed, vz: -Math.sin(a) * speed,
@@ -750,11 +757,16 @@ function moveEnemies(s: State, dt: number) {
       e.vx = dx / dd * e.speed - dz / dd * w; e.vz = dz / dd * e.speed + dx / dd * w;
     }
     // FPVs that pass close to a unit on the forward line dive on it instead of the base. Lancets hunt: they dive,
-    // fast, on any unit they spot within LANCET.seek, whatever its belt.
+    // fast, on any unit they spot within LANCET.seek, whatever its belt. High ground is on the skyline (spotted from
+    // twice as far); the treeline hides a unit from both.
     if (e.kind === 'scout' || e.kind === 'swarm') {
       const lancet = e.kind === 'scout', r = lancet ? LANCET.seek : DIVE_R;
-      let tgt: Pad | undefined, bd = r * r;
-      for (const p of s.perim) { const dd = (p.x - e.x) ** 2 + (p.z - e.z) ** 2; if (!p.down && (lancet || beltOf(p) === 'fwd') && dd < bd) { bd = dd; tgt = p; } }
+      let tgt: Pad | undefined, bd = Infinity;
+      for (const p of s.perim) {
+        if (p.down || p.site === 'treeline' || !(lancet || beltOf(p) === 'fwd')) continue;
+        const dd = (p.x - e.x) ** 2 + (p.z - e.z) ** 2, rr = r * (p.site === 'high' ? TERRAIN.high.dive : 1);
+        if (dd < rr * rr && dd < bd) { bd = dd; tgt = p; }
+      }
       if (tgt && bd < 1) { hitPad(s, tgt, e.dmg); removeAt(s, i); continue; }
       if (tgt) {
         const dd = Math.sqrt(bd), sp = e.speed * (lancet ? DIVE_SPEED : 1);
@@ -837,10 +849,10 @@ function perimeter(s: State, dt: number) {
     if (!best) return;
     const t = best;
     s.ammo -= w.ammo; p.cd = 1 / w.rate;
-    // Belt empty: reload. Slower out on the forward line, twice as fast with an ammo point in reach.
+    // Belt empty: reload. Slower out on the forward line, twice as fast with an ammo point in reach or on a road.
     if (p.k === 'mg' && --p.belt <= 0) {
       p.belt = MG_BELT.rounds;
-      p.cd = MG_BELT.reload * (nearAmmo(s, p) ? AMMO_RELOAD : beltOf(p) === 'fwd' ? FWD_RELOAD : 1);
+      p.cd = MG_BELT.reload * (nearAmmo(s, p) || p.site === 'road' ? AMMO_RELOAD : beltOf(p) === 'fwd' ? FWD_RELOAD : 1);
     }
     // Crossfire: the target is inside another gun's field of fire as well.
     const dmg = w.dmg * (guns.some((q, qi) => q !== p && covers(q, t.x, t.z, stats[qi].range)) ? 1 + CROSSFIRE : 1);
@@ -918,7 +930,7 @@ function backupRadar(s: State, dt: number) {
 // Eyes: anything close to the base or to an emplacement is seen, radar or not (NIGHT RAID shortens it).
 function spot(s: State) {
   const k = phase(s).mod.dark ? VISUAL_DARK : 1, b2 = (VISUAL_R * k) ** 2;
-  const eyes = s.perim.filter(up).map(p => ({ x: p.x, z: p.z, r2: ((p.k === 'observer' ? OBSERVER_EYES : PAD_EYES) * k) ** 2 }));
+  const eyes = s.perim.filter(up).map(p => ({ x: p.x, z: p.z, r2: ((p.k === 'observer' ? OBSERVER_EYES : PAD_EYES) * siteRange(p.site) * k) ** 2 }));
   let newly = 0;
   for (const e of s.enemies) {
     if (e.x * e.x + e.z * e.z > b2 && !eyes.some(p => (e.x - p.x) ** 2 + (e.z - p.z) ** 2 < p.r2)) continue;

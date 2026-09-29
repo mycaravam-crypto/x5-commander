@@ -22,7 +22,7 @@ Other scripts:
 | `npm run build` | Type-checks, then builds a static site into `dist/`        |
 | `npm test`      | Runs a headless check of the game simulation in Node       |
 | `npm run bench` | Times the simulation under a heavy swarm (e.g. `npm run bench -- 2000`) |
-| `npm run balance [seeds] [cap-s]` | Bots play many seeded runs; median survival per doctrine and per perk |
+| `npm run balance [seeds] [cap-s] [naive]` | Bots play many seeded runs; median survival and level reached per doctrine and per perk. `naive`: a bot that never fills open room with guns |
 
 The game runs entirely in the browser, with no backend and no asset files. `dist/` can be hosted on any static file server.
 
@@ -37,6 +37,7 @@ The game runs entirely in the browser, with no backend and no asset files. `dist
 | Left click             | Build a bought unit on open ground; pick one of your units; otherwise mark a contact as the priority target (needs the radar) |
 | U / Delete             | Upgrade / sell the unit you picked         |
 | B, or right-click ground | Move the unit you picked               |
+| N                      | Start the next level now (in the build window; or tap START NOW on the level card) |
 | WASD / arrows / middle-drag | Pan the camera                       |
 | Mouse wheel            | Zoom                                      |
 | Right-drag / Q / E     | Rotate camera                             |
@@ -63,7 +64,7 @@ The first time you meet each threat or mechanic, a short tip explains it. Tips d
 ## Gameplay
 
 ### The battlefield
-The base sits on a low plateau in farmland. Ahead, toward the front, a cleared field of fire runs down to a river; woods cover the flanks, with ponds, rock outcrops, fields and farmsteads in the rear and hills beyond. Aircraft fly at their own heights over the ground (FPVs and cruise missiles low, Su-34s high, ballistic missiles diving in steeply), each with a faint line dropped to a ring on the ground so you can see where it is. The terrain is the same every run. It's scenery for the aircraft, but it decides where you can build (see *Building the line*). NIGHT RAID turns the day to moonlight.
+The base sits on a low plateau in farmland. Ahead, toward the front, a cleared field of fire runs down to a river; woods cover the flanks, with ponds, rock outcrops, fields and farmsteads in the rear and hills beyond. Aircraft fly at their own heights over the ground (FPVs and cruise missiles low, Su-34s high, ballistic missiles diving in steeply), each with a faint line dropped to a ring on the ground so you can see where it is. The terrain is the same every run. It's scenery for the aircraft, but it decides where you can build, and the ground a unit stands on changes what it can do (see *Building the line*). NIGHT RAID turns the day to moonlight.
 
 ### Reading the HUD
 - **Left panel:** battery, power and interceptor bars (with net flow per second), then three groups: SENSORS (radar mode, radar state, range, tracks), FIRE CONTROL (locks in use with a bar, fire discipline, target mode, intercept readiness) and BATTERY (pads, raid state, build window). The top bar shows the level you're on.
@@ -137,6 +138,14 @@ Where a unit stands decides its **belt**:
 | Main line    | 14–24 m  | balanced                                                                                    |
 | Inner ring   | inside 14 m, all round | safe, covers the flanks, engages late                                         |
 
+**Terrain.** Some ground gives a unit a character. The unit card names it:
+
+| Ground      | Where                                         | Effect |
+|-------------|-----------------------------------------------|--------|
+| High ground | within 2.5 m of a rock outcrop's edge         | +20% range and eyesight, but on the skyline: FPVs and Lancets dive on it from twice as far, and a cruise missile picks it first |
+| Treeline    | open ground within 2.5 m of the woods         | hidden: never dived on and never a cruise missile's target; −15% range |
+| Road        | on the supply road or the track to the front  | MG belts reload twice as fast, as with an ammo point |
+
 **Fields of fire.** A gun covers a fan pointing away from the base, drawn on the ground: MGs 120°, Stingers 180°, MANTIS all round. It can't shoot what has flown past it. A target inside two guns' fields of fire takes **+20% crossfire damage** from both. Amber ticks on the minimap rim mark bearings in the threat arc that no working gun covers. Press `O` (or the half-circle button on phones) for the coverage map: amber ground in the threat arc that nothing covers, dim green where one gun does, bright green where guns cross their fire.
 
 **Placing.** After buying a unit, a ghost of it follows the pointer with the ground it would cover filled in: green where it can be built, red where it can't. **Click open ground** to build it there (a click on blocked ground snaps to the nearest open spot within 4 m). The pulsing ring marks the spot that covers the most open sky (or, for support units, serves the most guns); if you don't click within 8 seconds, the unit goes there.
@@ -157,7 +166,7 @@ Your generator fills a power pool, and everything draws on it in this order:
 Laser and HPM shots cost power as well. The power and interceptor bars show the net flow per second, so you can see which way the budget is going. Balancing seeing, shooting and building is the core tension of the game.
 
 ### Credits, upgrades and base levels
-Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits. There are 28 upgrades in 7 groups: BATTERY, POWER, SENSORS, FIRE CONTROL, WEAPONS, MAGAZINE and PERIMETER. Each upgrade costs more with every level. There is **no max level**, except for *Threat Evaluation*, the *radar*, the *PAC-3 battery* and *LTAMDS AESA*, which are on/off, and Scan Rate before the AESA. Earth Revetments have diminishing returns, up to 85% less damage taken. **Ranks:** every 5th level of an open-ended upgrade (not a pad) is a new rank and adds one free level on top. A bar under each shop row fills toward the next rank, and the buy that reaches it is marked ★. Every purchase shows what it bought, and the purchase sound climbs with the upgrade's level. The bar under BATTERY LV fills toward the next base level. Buying upgrades raises your **base level**, which adds visible structures to the base and offers a **perk draft: pick 1 of 3**. Every perk has a tradeoff, for example *GLASS CANNON*: +100% damage, −40% max HP. From base level 3, every draft also offers one **rule perk** (marked ★ NEW RULE) that changes how the battery plays, until you've taken them all. From level 3: *BLACKOUT PROTOCOL* (tracks coast twice as long when the radar goes dark, −30% memory while radiating), *COUNTER-SEAD* (each ARM shot down restores 20% power), *KILL CHAIN* (every 5 kills: +1 lock slot for 8 s), *OVERKILL* (damage past a kill jumps to the nearest contact within 8 m) and *LAST STAND* (below 25% HP: +50% fire rate, −40% power gen). From level 5: *TRACK FUSION* (locks hold while the radar is dark), *LPI WAVEFORM* (LPI mode keeps full detection), *OVERWATCH* (your marked target takes double damage), *ARC LASER* (laser jumps to 2 more targets; needs the laser), *SCAVENGER* (kills refund interceptors) and *FRAG WARHEADS* (PAC-3 hits splash).
+Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits. There are 28 upgrades in 7 groups: BATTERY, POWER, SENSORS, FIRE CONTROL, WEAPONS, MAGAZINE and PERIMETER. Each upgrade costs more with every level. There is **no max level**, except for *Threat Evaluation*, the *radar*, the *PAC-3 battery* and *LTAMDS AESA*, which are on/off, and Scan Rate before the AESA. Earth Revetments have diminishing returns, up to 85% less damage taken. **Ranks:** every 5th level of an open-ended upgrade (not a pad) is a new rank and adds one free level on top. A bar under each shop row fills toward the next rank, and the buy that reaches it is marked ★. Every purchase shows what it bought, and the purchase sound climbs with the upgrade's level. The bar under BATTERY LV fills toward the next base level. Buying upgrades raises your **base level**, which adds visible structures to the base and offers a **perk draft: pick 1 of 3**. Every perk has a tradeoff, for example *GLASS CANNON*: +60% damage, −40% max HP. From base level 3, every draft also offers one **rule perk** (marked ★ NEW RULE) that changes how the battery plays, until you've taken them all. From level 3: *BLACKOUT PROTOCOL* (tracks coast twice as long when the radar goes dark, −30% memory while radiating), *COUNTER-SEAD* (each ARM shot down restores 20% power), *KILL CHAIN* (every 5 kills: +1 lock slot for 8 s), *OVERKILL* (damage past a kill jumps to the nearest contact within 8 m) and *LAST STAND* (below 25% HP: +50% fire rate, −40% power gen). From level 5: *TRACK FUSION* (locks hold while the radar is dark), *LPI WAVEFORM* (LPI mode keeps full detection), *OVERWATCH* (your marked target takes double damage), *ARC LASER* (laser jumps to 2 more targets; needs the laser), *SCAVENGER* (kills refund interceptors) and *FRAG WARHEADS* (PAC-3 hits splash).
 
 ### Salvage
 Kills sometimes drop **salvage**: a spinning crate with a light over it. **Click it within 12 s** to recover it, or it's lost. Heavier kills drop more often (FPV under 1%, Shahed 3%, Mi-28 12%, Mi-8 30%, Su-34 40%; decoys never drop) and are more likely to drop tech:
@@ -170,25 +179,26 @@ Kills sometimes drop **salvage**: a spinning crate with a light over it. **Click
 Drops use their own random rolls, so they never change the daily op's enemy schedule.
 
 ### The front
-Enemies attack from one direction: the **front**, a 50° sector at the top of the default view, marked on the ground (red dashes at the rim) and on the minimap. Aircraft and short-range drones (Lancet, FPV, Mi-28, Su-34, Mi-8 and their ARMs) always come from the front. Long-range threats (Shaheds, the decoys that fly with them, and Iskanders) come from the front too at first. From the SEAD level they can come from up to 60° either side of it, from COORDINATED RAID up to 120°, and after that from any direction. The minimap and the ground show the arc they can currently come from in amber. A raid or package comes off the front only when everything in it is a long-range threat.
+Enemies attack from one direction: the **front**, a 50° sector at the top of the default view, marked on the ground (red dashes at the rim) and on the minimap. Aircraft and short-range drones (Lancet, FPV, Mi-28, Su-34, Mi-8 and their ARMs) always come from the front. Long-range threats (Shaheds, the decoys that fly with them, and Iskanders) come from the front too at first. From level 4 (FLANKS) they can come from up to 60° either side of it, from level 5 up to 120°, and after the scripted levels from any direction. The minimap and the ground show the arc they can currently come from in amber, and the minimap flashes an amber tick at the bearing of every missile launch. A raid or package comes off the front only when everything in it is a long-range threat.
 
 ### Levels
-A run is a string of **levels**. Each one is 60 s of waves, then the level's **raid**, then a **build window** with no new contacts, before the next level starts. The build window is 20 s if you held the raid's objective and 8 s if you lost it. Contacts already in the air keep coming, so it isn't a pause, but it's the time to buy and place pads. Each level adds a new kind of problem, rather than just more HP:
-1. **PROBING:** Lancets and Shaheds. Learn the systems.
-2. **MIXED THREATS:** FPV swarms and the first Mi-28s.
-3. **EW SCREEN:** decoys and jammer helicopters, and the first attack packages.
-4. **SEAD:** Su-34s and anti-radiation missiles. From here, every level has a Su-34 strike package halfway through its waves.
-5. **COORDINATED RAID:** heavy mixed raids, Iskanders and cruise missiles.
+A run is a string of **levels**. Each one is 60 s of waves, then the level's **raid**, then a **build window** with no new contacts, before the next level starts. The build window is 20 s if you held the raid's objective and 8 s if you lost it, and the clock runs at 60% during it. A **level card** says how the level went, what the next one brings and whether threats will come from wider angles; the shop opens by itself and the build zone lights up. Contacts already in the air keep coming, so it isn't a pause. Press `N` (or START NOW on the card) to start the next level early. Each level adds a new kind of problem, in step with what the battery can build by then:
+1. **PROBING:** Lancets and Shaheds, straight in from the front. Learn the guns.
+2. **FPV SWARMS:** FPV swarms join them.
+3. **HELICOPTERS:** Mi-28 attack helicopters and decoys.
+4. **FLANKS:** Shaheds from up to 60° either side of the front, and the first attack packages. About when the radar comes.
+5. **EW AND CRUISE:** cruise missiles going for your units, and jammer helicopters. Up to 120° either side.
+6. **SEAD:** Su-34s, anti-radiation missiles and Iskanders: the Patriot's job. From here, every level has a Su-34 strike package halfway through its waves.
 
-After COORDINATED RAID, every level adds a **condition** on top of that mix, and attack packages get more likely each time. The conditions loop in this order: **NIGHT RAID** (contacts fade twice as fast), **GROUND CLUTTER** (−30% detection), **LULL** (a breather to rebuild), **JAMMING STORM** (more jammer helicopters), **SWARM TIDE** (many more, weaker enemies) and **SEAD WAVE** (strike aircraft, ARMs and cruise missiles). Each strike package is announced with a *STRIKE AIRCRAFT* warning.
+After SEAD, every level adds a **condition** on top of that mix, missiles and drones can come from any direction, attack packages get more likely, and each level presses harder: spawn rate goes up by 50% of the base per level, and enemy HP by 40% per level, compounding. No battery holds forever. The conditions loop in this order: **NIGHT RAID** (contacts fade twice as fast), **GROUND CLUTTER** (−30% detection), **LULL** (a breather to rebuild), **JAMMING STORM** (more jammer helicopters), **SWARM TIDE** (many more, weaker enemies) and **SEAD WAVE** (strike aircraft, ARMs and cruise missiles). Each strike package is announced with a *STRIKE AIRCRAFT* warning.
 
-**Attack packages:** from the EW SCREEN level on, some spawns are a package instead of a single pack: several types flying in together from one bearing, each covering another's weakness. The log names the element to kill first.
+**Attack packages:** from the FLANKS level on, some spawns are a package instead of a single pack: several types flying in together from one bearing, each covering another's weakness. The log names the element to kill first.
 
 | Package      | From | Composition                              | Kill first | Because                                             |
 |--------------|------|------------------------------------------|------------|-----------------------------------------------------|
-| JAMMED SWARM | L3   | Mi-8 escort, 12 FPV, 2 Shahed            | Mi-8       | the swarm flies inside the jammer's sector          |
-| SEAD PACKAGE | L4   | Su-34, 2 Kh-31P, 3 decoys, Shahed        | Su-34      | decoys soak locks while the Su-34 keeps firing ARMs |
-| SATURATION   | L5   | 6 decoys, Mi-8 escort, 3 Lancets, Mi-28  | Mi-28      | the heavy hides among decoys and fast Lancets       |
+| JAMMED SWARM | L5   | Mi-8 escort, 12 FPV, 2 Shahed            | Mi-8       | the swarm flies inside the jammer's sector          |
+| SEAD PACKAGE | L6   | Su-34, 2 Kh-31P, 3 decoys, Shahed        | Su-34      | decoys soak locks while the Su-34 keeps firing ARMs |
+| SATURATION   | L6   | 6 decoys, Mi-8 escort, 3 Lancets, Mi-28  | Mi-28      | the heavy hides among decoys and fast Lancets       |
 
 An EW helicopter in a package is an **escort**: it goes in first and holds station on the package's bearing, so its jammed sector stays over the package.
 
@@ -202,7 +212,7 @@ An EW helicopter in a package is an **escort**: it goes in first and holds stati
 
 Raids include SHAHED WAVE, LANCET PACK, FPV SWARM, DECOY SCREEN, HELO ASSAULT, ISKANDER SALVO, CRUISE SALVO and the package raids SWARM ASSAULT, SEAD STRIKE (led by a Su-34) and SATURATION STRIKE. An escort jammer flies with its raid but doesn't count toward it; ARMs a raid's Su-34 launches do.
 
-Spawn rate, HP and damage grow **logarithmically** with play time, and raid size with the level: each doubling adds about the same threat. A strong battery can keep going indefinitely.
+Spawn rate, HP and damage also grow **logarithmically** with play time, and raid size with the level.
 
 | Threat                      | Notes                                     |
 |-----------------------------|-------------------------------------------|
@@ -257,15 +267,16 @@ This section replaces the old `plan-mvp.md`, `plan.md` and `plan-frontline.md`; 
 - **Front line, steps 1–5:** the front and widening flank arcs, levels with raids and build windows, the AA MG start with the radar and Patriot as milestones, belt slots with fields of fire, crossfire, support units and unit HP, the coverage overlay (`O`), and Kh-101 cruise missiles with the IRIS-T SLM to stop them.
 
 ### Next: finish the front line (step 6)
-- [ ] **Level card** at the end of each level: held or lost, what unlocks next, new directions (e.g. "MISSILES MAY NOW COME FROM ±60°"). Today there's only a banner and a log line.
-- [ ] **Build window as its own state:** slow motion, shop open, the build zone highlighted.
+- [x] **Level card** at the end of each level: held or lost, what the next level brings, wider flank arcs.
+- [x] **Build window as its own state:** 60% speed, shop open, the build zone highlighted, `N` to skip it. Missile launches flash at their bearing on the minimap.
 - [ ] **Map polish:** draw the belts as dim dashed arcs and shade enemy territory beyond the front.
-- [ ] **Rebalance** with `npm run balance`. Known issues: FORTRESS (−15% fire rate) is weak with gun-heavy starts, and long runs now die to cruise missiles (LOGISTICS max run dropped from 15:00 to 6:56).
+- [x] **Rebalance:** levels follow the threat sequence (FPVs, helicopters, flanks, cruise and EW, then SEAD; the Su-34 at level 4 was a wall about 60 s after the Patriot came online). Past the scripted levels each level adds +50% spawn rate and ×1.4 enemy HP, compounding: before, a full battery outgrew the log curve and held for good. GLASS CANNON is +60% damage (was +100%) and OVERCHARGE +35% (was +50%): with HP compounding, a flat damage perk buys whole levels. `npm run balance -- 8 1500`: median 18:40 (L13) for every doctrine, no perk flagged. The balance bot fills open room with guns as a player would (`naive` keeps the old one).
 
 ### Placement extras
 - [ ] **Tier-3 branch** for guns: at the ZU-23 (the MG's top tier; MANTIS is its own unit), pick *AP rounds* against Mi-28s or *high rate* against swarms.
 - [ ] **Power node** (with the energy weapons, level 7+): laser and HPM draw power only within its reach, so it decides where they can go.
-- [ ] **Terrain that fights:** the map exists now, so ground can matter: *hilltop* (+20% range, drones go for it first), *treeline* edge (never targeted, −15% range), *road* (half build cost, fast resupply), and woods or ridges that block eyesight. Adds a lot of balance surface.
+- [x] **Terrain that fights:** *high ground* by rock outcrops (+20% range and eyes, drones and cruise missiles go for it), *treeline* edge (never targeted, −15% range), *road* (fast MG reloads). Half build cost on the road was dropped: the roads run along the best gun line, so it would have halved the price of most of it.
+- [ ] **Terrain that blocks:** woods or ridges that block eyesight.
 - [ ] **Base buildings as units:** build the generator, ammo bunker, radar and launchers on their own spots instead of in a fixed compound.
 
 ### Later ideas

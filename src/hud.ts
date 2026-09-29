@@ -1,7 +1,7 @@
 import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, altitude, buildR, DROPS, DROP_LIFE, MILESTONE, OVERDRIVE, rank } from './config.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import type { Records } from './config.ts';
-import { beltOf, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, noAmmo, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
+import { beltOf, stageInfo, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, noAmmo, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const $ = (id: string) => document.getElementById(id)!;
 const fmt = (n: number) => Math.floor(n).toLocaleString('en-US');
@@ -44,7 +44,7 @@ const TIPS: Record<string, string> = {
   jam: 'Jammer on station: detection drops in the amber sector. The Mi-8 itself shows clearly, so click it and kill it.',
   ident: 'Decoy classified and released. Decoys look like Shaheds until locked for a moment. GaN T/R Modules classify faster.',
   package: 'Attack package: several types covering each other. The log says which element to kill first; mark it.',
-  placing: 'Click open ground inside the dashed build zone to build it (not on water, rock or woods): the green ghost shows its field of fire, the pulsing ring covers the most open sky. Guns shoot inside their field of fire (drawn on the ground), and a target inside two of them takes +20% crossfire damage. Click your units to upgrade, sell or move them [B]. O maps what your guns cover. WASD / arrows or middle-drag pan the camera.',
+  placing: 'Click open ground inside the dashed build zone to build it (not on water, rock or woods): the green ghost shows its field of fire, the pulsing ring covers the most open sky. Guns shoot inside their field of fire (drawn on the ground), and a target inside two of them takes +20% crossfire damage. Ground matters: high ground by a rock outcrop reaches 20% further but draws drones and cruise missiles, the treeline hides a unit from both (-15% range), and MGs on a road reload fast. Click your units to upgrade, sell or move them [B]. O maps what your guns cover. WASD / arrows or middle-drag pan the camera.',
   padDown: 'FPVs and Lancets dive on units they fly close to, the forward line most of all. A unit that is down repairs to half before it fights again; the build window repairs everything.',
   drop: `Salvage: a kill left something behind. Click it within ${DROP_LIFE}s to recover it: credits, a refill, a repair, overdrive, or a free upgrade from the heavy kills.`,
   level: 'Base level up: every level builds something that changes what the battery can do, plus a launcher and 2 perimeter pads. Pads fire on their own, without lock slots.',
@@ -208,6 +208,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     t.globalCompositeOperation = 'source-over';
   }
   let lastSweep = 0, mapYaw = Math.PI / 2;
+  const launches: { a: number; until: number }[] = []; // recent missile launches, flashed at the rim
   cv.addEventListener('pointerdown', e => {
     const r = cv.getBoundingClientRect(), dx = ((e.clientX - r.left) / r.width * cv.width - C) / K, dy = ((e.clientY - r.top) / r.height * cv.height - C) / K;
     const sy = Math.sin(mapYaw), cy = Math.cos(mapYaw);
@@ -279,6 +280,11 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       g.beginPath(); g.arc(x, y, r / 2, 0, TAU); g.fill();
       if (e.locked) { g.strokeStyle = e.id === s.marked ? '#fff' : rgba(PAL.hot); g.strokeRect(x - r, y - r, r * 2, r * 2); }
     }
+    for (const w of launches) if (s.t < w.until && Math.sin(s.t * 16) > 0) { // missile launches: blinking tick at their bearing
+      const R = ARENA_R - 2, c = Math.cos(w.a), sn = Math.sin(w.a);
+      g.strokeStyle = rgba(PAL.alert); g.lineWidth = 3; g.beginPath();
+      g.moveTo(px(c * R, sn * R), py(c * R, sn * R)); g.lineTo(px(c * (R + 5), sn * (R + 5)), py(c * (R + 5), sn * (R + 5))); g.stroke(); g.lineWidth = 1;
+    }
     if (s.raid && Math.sin(s.t * 12) > 0) { // incoming raid: blinking chevron at the rim
       const R = ARENA_R - 2, c = Math.cos(s.raid.a), sn = Math.sin(s.raid.a), tx = -sn * 4, tz = c * 4;
       g.strokeStyle = rgba(PAL.alert); g.lineWidth = 2; g.beginPath();
@@ -337,7 +343,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   const padLabels = Array.from({ length: 16 }, () => { const el = $('labels').appendChild(document.createElement('div')); el.textContent = 'NO AMMO'; return el; });
 
   // ---- text (throttled) ----
-  let ffSpeed = 1, acc = 1, lastPhase = '', armSaid = -99, tbmSaid = -99, cruiseSaid = -99;
+  let ffSpeed = 1, acc = 1, lastPhase = '', armSaid = -99, tbmSaid = -99, cruiseSaid = -99, shopForBuild = false;
   const set = (id: string, v: string) => { const el = $(id); if (el.textContent !== v) el.textContent = v; };
   const bar = (id: string, r: number, crit = false) => { const el = $(id); el.style.setProperty('--r', String(Math.round(Math.max(0, Math.min(1, r)) * 20) / 20)); el.classList.toggle('crit', crit); };
 
@@ -501,13 +507,14 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   let pcHtml = '';
   pc.addEventListener('click', e => { const b = (e.target as HTMLElement).closest('button'); if (b?.dataset.act) actions.pad(b.dataset.act); });
   const BELTS = { fwd: 'FORWARD LINE', main: 'MAIN LINE', inner: 'INNER RING' };
+  const SITES: Record<string, string> = { high: 'HIGH GROUND: +20% RANGE, EXPOSED', treeline: 'TREELINE: HIDDEN, -15% RANGE', road: 'ROAD: QUICK RELOADS' };
   const SUPPORT: Record<string, string> = { observer: `SEES ${OBSERVER_EYES}m ROUND ITSELF`, ammo: `GUNS WITHIN ${AMMO_R}m: +25% RATE, 2× RELOAD`, jammer: `SLOWS CONTACTS WITHIN ${PERIM.jammer.range}m` };
   function padCard(s: State) {
     const p = selectedPad(s);
     let h = '';
     if (p && (s.phase === 'play' || s.phase === 'pause')) {
       const w = padStats(s, p), up = padUpgradeCost(p), fan = FANS[p.k] >= Math.PI ? 360 : Math.round(FANS[p.k] * 360 / Math.PI);
-      h = `<b>${padName(p)}</b> · ${BELTS[beltOf(p)]}<br>`
+      h = `<b>${padName(p)}</b> · ${BELTS[beltOf(p)]}${p.site ? ` · <span class="hot">${SITES[p.site]}</span>` : ''}<br>`
         + (GUNS.includes(p.k) ? `${Math.round(w.range)}m · ${(w.dmg * w.rate).toFixed(1)} DMG/s · ${fan}° FIELD OF FIRE<br>` : `${SUPPORT[p.k]}<br>`)
         + `HP ${Math.ceil(p.hp)} / ${PAD_HP}${p.down ? ' <span class="alert">DOWN</span>' : ''}<b class="seg" style="--r:${p.hp / PAD_HP}"></b>`
         + (up < Infinity ? `<button data-act="upgrade"${s.credits < up ? ' disabled' : ''}>[U] ${MG_TIERS[p.tier + 1].name} ${up}CR</button>` : '')
@@ -531,10 +538,17 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     } else if (on && s.raidLeft) {
       h = `<small>${s.raidName} · ${s.raidLeft} LEFT · ${OBJECTIVES[s.raidObj]}</small> ${s.raidClean ? '<span class="obj">HELD</span>' : 'LOST'}`;
       cls = 'on';
+    } else if (on && building(s)) { // level card: how it went, what's next, and how long to build
+      const next = stageInfo(s.stage + 1), arc = flankArc(s.stage + 1), wider = arc > flankArc(s.stage);
+      h = `<small>LEVEL ${s.stage + 1} COMPLETE · OBJECTIVE ${s.raidClean ? '<span class="obj">HELD</span>' : 'LOST'}</small><b>BUILD · ${Math.ceil(s.buildUntil - s.t)}s</b>`
+        + `NEXT: L${s.stage + 2} ${next.name} · ${next.desc.toUpperCase()}`
+        + (wider ? `<br><span class="obj">DRONES + MISSILES FROM ${arc >= Math.PI ? 'ANY DIRECTION' : `FRONT ±${Math.round(arc * 180 / Math.PI)}°`}</span>` : '')
+        + `<br><button data-k="KeyN">[N] START NOW</button>`;
+      cls = 'on build';
     }
     if (h !== rcHtml) { rcHtml = h; rc.innerHTML = h; }
     if (rc.className !== cls) rc.className = cls;
-    document.body.classList.toggle('raid', !!cls);
+    document.body.classList.toggle('raid', !!cls && !cls.includes('build')); // amber frames for raids, not the level card
   }
 
   return {
@@ -557,7 +571,10 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
           log(`ARM LAUNCH BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
           if (s.t - armSaid > 3 && !s.emcon) { armSaid = s.t; say('⚠ ARM INBOUND · [F] EMCON', 'warn'); }
         }
-        else if (e.k === 'cruise') {
+        if (e.k === 'cruise' || e.k === 'tbm' || e.k === 'arm') { launches.push({ a: Math.atan2(e.z, e.x), until: s.t + 4 }); if (launches.length > 12) launches.shift(); }
+        if (e.k === 'build' && shop.classList.contains('hidden')) { shop.classList.remove('hidden'); document.body.classList.add('shop-open'); shopForBuild = true; } // open the shop to build
+        if (e.k === 'stage' && shopForBuild) { shop.classList.add('hidden'); document.body.classList.remove('shop-open'); shopForBuild = false; }
+        if (e.k === 'cruise') {
           const u = s.perim.find(p => p.slot === e.n);
           log(`CRUISE MISSILE BRG ${pad3(bearing(e.x, e.z))} · TARGET ${u ? `${padName(u)} ${pad3(bearing(u.x, u.z))}°` : 'BATTERY'}`, 'alert');
           if (s.t - cruiseSaid > 4) { cruiseSaid = s.t; say('⚠ CRUISE MISSILE · IT GOES FOR YOUR UNITS', 'warn'); }
@@ -616,7 +633,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
           if (s.stage && arc > flankArc(s.stage - 1)) log(`DRONES + MISSILES NOW FROM ${arc >= Math.PI ? 'ANY DIRECTION' : `FRONT ±${Math.round(arc * 180 / Math.PI)}°`}`, 'alert'); }
         lastPhase = pn;
       }
-      if (s.phase === 'start') { lastPhase = ''; armSaid = tbmSaid = cruiseSaid = -99; }
+      if (s.phase === 'start') { lastPhase = ''; armSaid = tbmSaid = cruiseSaid = -99; launches.length = 0; shopForBuild = false; }
       drawRadar(s, yaw, look);
       placeLabels(s, project);
       raidArrow(s, project);

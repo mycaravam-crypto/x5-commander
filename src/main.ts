@@ -1,7 +1,7 @@
-import { newGame, dailySeed, update, buy, collectDrop, pickPerk, markAt, placePad, movePad, selectPad, upgradePad, sellPad, toggleRelocate, cycleMode, cycleDiscipline, cycleRadarMode, aimFocus, emergencyIntercept, toggleEmcon, type State } from './sim.ts';
+import { newGame, dailySeed, update, buy, collectDrop, pickPerk, markAt, placePad, movePad, selectPad, upgradePad, sellPad, skipBuild, building, toggleRelocate, cycleMode, cycleDiscipline, cycleRadarMode, aimFocus, emergencyIntercept, toggleEmcon, type State } from './sim.ts';
 import { createRenderer } from './render.ts';
 import { createHud, loadBest } from './hud.ts';
-import { DOCTRINES } from './config.ts';
+import { DOCTRINES, BUILD_SLOW } from './config.ts';
 import * as sfx from './sfx.ts';
 
 // Last doctrine picked, if it's still unlocked.
@@ -127,6 +127,7 @@ function key(code: string) {
     case 'Enter': start(); break;
     case 'KeyG': cycleDiscipline(s); break;
     case 'KeyU': upgradePad(s); break;
+    case 'KeyN': skipBuild(s); break;
     case 'KeyB': toggleRelocate(s); break;
     case 'Delete': case 'Backspace': sellPad(s); break;
     case 'KeyD': start(true); break;
@@ -160,6 +161,7 @@ addEventListener('keydown', e => {
 const press = (e: MouseEvent) => { const k = (e.target as Element).closest<HTMLElement>('[data-k]')?.dataset.k; if (k) key(k); };
 document.getElementById('touch')!.onclick = press;
 document.getElementById('views')!.onclick = press;
+document.getElementById('raidcard')!.onclick = press; // the level card's START NOW
 addEventListener('blur', () => { if (s.phase === 'play') s.phase = 'pause'; });
 
 // Dev builds only: poke the running game from the console, e.g. x5().nextRaid = x5().t + 12.
@@ -179,7 +181,8 @@ function frame(now: number) {
     if (ax || ay) view.pan(ax * k, ay * k, false);
   }
   const sweep0 = s.sweepA;
-  for (let i = 0; i < speed; i++) update(s, dt);
+  // The build window runs slower, so there's time to place things.
+  for (let i = 0; i < speed; i++) update(s, dt * (building(s) ? BUILD_SLOW : 1));
   if (s.sweepA < sweep0) sfx.play('ping'); // sweep completed a revolution
   for (const e of s.events) sfx.play(e.k, e as { n?: number; star?: boolean; drop?: string });
   view.inset(...hud.insets());
