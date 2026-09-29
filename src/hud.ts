@@ -1,4 +1,4 @@
-import { KA52, ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, DROP_LIFE, MILESTONE, OVERDRIVE, rank, TRAINING, BIG_KILLS, WARN } from './config.ts';
+import { KA52, ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, MILESTONE, ARMS, SU25, OVERDRIVE, rank, TRAINING, BIG_KILLS, WARN } from './config.ts';
 import { play as sound } from './sfx.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import { mapSeed } from './terrain.ts';
@@ -10,6 +10,7 @@ const fmt = (n: number) => Math.floor(n).toLocaleString('en-US');
 const pad3 = (n: number) => String(Math.round(n)).padStart(3, '0');
 // What it's doing, for the threat board and the target card: ETA inbound, or what it's up to instead.
 const doing = (e: Enemy, dp = 0) => e.kind === 'ew' ? (e.orbit ? 'JAMMING' : 'INBOUND') : e.kind === 'recon' && e.orbit ? 'SPOTTING'
+  : e.kind === 'sead' && e.orbit ? `SEAD · ${e.ammo} KH-58` : e.kind === 'su25' && e.act === 'egress' && e.ammo > 0 ? 'BREAK · COMING ROUND'
   : e.act === 'egress' ? 'EGRESS' : e.kind === 'ka52' && e.act === 'hover' ? (e.cd > 0 && e.ammo === KA52.ammo ? `SETTLING ${e.cd.toFixed(dp)}s` : e.pop > 0 ? 'POP-UP · ATGM' : 'MASKED')
   : e.act === 'hover' ? 'HOVER · ATGM' : e.act === 'loiter' ? 'LOITER'
   : `ETA ${Math.max(0, (Math.hypot(e.x, e.z) - BASE_R) / e.speed).toFixed(dp)}s${e.act === 'dive' ? ' DIVE' : ''}`;
@@ -71,12 +72,13 @@ const TIPS: Record<string, string> = {
   jam: 'Jammer on station: detection drops in the amber sector. The Mi-8 itself shows clearly, so click it and kill it.',
   dud: 'That was a decoy (a Gerbera passing for a Shahed, or a Kh-55 passing for a Kh-101): it hit and did nothing. Decoys look like the real thing until locked for a moment; don\'t waste missiles on them.',
   spot: 'Orlan-10 on station: it spots for everything in its sector, so Lancets and FPVs there find your units from further out and every hit lands harder. Big on radar and slow: kill it and the sector goes blind.',
+  sead: 'SEAD fighter on station: the Su-35S fires Kh-58s while your radar radiates. They remember where they last heard it, so EMCON only cuts their odds. Kill it on station, or go dark and wait it out.',
   settle: 'Ka-52 settling on the flank: kill it now. Once settled it hides in the trees and only pops up to fire ATGM pairs at your units.',
   ident: 'Decoy classified and released. Decoys look like what they copy until locked for a moment. GaN T/R Modules classify faster.',
   package: 'Attack package: several types covering each other. The log says which element to kill first; mark it.',
   placing: 'Click open ground inside the dashed build zone to build it (not on water, rock or woods): the green ghost shows its field of fire, the pulsing ring covers the most open sky. Guns shoot inside their field of fire (drawn on the ground), and a target inside two of them takes +20% crossfire damage. Ground matters: high ground by a rock outcrop reaches 20% further but draws drones and cruise missiles, the treeline hides a unit from both (-15% range), and MGs on a road reload fast. Click your units to upgrade, sell or move them [B]. O maps what your guns cover. WASD / arrows or middle-drag pan the camera.',
   padDown: 'Lancets dive on units they fly close to; FPVs go for isolated ones, so keep guns covering each other. Ka-52s and cruise missiles hunt units too. A unit that is down repairs to half before it fights again; the build window repairs everything.',
-  drop: `Salvage: a kill left something behind. Click it within ${DROP_LIFE}s to recover it: credits, a refill, a repair, overdrive, or a free upgrade from the heavy kills.`,
+  drop: `Salvage: a kill left something behind. Click it to recover it (it stays until you do): credits, a refill, a repair, overdrive, or a free upgrade from the heavy kills.`,
   level: 'Base level up: every level builds something that changes what the battery can do, plus a launcher and 2 perimeter pads. Pads fire on their own, without lock slots.',
 };
 const seenTips = (() => { try { return new Set<string>(JSON.parse(localStorage.getItem('x5-tips') ?? '[]')); } catch { return new Set<string>(); } })();
@@ -92,7 +94,7 @@ const HELP_SYSTEMS: [string, string][] = [
   ['DECOYS', 'look like Shaheds until locked for a moment, then grey out'],
   ['RAIDS', 'end every level · hold the objective for the bonus and a long build window'],
   ['POWER', 'locks, radar, then ammo and repairs · watch the net flow on the bars'],
-  ['SALVAGE', `click crates within ${DROP_LIFE}s: credits, refills, repairs, free tech`],
+  ['SALVAGE', 'click crates to recover them: credits, refills, repairs, free tech'],
 ];
 const HELP_KEYS: [string, string][] = [
   ['TAB', 'shop'], ['CLICK', 'build · pick unit · mark target'], ['U / DEL / B', 'upgrade / sell / move unit'], ['SPACE', 'emergency intercept'],
@@ -128,6 +130,10 @@ const LESSONS: Record<keyof typeof ENEMIES, string> = {
   ka52: 'kill Ka-52s while they settle, before they mask; spread units out of their reach, or keep guns covering each other.',
   hyper: 'only the Patriot stops Kinzhals, and they come fast: keep interceptors stocked and a lock slot free.',
   mald: 'decoys do no damage.',
+  su25: 'Su-25s come in low and come back: kill them on the first pass, and keep your units covering each other.',
+  rocket: 'kill the Su-25 before its attack run: its rockets come in salvos, too many to shoot down.',
+  sead: 'the Su-35S does no damage itself.',
+  arm2: 'Kh-58s remember where your radar was: go dark early, or shoot the Su-35S down on station before it fires.',
 };
 const PERIM_NAMES = { mg: 'AA MG', mantis: 'MANTIS', stinger: 'STINGER', iris: 'IRIS-T SLM', jammer: 'JAMMER', observer: 'OBSERVER', ammo: 'AMMO' };
 function debrief(s: State) {
@@ -521,7 +527,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   const vetLabels = Array.from({ length: 16 }, () => $('labels').appendChild(document.createElement('div')));
 
   // ---- text (throttled) ----
-  let ffSpeed = 1, acc = 1, lastPhase = '', armSaid = -99, tbmSaid = -99, cruiseSaid = -99, shopForBuild = false;
+  let ffSpeed = 1, acc = 1, lastPhase = '', armSaid = -99, tbmSaid = -99, cruiseSaid = -99, rocketSaid = -99, shopForBuild = false;
   const set = (id: string, v: string) => { const el = $(id); if (el.textContent !== v) el.textContent = v; };
   const bar = (id: string, r: number, crit = false) => { const el = $(id); el.style.setProperty('--r', String(Math.round(Math.max(0, Math.min(1, r)) * 20) / 20)); el.classList.toggle('crit', crit); };
 
@@ -546,7 +552,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   // Urgency: damage it would do over the time it needs to get here. Jammers and ARMs rank by what they do instead.
   const urgency = (e: Enemy) => {
     const k = shownKind(e), d = Math.hypot(e.x, e.z), eta = Math.max(0.5, (d - BASE_R) / e.speed);
-    return e.act === 'egress' ? 0.1 : k === 'ew' || k === 'recon' ? (e.orbit ? 4 : 1) : k === 'arm' ? 30 / eta
+    return e.act === 'egress' ? 0.1 : k === 'ew' || k === 'recon' ? (e.orbit ? 4 : 1) : k === 'sead' && e.orbit ? 6 : ARMS.includes(k) ? 30 / eta
       : k === 'ka52' && e.act === 'hover' ? ENEMIES[k].dmg / Math.max(1, e.cd) : e.act === 'hover' ? ENEMIES[k].dmg / 4 : ENEMIES[k].dmg / eta;
   };
   function threatBoard(s: State) {
@@ -782,17 +788,20 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
           const big = BIG_KILLS[e.kind!];
           if (e.n) pop(project, e.x, e.z, `+${e.n}`, big ? 'big' : '');
           if (big) { say(big, 'big'); flash(); }
-          if (MUNITIONS.includes(e.kind!) && e.kind !== 'atgm') log(`${ENEMIES[e.kind!].code} INTERCEPTED BRG ${pad3(bearing(e.x, e.z))}`);
+          if (MUNITIONS.includes(e.kind!) && e.kind !== 'atgm' && e.kind !== 'rocket') log(`${ENEMIES[e.kind!].code} INTERCEPTED BRG ${pad3(bearing(e.x, e.z))}`);
           else if (e.kind === 'ew') log(`JAMMER DOWN BRG ${pad3(bearing(e.x, e.z))} · SECTOR CLEAR`);
           else if (e.kind === 'elite') log('SU-34 SPLASHED');
           else if (e.kind === 'ka52') log('KA-52 SPLASHED');
+          else if (e.kind === 'su25') log('SU-25 SPLASHED');
+          else if (e.kind === 'sead') log('SU-35S SPLASHED · SEAD THREAT DOWN');
           else if (e.kind === 'recon') log(`ORLAN-10 DOWN BRG ${pad3(bearing(e.x, e.z))} · SECTOR BLIND`);
         }
         else if (e.k === 'lost' && s.phase === 'play' && emitting(s)) log(`LOCK LOST${e.n! > 1 ? ` x${e.n}` : ''} BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
         else if (e.k === 'lost' && e.n! > 0 && !emitting(s)) log(`${e.n} LOCK${e.n! > 1 ? 'S' : ''} DROPPED · RADAR DARK`, 'alert'); else if (e.k === 'warning') { say('⚠ STRIKE AIRCRAFT', 'warn'); log('SU-34 PACKAGE INBOUND', 'alert'); }
         else if (e.k === 'baseHit') { log(`IMPACT · ${ENEMIES[e.kind!].code} · -${Math.ceil(e.n!)} HP`, 'alert'); pop(project, 0, 0, `-${Math.ceil(e.n!)}`, 'dmg'); }
         else if (e.k === 'arm') {
-          log(`ARM LAUNCH BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
+          if (e.kind === 'arm2') tip('sead', s.t);
+          log(`${e.kind === 'arm2' ? 'KH-58 (MEMORY SEEKER)' : 'ARM'} LAUNCH BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
           if (s.t - armSaid > 3 && !s.emcon) { armSaid = s.t; say('⚠ ARM INBOUND · [F] EMCON', 'warn'); }
         }
         if (e.k === 'cruise' || e.k === 'tbm' || e.k === 'arm') { launches.push({ a: Math.atan2(e.z, e.x), until: s.t + 4 }); if (launches.length > 12) launches.shift(); }
@@ -803,13 +812,14 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
           log(`CRUISE MISSILE BRG ${pad3(bearing(e.x, e.z))} · TARGET ${u ? `${padName(u)} ${pad3(bearing(u.x, u.z))}°` : 'BATTERY'}`, 'alert');
           if (s.t - cruiseSaid > 4) { cruiseSaid = s.t; say('⚠ CRUISE MISSILE · IT GOES FOR YOUR UNITS', 'warn'); }
         }
+        else if (e.k === 'release' && e.kind === 'rocket') { if (s.t - rocketSaid > 1) { rocketSaid = s.t; const u = e.n !== undefined && e.n >= 0 ? s.perim.find(p => p.slot === e.n) : undefined; log(`SU-25 ROCKET SALVO BRG ${pad3(bearing(e.x, e.z))} · TARGET ${u ? padName(u) : 'BATTERY'}`, 'alert'); } }
         else if (e.k === 'release') {
           const u = e.n !== undefined && e.n >= 0 ? s.perim.find(p => p.slot === e.n) : undefined;
           log(e.kind === 'kab' ? `SU-34 GLIDE BOMB RELEASE BRG ${pad3(bearing(e.x, e.z))}` : `ATGM LAUNCH BRG ${pad3(bearing(e.x, e.z))}${u ? ` · TARGET ${padName(u)}` : ''}`, 'alert');
         }
         else if (e.k === 'spot') log(`ORLAN-10 SPOTTING BRG ${pad3(bearing(e.x, e.z))} · KILL IT`, 'alert');
         else if (e.k === 'settle') { log(`KA-52 SETTLING BRG ${pad3(bearing(e.x, e.z))} · KILL IT BEFORE IT MASKS`, 'alert'); say('⚠ KA-52 ON THE FLANK', 'warn'); }
-        else if (e.k === 'egress') log(`${ENEMIES[e.kind!].code} EGRESSING BRG ${pad3(bearing(e.x, e.z))}`);
+        else if (e.k === 'egress') log(e.kind === 'su25' && e.n ? `SU-25 BREAKING AWAY BRG ${pad3(bearing(e.x, e.z))} · IT WILL COME ROUND` : `${ENEMIES[e.kind!].code} EGRESSING BRG ${pad3(bearing(e.x, e.z))}`);
         else if (e.k === 'tbm') { log(`${e.kind === 'hyper' ? 'KINZHAL' : 'BALLISTIC'} LAUNCH BRG ${pad3(bearing(e.x, e.z))}`, 'alert'); if (s.t - tbmSaid > 4) { tbmSaid = s.t; say('⚠ BALLISTIC MISSILE · PAC-3 ONLY', 'warn'); } }
         else if (e.k === 'radarDown') { say('⚠ RADAR HIT', 'warn'); log(`MPQ-65 HIT · OFFLINE ${(s.radarDownUntil - s.t).toFixed(0)}s`, 'alert'); }
         else if (e.k === 'radarMode') { acc = 1; const M = radarMode(s); log(`RADAR ${M.name} · RNG ${Math.round(radarRange(s))}m${M.lpi ? ' · ARMS BLIND >15m' : M.sector ? ' · ARM EXPOSURE HIGH' : ''}`, M.sector ? 'alert' : ''); }
@@ -866,7 +876,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
           if (s.stage && arc > flankArc(s.stage - 1)) log(`DRONES + MISSILES NOW FROM ${arc >= Math.PI ? 'ANY DIRECTION' : `FRONT ±${Math.round(arc * 180 / Math.PI)}°`}`, 'alert'); }
         lastPhase = pn;
       }
-      if (s.phase === 'start') { drillTip = -1; lastPhase = ''; armSaid = tbmSaid = cruiseSaid = -99; launches.length = 0; shopForBuild = false; }
+      if (s.phase === 'start') { drillTip = -1; lastPhase = ''; armSaid = tbmSaid = cruiseSaid = rocketSaid = -99; launches.length = 0; shopForBuild = false; }
       drawRadar(s, yaw, look);
       placeLabels(s, project);
       raidArrow(s, project);

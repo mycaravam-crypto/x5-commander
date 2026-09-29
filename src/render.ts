@@ -73,7 +73,7 @@ const GEOS = enemyGeos();
 for (const g of Object.values(GEOS)) g.computeVertexNormals();
 const KIND_COL: Record<EnemyKind, number> = {
   scout: 0x6d7064, drone: 0x5f625b, decoy: 0x5f625b, swarm: 0x2e2f2c, tank: 0x4d5a3c, ew: 0x5a6446, elite: 0x7b8792, arm: 0xe2dfd4, tbm: 0xd6d6cb, cruise: 0xbabdb5, atgm: 0xd8d4c4, kab: 0x55584e,
-  recon: 0x8a8f86, ka52: 0x46503a, hyper: 0xdcdcd2, mald: 0xbabdb5,
+  recon: 0x8a8f86, ka52: 0x46503a, hyper: 0xdcdcd2, mald: 0xbabdb5, su25: 0x6b7560, rocket: 0xcfcabb, sead: 0x8994a0, arm2: 0xe6e2d6,
 };
 
 const GRADE = {
@@ -706,8 +706,8 @@ export function createRenderer() {
     bl.x[i] = x; bl.z[i] = z; bl.r[i] = r; bl.life[i] = bl.max[i] = life;
   }
 
-  const WRECKS: EnemyKind[] = ['scout', 'drone', 'decoy', 'tank', 'ew', 'elite', 'recon', 'ka52'];
-  const KILL_SHARDS: Record<EnemyKind, number> = { swarm: 4, scout: 6, drone: 8, tank: 16, elite: 24, decoy: 5, arm: 6, ew: 16, tbm: 12, cruise: 8, atgm: 3, kab: 10, recon: 8, ka52: 18, hyper: 14, mald: 6 };
+  const WRECKS: EnemyKind[] = ['scout', 'drone', 'decoy', 'tank', 'ew', 'elite', 'recon', 'ka52', 'su25', 'sead'];
+  const KILL_SHARDS: Record<EnemyKind, number> = { swarm: 4, scout: 6, drone: 8, tank: 16, elite: 24, decoy: 5, arm: 6, ew: 16, tbm: 12, cruise: 8, atgm: 3, kab: 10, recon: 8, ka52: 18, hyper: 14, mald: 6, su25: 20, rocket: 2, sead: 22, arm2: 7 };
   function consume(s: State) {
     for (const e of s.events) {
       switch (e.k) {
@@ -1092,14 +1092,14 @@ export function createRenderer() {
     // salvage: tech glows white, a cache gold, the rest olive crates
     dropMesh.count = dropRing.count = dropBeam.count = 0;
     for (const d of s.drops) {
-      const left = d.until - s.t, blink = left < 3 && Math.sin(clock * 18) < 0 ? 0.25 : 1, tech = d.k === 'tech', gy = groundY(d.x, d.z);
+      const tech = d.k === 'tech', gy = groundY(d.x, d.z);
       const col = tech ? 0xffffff : d.k === 'cache' ? 0xe0b84a : 0x7d8a52, i = dropMesh.count++;
       dummy.position.set(d.x, gy + 1.3 + 0.3 * Math.sin(clock * 3 + d.id), d.z); dummy.rotation.set(0, clock * 1.5 + d.id, 0); dummy.scale.setScalar(tech ? 1.3 : 1);
-      dummy.updateMatrix(); dropMesh.setMatrixAt(i, dummy.matrix); dropMesh.setColorAt(i, tmpC.setHex(col).multiplyScalar(blink * (tech ? 1.5 : 1)));
+      dummy.updateMatrix(); dropMesh.setMatrixAt(i, dummy.matrix); dropMesh.setColorAt(i, tmpC.setHex(col).multiplyScalar(tech ? 1.5 : 1));
       dummy.position.set(d.x, gy + 0.2, d.z); dummy.rotation.set(0, -clock, 0); dummy.scale.setScalar(1.6 + 0.3 * Math.sin(clock * 5 + d.id));
-      dummy.updateMatrix(); dropRing.setMatrixAt(i, dummy.matrix); dropRing.setColorAt(i, tmpC.setHex(0xffe9a8).multiplyScalar(1.2 * blink));
+      dummy.updateMatrix(); dropRing.setMatrixAt(i, dummy.matrix); dropRing.setColorAt(i, tmpC.setHex(0xffe9a8).multiplyScalar(1.2));
       dummy.position.set(d.x, gy, d.z); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 9, 1);
-      dummy.updateMatrix(); dropBeam.setMatrixAt(i, dummy.matrix); dropBeam.setColorAt(i, tmpC.setHex(0xffe9a8).multiplyScalar(0.5 * blink));
+      dummy.updateMatrix(); dropBeam.setMatrixAt(i, dummy.matrix); dropBeam.setColorAt(i, tmpC.setHex(0xffe9a8).multiplyScalar(0.5));
     }
 
     // particles
@@ -1251,6 +1251,10 @@ export function createRenderer() {
     cruise: { w: 0.14, life: 0.8, shade: 0.85, flame: 0.5 },
     mald: { w: 0.14, life: 0.8, shade: 0.85, flame: 0.5 },
     hyper: { w: 0.3, life: 2.2, shade: 1, flame: 1.8 },
+    su25: { w: 0.08, life: 1.2, shade: 0.8, flame: 0.4, twin: true },
+    sead: { w: 0.1, life: 1.6, shade: 1, flame: 0.7, twin: true },
+    arm2: { w: 0.2, life: 1.5, shade: 0.9, flame: 0.9 },
+    rocket: { w: 0.08, life: 0.5, shade: 0.9, flame: 0.4 },
     atgm: { w: 0.12, life: 0.8, shade: 0.9, flame: 0.5 },
   };
   const TRAIL_STEP = LITE ? 1.2 : 0.6; // m between smoke segments: trail cost goes with distance flown, not frame rate

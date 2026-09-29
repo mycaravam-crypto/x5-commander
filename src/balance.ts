@@ -1,7 +1,7 @@
 // `npm run balance` — headless bots over many seeds. Median survival (and level reached) per doctrine, and per perk when the bot
 // always takes that perk if offered. A perk far above the rest is a balance problem.
 import { newGame, update, buy, collectDrop, cost, pickPerk, toggleEmcon, emitting, rand, padUpgradeCost, upgradePad, bestSpot, placePad, type State, type Pad } from './sim.ts';
-import { DOCTRINES, PERKS, UPGRADES, PERIM_KINDS, perimSlots, ENEMIES, type PerimKind, type EnemyKind } from './config.ts';
+import { DOCTRINES, PERKS, UPGRADES, PERIM_KINDS, perimSlots, ENEMIES, ARMS, type PerimKind, type EnemyKind } from './config.ts';
 
 declare const process: { argv: string[] }; // node, without pulling in @types/node
 const SEEDS = +(process.argv[2] ?? 12), LIMIT = +(process.argv[3] ?? 3600); // runs per row, s cap per run
@@ -40,7 +40,7 @@ function play(seed: number, doctrine: string, perk = '') {
     if (s.phase === 'perk') pickPerk(s, Math.max(0, s.perkChoices.indexOf(perk)));
     shop(s);
     for (const d of [...s.drops]) collectDrop(s, d.x, d.z); // an attentive player recovers every drop
-    const arm = s.enemies.some(e => e.kind === 'arm' && e.x * e.x + e.z * e.z < 30 * 30);
+    const arm = s.enemies.some(e => ARMS.includes(e.kind) && e.x * e.x + e.z * e.z < 30 * 30);
     if (arm === emitting(s) && (arm || s.emcon)) toggleEmcon(s);
     update(s, 1 / 20);
     s.events.length = 0;

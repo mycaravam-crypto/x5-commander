@@ -24,7 +24,7 @@ const DEG = Math.PI / 180;
 export const bearing = (x: number, z: number) => ((Math.atan2(z, x) * 180 / Math.PI) % 360 + 360) % 360;
 
 export type EnemyKind = 'scout' | 'drone' | 'swarm' | 'tank' | 'elite' | 'decoy' | 'arm' | 'ew' | 'tbm' | 'cruise' | 'atgm' | 'kab'
-  | 'recon' | 'ka52' | 'hyper' | 'mald';
+  | 'recon' | 'ka52' | 'hyper' | 'mald' | 'su25' | 'rocket' | 'sead' | 'arm2';
 
 export interface EnemyType {
   hp: number; speed: number; reward: number;
@@ -39,6 +39,7 @@ export interface EnemyType {
   flank?: boolean; // long-range: may come round the flanks (see FRONT)
   pacOnly?: boolean; // only PAC-3 hit-to-kill can stop it
   ballistic?: boolean; // comes down steeply from high up (TERMINAL): the height it's drawn at grows with range
+  padHit?: number; // a munition fired at a unit: how much harder it hits the unit than its damage says
   mimic?: EnemyKind; // a decoy: flies, shows and is announced as this type until fire control classifies it (DECOY_ID)
   drop: number; // chance a kill leaves salvage behind (see DROPS)
 }
@@ -60,7 +61,7 @@ export const ENEMIES: Record<EnemyKind, EnemyType> = {
   cruise: { name: 'Kh-101 cruise missile', code: 'KH-101', hp: 6, speed: 8, dmg: 15, reward: 40, size: 1, sig: 0.35, ir: 1, alt: 1.2, glow: 1.1, pack: 1, wobble: 2, flank: true, drop: 0.08 },
   ew: { name: 'Mi-8MTPR-1 EW helicopter', code: 'MI-8PR', hp: 60, speed: 2.5, dmg: 0, reward: 80, size: 1.8, sig: 1.6, ir: 1.4, alt: 5, glow: 1, pack: 1, wobble: 0, drop: 0.3 },
   // Launched by other enemies, never spawned on their own: the Mi-28's and Ka-52's anti-tank missiles, the Su-34's glide bomb.
-  atgm: { name: '9M120 Ataka anti-tank missile', code: 'ATAKA', hp: 3, speed: 9, dmg: 6, reward: 4, size: 0.6, sig: 0.4, ir: 1.2, alt: 2.5, glow: 1.2, pack: 1, wobble: 0, drop: 0 },
+  atgm: { name: '9M120 Ataka anti-tank missile', code: 'ATAKA', hp: 3, speed: 9, dmg: 6, reward: 4, size: 0.6, sig: 0.4, ir: 1.2, alt: 2.5, glow: 1.2, pack: 1, wobble: 0, padHit: 2.5, drop: 0 },
   kab: { name: 'KAB-500 glide bomb (UMPK kit)', code: 'KAB', hp: 35, speed: 4.5, dmg: 40, reward: 20, size: 1, sig: 0.9, ir: 0.5, alt: 0, glow: 1, pack: 1, wobble: 0, drop: 0 },
   // High, slow, big on radar, cold. Does no harm itself, but while it circles on station everything in its sector
   // is spotted for: hits harder and finds your units from further out (RECON). Kill it and the sector goes blind.
@@ -73,9 +74,20 @@ export const ENEMIES: Record<EnemyKind, EnemyType> = {
   // An old Kh-55 with no warhead, fired among the Kh-101s: reads as one on radar and on the warning net until
   // classified, soaking locks and interceptors. It dives on a unit like the real thing, and does nothing.
   mald: { name: 'Kh-55 decoy cruise missile (inert)', code: 'KH-55', hp: 5, speed: 7.5, dmg: 0, reward: 0, size: 1, sig: 0.45, ir: 0.9, alt: 1.2, glow: 1.1, pack: 1, wobble: 2, flank: true, mimic: 'cruise', drop: 0 },
+  // Armoured low-level attack jet: comes in under the radar horizon, pops up with flares out to fire an S-8 salvo at
+  // a unit (the battery if none in reach), breaks away in a banking turn and comes round again (SU25).
+  su25: { name: 'Su-25SM3 ground-attack jet', code: 'SU-25', hp: 90, speed: 4.5, dmg: 20, reward: 110, size: 1.9, sig: 0.9, ir: 1.3, alt: 2.8, glow: 1.2, pack: 1, wobble: 0.4, drop: 0.3 },
+  // Fired by the Su-25 in salvos: fast, unguided, flying straight at the point it was aimed at. Guns can shoot it down.
+  rocket: { name: 'S-8 unguided rocket', code: 'S-8', hp: 1, speed: 13, dmg: 3, reward: 1, size: 0.4, sig: 0.25, ir: 1.1, alt: 2, glow: 1.2, pack: 1, wobble: 0, padHit: 2, drop: 0 },
+  // Dedicated SEAD fighter: holds station out on the front while the radar radiates and fires Kh-58s at it (SEAD).
+  // No bombs, so it never comes in: kill it on station or go dark and wait it out.
+  sead: { name: 'Su-35S SEAD fighter (Kh-58)', code: 'SU-35S', hp: 120, speed: 3.8, dmg: 8, reward: 180, size: 2.3, sig: 1, ir: 1.6, alt: 10, glow: 1.5, pack: 1, wobble: 0.5, drop: 0.35 },
+  // Kh-58UShKE: heavier, longer-burning ARM with a memory seeker. Going dark doesn't make it veer off: it flies on at
+  // where it last heard the radar, off by up to ARM2.scatter to the side, so EMCON cuts its odds instead of making it miss (ARM2).
+  arm2: { name: 'Kh-58UShKE anti-radiation missile', code: 'KH-58', hp: 6, speed: 11, dmg: 8, reward: 25, size: 0.9, sig: 0.5, ir: 1.4, alt: 8, glow: 1.3, pack: 1, wobble: 0, drop: 0.04 },
 };
 // Kills that matter get a bigger blast, a camera shake, a banner and a sound of their own (hud, render, sfx).
-export const BIG_KILLS: Partial<Record<EnemyKind, string>> = { elite: 'SU-34 SPLASHED', ew: 'JAMMER DOWN', tbm: 'BALLISTIC INTERCEPTED', hyper: 'KINZHAL INTERCEPTED', ka52: 'ALLIGATOR DOWN' };
+export const BIG_KILLS: Partial<Record<EnemyKind, string>> = { elite: 'SU-34 SPLASHED', ew: 'JAMMER DOWN', tbm: 'BALLISTIC INTERCEPTED', hyper: 'KINZHAL INTERCEPTED', ka52: 'ALLIGATOR DOWN', su25: 'SU-25 SPLASHED', sead: 'SU-35S SPLASHED' };
 export const BIG_KILL_SHAKE = 0.5;
 // Critical-state warnings on the HUD (hud.warnings): shares of capacity a resource is critical below. sweep: radar
 // speed share while power starves it; waiting: contacts in tracking range waiting for a lock while every slot is
@@ -84,7 +96,9 @@ export const WARN = { hp: 0.3, power: 0.15, ammo: 0.15, sweep: 0.6, waiting: 2, 
 // Sound: default volumes (0..1, the player's own are saved) and the music's tempo, calm and in a raid.
 export const AUDIO = { sfx: 0.8, music: 0.35, bpm: 84, raidBpm: 108 };
 // Munitions heading for the battery: drawn amber, their launches and intercepts logged.
-export const MUNITIONS: EnemyKind[] = ['arm', 'tbm', 'cruise', 'atgm', 'kab', 'hyper', 'mald'];
+export const MUNITIONS: EnemyKind[] = ['arm', 'tbm', 'cruise', 'atgm', 'kab', 'hyper', 'mald', 'rocket', 'arm2'];
+// Anti-radiation missiles: home on a radiating radar, knock it out on a hit (see ARM_* and ARM2).
+export const ARMS: EnemyKind[] = ['arm', 'arm2'];
 export const KINDS = Object.keys(ENEMIES) as EnemyKind[];
 // How high a contact flies over the ground (m): its type's `alt`, except that a ballistic missile or glide bomb
 // comes down as it closes. The radar horizon goes by it (RADAR_HORIZON), and the view draws it.
@@ -96,6 +110,7 @@ export const altitude = (k: EnemyKind, x: number, z: number) => ENEMIES[k].balli
 export function flightAlt(e: { kind: EnemyKind; x: number; z: number; act: string; pop?: number }) {
   const a = altitude(e.kind, e.x, e.z);
   if (e.kind === 'ka52' && e.act === 'hover') return (e.pop ?? 0) > 0 ? a : KA52.maskAlt;
+  if (e.kind === 'su25' && (e.pop ?? 0) > 0) return a + SU25.popup; // pop-up for the attack run
   if (e.act !== 'dive') return a;
   if (ENEMIES[e.kind].mimic === 'cruise' || e.kind === 'cruise') return a + CRUISE_TERMINAL.pop;
   const from = e.kind === 'scout' ? LANCET.loiter : SHAHED_DIVE;
@@ -111,7 +126,7 @@ export const MASK = { alt: 2, sig: 0.4 };
 export const IR_SEEKER = 0.35;
 
 // Rare drops: a kill sometimes leaves salvage on the ground (chance per kind: ENEMIES.drop). Click it within
-// DROP_LIFE s to recover it; unclaimed salvage is lost. Heavy kills (reward >= DROP_HEAVY) roll TECH more often.
+// it to recover it; it stays on the ground until you do (at most DROP_MAX at once: past that, kills drop nothing). Heavy kills (reward >= DROP_HEAVY) roll TECH more often.
 // Rolled with Math.random, so drops never touch the daily op's seeded schedule.
 export type DropKind = 'cache' | 'ammo' | 'power' | 'repair' | 'overdrive' | 'tech';
 export const DROPS: Record<DropKind, { name: string; desc: string; w: number; heavy: number }> = {
@@ -123,7 +138,7 @@ export const DROPS: Record<DropKind, { name: string; desc: string; w: number; he
   tech: { name: 'SALVAGED TECH', desc: 'a free upgrade level', w: 2, heavy: 6 },
 };
 export const DROP_KINDS = Object.keys(DROPS) as DropKind[];
-export const DROP_LIFE = 12, DROP_GRAB = 4.5, DROP_MAX = 12, DROP_HEAVY = 50; // s on the ground, m click reach, most at once, reward
+export const DROP_GRAB = 4.5, DROP_MAX = 12, DROP_HEAVY = 50; // m click reach, most on the ground at once, reward
 export const CACHE = { reward: 6, flat: 40 }; // credits: 6x the kill's reward + 40
 export const REPAIR_DROP = 0.3; // share of max HP a repair kit restores
 export const OVERDRIVE = { time: 12, rate: 1.5 };
@@ -148,7 +163,15 @@ export const CRUISE_TERMINAL = { r: 12, jink: 1.6, speed: 1.2, pop: 2.5 };
 // Ka-52: m out it settles at, s it takes to settle before the first salvo (the moment to kill it), s between
 // salvos, ATGMs per salvo and in all, s it stays popped up after firing, m it hovers at masked, m of strafe
 // sideways, m its ATGMs reach a unit from, and how much harder an ATGM hits a unit than its damage says.
-export const KA52 = { standoff: 30, settle: 4, every: 5, salvo: 2, ammo: 6, pop: 1.5, maskAlt: 1.2, strafe: 0.5, reach: 32, padHit: 2.5 };
+export const KA52 = { standoff: 30, settle: 4, every: 5, salvo: 2, ammo: 6, pop: 1.5, maskAlt: 1.2, strafe: 0.5, reach: 32 };
+// Su-25: m out it fires, S-8s per salvo and their spread (rad), attack passes, m out it turns back in for the next
+// one, m its rockets reach a unit from, s of pop-up and flares per run (IR seekers x `flares` meanwhile), m of pop-up.
+export const SU25 = { release: 24, salvo: 4, spread: 0.06, passes: 2, turn: 52, reach: 20, pop: 2.5, flares: 0.4, popup: 3 };
+// Su-35S SEAD: m out it holds station at, s between Kh-58s while the radar radiates (x the radar mode's armEvery),
+// Kh-58s carried, s it waits on station at most before going home.
+export const SEAD = { standoff: 42, every: 7, ammo: 4, time: 45 };
+// Kh-58: s of motor, m its memory aim can be off the radar to the side, radar downtime x an ARM hit's.
+export const ARM2 = { life: 20, scatter: 10, stun: 1.5 };
 // FPV swarm: normal spawns bring ENEMIES.swarm.packs (4-8). Each FPV hunts the most isolated unit within `seek` m
 // of it (fewest other guns covering its spot, at most `isolated`), diving on it at DIVE_SPEED. A unit on high
 // ground is spotted TERRAIN.high.dive x further; the treeline hides it. No isolated unit in reach: the base.
@@ -168,6 +191,7 @@ export const AGILITY: Record<EnemyKind, { turn: number; acc: number; hover?: boo
   arm: { turn: 0, acc: 0 }, // flies its own seeker (sim.steerArm)
   tbm: { turn: 1.6, acc: 3 }, cruise: { turn: 2.4, acc: 2.5 }, atgm: { turn: 4, acc: 4 }, kab: { turn: 1.2, acc: 1.5 },
   recon: { turn: 0.8, acc: 1 }, ka52: { turn: 0, acc: 1.8, hover: true }, hyper: { turn: 1.2, acc: 3 }, mald: { turn: 2.4, acc: 2.5 },
+  su25: { turn: 1.1, acc: 1.5 }, rocket: { turn: 3, acc: 4 }, sead: { turn: 0.8, acc: 1.2 }, arm2: { turn: 0, acc: 0 }, // arm2: flies its own seeker
 };
 export const HOMING_BOOST = 3, HOMING_SNAP = 2;
 
@@ -186,7 +210,7 @@ export const LEVELS: { name: string; desc: string; w: Partial<Record<EnemyKind, 
   { name: 'HELICOPTERS', desc: 'Mi-28 attack helicopters and decoys', w: { scout: 2, drone: 3, swarm: 1, tank: 0.6, decoy: 1.2 }, rate: 0.8 },
   { name: 'FLANKS', desc: 'Shaheds from the flanks, and the first attack packages', w: { scout: 1.5, drone: 4, swarm: 1, tank: 0.8, decoy: 1.5 }, pk: 0.05, arc: 60 * DEG },
   { name: 'EW AND CRUISE', desc: 'cruise missiles going for your units, jammers, and Orlan-10 spotters', w: { scout: 2, drone: 3, swarm: 1.5, tank: 1, decoy: 1.5, ew: 0.15, cruise: 0.3, recon: 0.15, mald: 0.1 }, pk: 0.07, arc: 120 * DEG },
-  { name: 'SEAD', desc: 'Su-34s, ARMs, Iskanders, and Ka-52s round the flanks', w: { scout: 2, drone: 3, swarm: 2, tank: 1.5, elite: 0.25, decoy: 1.5, arm: 0.3, ew: 0.1, tbm: 0.15, cruise: 0.3, recon: 0.2, ka52: 0.3, mald: 0.15 }, pk: 0.1, arc: 120 * DEG },
+  { name: 'SEAD', desc: 'Su-34s, ARMs, Iskanders, Su-25 attack runs and Ka-52s round the flanks', w: { scout: 2, drone: 3, swarm: 2, tank: 1.5, elite: 0.25, decoy: 1.5, arm: 0.3, ew: 0.1, tbm: 0.15, cruise: 0.3, recon: 0.2, ka52: 0.3, mald: 0.15, su25: 0.15 }, pk: 0.1, arc: 120 * DEG },
 ];
 export const PK_GROW = 0.02, PK_MAX = 0.25;
 // Past the scripted levels, jammer helicopters get likelier every level too (spawn weight), up to EW_MAX.
@@ -238,6 +262,10 @@ export const PACKAGES: Package[] = [
   // Saturation: many cheap, a few that matter. The cheap ones soak locks and ammo so the expensive ones get through.
   { name: 'SATURATION SALVO', from: 6, g: { swarm: 2, decoy: 2, drone: 3, mald: 2, cruise: 1, tbm: 1 }, first: 'cruise',
     why: 'FPVs, Gerberas and Kh-55 decoys soak locks while the Kh-101 and the Iskander go for what matters' },
+  { name: 'CAS STRIKE', from: 6, g: { su25: 1, scout: 2, swarm: 1 }, first: 'su25',
+    why: 'the Su-25 comes in low under the Lancets and rockets your units, then comes round again' },
+  { name: 'WILD WEASEL', from: 7, g: { sead: 1, decoy: 2, drone: 2 }, first: 'sead',
+    why: 'the Su-35S fires Kh-58s while decoys soak your locks; going dark only cuts their odds' },
 ];
 
 // After the last scripted level, each level brings a new condition on top of SEAD's mix, looping in order.
@@ -249,9 +277,9 @@ export const MODS: Mod[] = [
   { name: 'LULL', desc: 'fewer raiders, clear skies · rebuild', spawn: 0.6, sig: 1.2 },
   { name: 'JAMMING STORM', desc: 'EW helicopters inbound', w: { ew: 0.8 } },
   { name: 'SWARM TIDE', desc: 'many more, much weaker', spawn: 1.5, hp: 0.6, w: { swarm: 4, decoy: 2 } },
-  { name: 'SEAD WAVE', desc: 'strike aircraft, ARMs, cruise missiles and Kinzhals', w: { arm: 0.8, elite: 0.3, cruise: 0.4, hyper: 0.08 } },
+  { name: 'SEAD WAVE', desc: 'strike aircraft, SEAD fighters, ARMs, cruise missiles and Kinzhals', w: { arm: 0.8, elite: 0.3, sead: 0.25, cruise: 0.4, hyper: 0.08 } },
   { name: 'EW OFFENSIVE', desc: 'jammers, decoys and cruise missiles · -15% detection', sig: 0.85, w: { ew: 0.5, decoy: 1.5, cruise: 0.3, mald: 0.4 } },
-  { name: 'COMBINED ARMS', desc: 'helicopters, swarms and cruise missiles together', w: { tank: 1, ka52: 0.5, swarm: 1.5, scout: 1, cruise: 0.3 } },
+  { name: 'COMBINED ARMS', desc: 'helicopters, Su-25s, swarms and cruise missiles together', w: { tank: 1, ka52: 0.5, su25: 0.4, swarm: 1.5, scout: 1, cruise: 0.3 } },
   { name: 'EYES IN THE SKY', desc: 'Orlan-10 spotters over every raid', w: { recon: 0.6, scout: 1, swarm: 1 } },
   { name: 'HYPERSONIC', desc: 'Kinzhals among the Iskanders', w: { hyper: 0.12, tbm: 0.1 } },
 ];
@@ -283,6 +311,8 @@ export const RAIDS: { name: string; from: number; g: Partial<Record<EnemyKind, n
   { name: 'ALLIGATOR HUNT', from: 5, g: { ka52: 2, recon: 1, swarm: 2 } },
   { name: 'SATURATION WAVE', from: 7, g: { swarm: 3, decoy: 2, drone: 4, mald: 2, cruise: 2, tbm: 1 } },
   { name: 'HYPERSONIC STRIKE', from: 9, g: { hyper: 2, tbm: 1, mald: 2 } },
+  { name: 'GROUND ATTACK', from: 6, g: { su25: 2, scout: 3 } },
+  { name: 'SEAD SWEEP', from: 8, g: { sead: 1, elite: 1, arm: 1, decoy: 2, drone: 2 }, obj: 'radar' },
 ];
 
 // Radar threats. ARMs home on the radar while it radiates, and a hit takes it offline. EMCON [F] silences it:
