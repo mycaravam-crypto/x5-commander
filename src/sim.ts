@@ -33,7 +33,7 @@ export interface Shot {
   dmg: number; splash: number; life: number; target: number; src: string; // src: weapon, for the debrief
 }
 export type Ev =
-  | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect' | 'arm' | 'tbm' | 'cruise' | 'jam' | 'ident' | 'acquire' | 'lost' | 'release' | 'egress'; x: number; z: number; kind?: EnemyKind; n?: number }
+  | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect' | 'arm' | 'tbm' | 'cruise' | 'jam' | 'ident' | 'acquire' | 'lost' | 'release' | 'egress' | 'dud'; x: number; z: number; kind?: EnemyKind; n?: number }
   | { k: 'beam' | 'rail' | 'gun'; x: number; z: number; x2: number; z2: number }
   | { k: 'raid'; x: number; z: number; name: string }
   | { k: 'package'; x: number; z: number; name: string }
@@ -794,7 +794,7 @@ function moveEnemies(s: State, dt: number) {
         s.stats.taken[e.kind] = (s.stats.taken[e.kind] ?? 0) + e.dmg * armor;
         s.shake = Math.min(1.5, s.shake + 0.3 + e.dmg / 40);
         s.events.push({ k: 'baseHit', x: e.x, z: e.z, kind: e.kind, n: e.dmg * armor });
-      }
+      } else if (e.kind === 'decoy') s.events.push({ k: 'dud', x: e.x, z: e.z }); // passed for a Shahed right up to impact: say it was a dud
       removeAt(s, i);
     }
   }

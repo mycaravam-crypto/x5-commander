@@ -50,6 +50,7 @@ export function play(k: string, e: { n?: number; star?: boolean; drop?: string }
     case 'gun': noise(0.04, 0.02, 3000); break;
     case 'beam': tone(1400, 0.06, 'sine', 0.025, 900); break;
     case 'rail': tone(90, 0.4, 'sawtooth', 0.08, 40); noise(0.3, 0.1, 4000); break;
+    case 'dud': noise(0.12, 0.05, 600); break;
     case 'hit': tone(500, 0.03, 'triangle', 0.02, 300); break;
     case 'kill': noise(0.15, 0.06, 2500); tone(160, 0.1, 'square', 0.02, 50); break;
     case 'baseHit': tone(110, 0.3, 'sawtooth', 0.09, 35); noise(0.3, 0.12, 800); break;
