@@ -834,6 +834,14 @@ ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies stan
   const dealt = Object.values(b.stats.dmg).reduce((a, x) => a + x, 0);
   const killed = Object.values(b.stats.kills).reduce((a, x) => a + x, 0);
   ok(killed === b.kills && dealt > 0 && b.stats.dmg['PAC-3'] > 0, `debrief (${killed}/${b.kills})`);
+  const L = b.stats.levels, unitKills = Object.values(b.stats.units).reduce((a, u) => a + u.kills, 0);
+  const over = (b.phase as string) === 'over';
+  ok(L.length === b.stage + (over ? 1 : 0) && L.every((l, i) => (l.end === 'fell') === (over && i === L.length - 1)), `a line per level, 'fell' only where it fell (${L.length} lines, stage ${b.stage})`);
+  ok(L.reduce((a, l) => a + l.kills, 0) === b.stats.lvKills, 'level kills add up');
+  ok(Math.abs(L.reduce((a, l) => a + l.hp, 0) - b.stats.lvHp) < 1e-6, 'level HP lost adds up');
+  const f = newGame(5); f.phase = 'play'; run(f, 1500);
+  ok((f.phase as string) === 'over' && f.stats.levels.at(-1)!.end === 'fell' && f.stats.levels.reduce((a, l) => a + l.kills, 0) === f.kills, 'a lost run logs the level it fell in');
+  ok(unitKills === Object.values(b.stats.perim).reduce((a, x) => a + x, 0), `unit kills match perimeter kills (${unitKills})`);
 }
 
 console.log(`ok · idle ${idle.t.toFixed(0)}s/${idle.kills} kills · bot ${b.t.toFixed(0)}s/${b.kills} kills lv${b.level} [${b.perks.join(',')}]`);

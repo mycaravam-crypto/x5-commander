@@ -580,8 +580,10 @@ export function createRenderer() {
   const covTex = new THREE.CanvasTexture(cov);
   const covGeo = new THREE.PlaneGeometry(COV_R * 2, COV_R * 2, 96, 96).rotateX(-Math.PI / 2);
   { const p = covGeo.attributes.position; for (let i = 0; i < p.count; i++) p.setY(i, groundY(p.getX(i), p.getZ(i)) + 0.1); }
-  const covMesh = new THREE.Mesh(covGeo, new THREE.MeshBasicMaterial({ map: covTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+  const covMat = new THREE.MeshBasicMaterial({ map: covTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+  const covMesh = new THREE.Mesh(covGeo, covMat);
   covMesh.visible = false; covMesh.renderOrder = 1; scene.add(covMesh);
+  // 0 off · 1 faint (a see-through layer to leave on) · 2 full
   let showCov = false, covKey = '';
   const rgb = (c: number) => [c >> 16, c >> 8 & 255, c & 255];
   function drawCoverage(s: State) {
@@ -1364,7 +1366,7 @@ export function createRenderer() {
       }
       return best;
     },
-    toggleCoverage: () => (showCov = !showCov),
+    setCoverage(mode: number) { showCov = mode > 0; covMat.opacity = mode === 1 ? 0.4 : 1; },
     cameraYaw: () => yaw,
     target: () => ({ x: tx, z: tz }),
   };

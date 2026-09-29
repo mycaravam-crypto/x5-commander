@@ -1,4 +1,5 @@
-import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, DROP_LIFE, MILESTONE, OVERDRIVE, rank, TRAINING, BIG_KILLS } from './config.ts';
+import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, DROP_LIFE, MILESTONE, OVERDRIVE, rank, TRAINING, BIG_KILLS, WARN } from './config.ts';
+import { play as sound } from './sfx.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import { mapSeed } from './terrain.ts';
 import type { Records } from './config.ts';
@@ -105,19 +106,28 @@ function debrief(s: State) {
   const kills = (Object.entries(S.kills) as [keyof typeof ENEMIES, number][]).sort((a, b) => b[1] - a[1])
     .map(([k, n]) => `<dt>${ENEMIES[k].code}</dt><dd>${fmt(n)}</dd>`).join('');
   const dmg = Object.entries(S.dmg).sort((a, b) => b[1] - a[1])
-    .map(([k, n]) => `<dt>${k}</dt><dd>${Math.round(n / total * 100)}%</dd>`).join('');
+    .map(([k, n]) => `<dt>${k}<b class="seg" style="--r:${(n / total).toFixed(2)}"></b></dt><dd>${Math.round(n / total * 100)}%</dd>`).join('');
   const perim = (Object.entries(S.perim) as [keyof typeof PERIM_NAMES, number][]).sort((a, b) => b[1] - a[1])
     .map(([k, n]) => `<dt>${PERIM_NAMES[k]}</dt><dd>${fmt(n)}</dd>`).join('');
   // What hurt the battery, and a line on the worst of it.
   const hurt = (Object.entries(S.taken) as [keyof typeof ENEMIES, number][]).sort((a, b) => b[1] - a[1]);
   const taken = hurt.slice(0, 6).map(([k, n]) => `<dt>${ENEMIES[k].code}</dt><dd>${fmt(Math.round(n))}</dd>`).join('');
   const lesson = hurt.length ? `<p class="lesson"><span class="alert">MOST DAMAGE · ${ENEMIES[hurt[0][0]].code}</span> · ${LESSONS[hurt[0][0]]}</p>` : '';
+  // The units that did the most, sold ones included.
+  const best = Object.values(S.units).sort((a, b) => b.kills - a.kills).slice(0, 3)
+    .map(u => `<dt>${u.name.toUpperCase()} <span class="dim">${VETERANCY[vetRank(u.kills)].name}</span></dt><dd>${fmt(u.kills)}</dd>`).join('');
+  // Level by level: how long each took, what it cost, how it ended.
+  const END = { held: '<span class="hot">HELD</span>', lost: '<span class="alert">LOST</span>', fell: '<span class="red">FELL</span>' };
+  const levels = S.levels.map(l => `<tr><td>${l.name}</td><td>${clock(l.t)}</td><td>${fmt(l.kills)}</td><td>${fmt(Math.round(l.hp))}</td><td>${END[l.end]}</td></tr>`).join('');
   return `${lesson}<div class="debrief"><div><small>KILLS</small><dl>${kills || '<dt>none</dt>'}</dl></div>${perim ? `<div><small>PERIMETER KILLS</small><dl>${perim}</dl></div>` : ''}<div><small>DAMAGE DEALT</small><dl>${dmg || '<dt>none</dt>'}</dl></div>
     <div><small>HP LOST TO</small><dl>${taken || '<dt>nothing</dt>'}</dl></div>
-    <div><small>OPS</small><dl><dt>RAIDS CLEAN</dt><dd>${S.clean} / ${S.raids}</dd><dt>ARMS EVADED</dt><dd>${S.armsEvaded}</dd><dt>RADAR HITS</dt><dd>${S.radarHits}</dd><dt>SALVAGE</dt><dd>${S.recovered} / ${S.drops}</dd></dl></div></div>`;
+    <div><small>OPS</small><dl><dt>RAIDS CLEAN</dt><dd>${S.clean} / ${S.raids}</dd><dt>ARMS EVADED</dt><dd>${S.armsEvaded}</dd><dt>RADAR HITS</dt><dd>${S.radarHits}</dd><dt>SALVAGE</dt><dd>${S.recovered} / ${S.drops}</dd></dl></div>
+    ${best ? `<div class="wide"><small>BEST UNITS</small><dl>${best}</dl></div>` : ''}</div>
+    ${levels ? `<div class="levels"><small>LEVEL BY LEVEL</small><table><tr><th>LEVEL</th><th>TIME</th><th>KILLS</th><th>HP LOST</th><th></th></tr>${levels}</table></div>` : ''}`;
 }
 
-export function createHud(actions: { buy(id: string): void; perk(i: number): void; pad(act: string): void; start(mode?: 'daily' | 'training'): void; restart(): void; resume(): void; menu(): void; doctrine(i: number): void; look(x: number, z: number): void }) {
+export function createHud(actions: { buy(id: string): void; perk(i: number): void; pad(act: string): void; start(mode?: 'daily' | 'training'): void; restart(): void; resume(): void; menu(): void; doctrine(i: number): void; look(x: number, z: number): void;
+  setting(k: string, v: number): void; settings(): { sfx: number; music: number; cov: number } }) {
   for (const [k, v] of Object.entries(PAL)) document.documentElement.style.setProperty(`--${k}`, rgba(v));
 
   // ---- shop (built once) ----
@@ -168,12 +178,19 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     else if (a === 'menu') actions.menu();
     else if (a === 'resume') actions.resume();
     else if (a === 'resetTips') resetTips((e.target as HTMLElement).closest('button'));
+    else if (a?.startsWith('cov')) { actions.setting('cov', +a.slice(3)); overlay.querySelectorAll('[data-a^=cov]').forEach(b => b.classList.toggle('sel', b === e.target)); }
     else if (a?.startsWith('doc')) actions.doctrine(+a.slice(3));
     else if (a === 'restart') actions.restart();
     else if (a === 'share') share();
     else if (a?.startsWith('perk')) actions.perk(+a.slice(4));
     // The pause card covers the on-screen pause button, so a tap off the menu resumes.
     else if (shownPhase.startsWith('pause') && !(e.target as HTMLElement).closest('.card')) actions.resume();
+  };
+  overlay.oninput = e => { const el = e.target as HTMLInputElement; if (el.dataset.set) actions.setting(el.dataset.set, +el.value / 100); };
+  // Pause menu settings: volumes and the coverage overlay (all remembered between runs).
+  const settingsHtml = () => {
+    const v = actions.settings(), range = (k: 'sfx' | 'music', label: string) => `<label>${label} <input type="range" min="0" max="100" value="${Math.round(v[k] * 100)}" data-set="${k}"></label>`;
+    return `<div class="settings">${range('sfx', 'SFX')}${range('music', 'MUSIC')}<span>COVERAGE [O] ${['OFF', 'FAINT', 'FULL'].map((n, i) => `<button class="link${v.cov === i ? ' sel' : ''}" data-a="cov${i}">${n}</button>`).join(' ')}</span></div>`;
   };
   let shownPhase = '', shownDoc = '', shownSeed = NaN;
   function showOverlay(s: State) {
@@ -204,6 +221,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       <p class="dim">Daily op: same raid for everyone today. ${(d => d.time ? `Your best today · ${clock(d.time)} · ${fmt(d.kills)} kills` : 'Not flown yet today.')(loadDaily(new Date().toISOString().slice(0, 10)))}</p></div></div>`;
     else if (s.phase === 'pause') html = `<div class="card menu"><h2>PAUSED</h2>
       <button class="btn" data-a="resume">RESUME [P]</button> <button class="btn" data-a="menu">QUIT TO MENU</button>
+      ${settingsHtml()}
       ${helpHtml()}
       <p><button class="link" data-a="resetTips">RESET TIPS</button> <span class="dim">· show every tip again</span></p>
       <p class="dim">[P] or tap outside to resume</p></div>`;
@@ -571,6 +589,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     ].map(([k, v]) => v === '' ? `<dt class="grp">${k}</dt>` : `<dt>${k}</dt><dd>${v}</dd>`).join('');
     if (html !== infoHtml) { infoHtml = html; infoEl.innerHTML = html; } // no DOM churn when nothing changed
     threatBoard(s);
+    warnings(s);
     document.body.classList.toggle('crit', s.phase === 'play' && s.hp / st.maxHp < 0.3);
     // Touch buttons: live value under the icon, lit while the thing is on.
     const ib = interceptBlock(s);
@@ -612,6 +631,29 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       b.classList.toggle('needs', why.startsWith('NEEDS'));
     }
     arrangeShop(s);
+  }
+
+  // ---- critical states: what's about to go wrong, as chips beside the left panel (config WARN) ----
+  const warnEl = $('warn'), hold: Record<string, number> = {};
+  let warnHtml = '', warnKeys = '';
+  function warnings(s: State) {
+    const st = s.st, out: [string, string, string][] = []; // key, class, text
+    const on = (k: string, cond: boolean) => { if (cond) hold[k] = s.t + WARN.hold; return s.t < (hold[k] ?? -1); };
+    if (s.phase === 'play') {
+      const hp = s.hp / st.maxHp, sweep = st.radar && emitting(s) ? s.sweepSpeed / st.sweep : 1;
+      if (on('hp', hp < WARN.hp)) out.push(['hp', 'red', `HULL ${Math.round(hp * 100)}%`]);
+      if (st.radar && on('power', s.power < st.powerCap * WARN.power || sweep < WARN.sweep)) out.push(['power', '', `POWER LOW${sweep < 1 ? ` · RADAR ${Math.round(sweep * 100)}%` : ''}`]);
+      if (st.weapons.cannon && on('ammo', s.ammo < st.ammoCap * WARN.ammo)) out.push(['ammo', '', `INTERCEPTORS ${fmt(s.ammo)}`]);
+      let locks = 0, waiting = 0;
+      for (const e of s.enemies) { if (e.locked) locks++; else if (visible(s, e) && !e.ided && e.x * e.x + e.z * e.z <= st.trackRange ** 2) waiting++; }
+      if (st.radar && on('locks', emitting(s) && locks >= slots(s) && waiting >= WARN.waiting)) out.push(['locks', '', `LOCKS FULL · ${waiting} WAITING`]);
+      const dry = s.perim.filter(p => noAmmo(s, p)).length, down = s.perim.filter(p => p.down).length;
+      if (on('dry', dry > 0)) out.push(['dry', '', `${dry || 'A'} GUN${dry > 1 ? 'S' : ''} OUT OF AMMO`]);
+      if (on('down', down > 0)) out.push(['down', '', `${down || 'A'} UNIT${down > 1 ? 'S' : ''} DOWN`]);
+    }
+    const h = out.map(([, c, t]) => `<div class="${c}">⚠ ${t}</div>`).join(''), keys = out.map(w => w[0]).join();
+    if (h !== warnHtml) { warnHtml = h; warnEl.innerHTML = h; }
+    if (keys !== warnKeys) { if (out.some(([k]) => !warnKeys.split(',').includes(k))) sound('alarm'); warnKeys = keys; }
   }
 
   const blindEl = $('blind');
@@ -787,7 +829,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     },
     flash(id: string) { const b = rows.get(id)!; b.classList.remove('pop'); void b.offsetWidth; b.classList.add('pop'); },
     toggleShop: () => document.body.classList.toggle('shop-open', !shop.classList.toggle('hidden')),
-    coverage: (on: boolean) => document.body.classList.toggle('cov', on),
+    coverage: (mode: number) => { document.body.classList.toggle('cov', mode > 0); document.body.classList.toggle('cov-faint', mode === 1); },
     // Phone portrait: px of screen the HUD covers at the top and bottom, so the view can centre the base in what's left.
     insets(): [number, number] {
       if (!portrait.matches) return [0, 0];

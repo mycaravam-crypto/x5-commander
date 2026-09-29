@@ -131,7 +131,11 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     // The raid in the air: its id, aircraft left, objective still held, reward so far, bearing, objective, name.
     raidId: 0, raidLeft: 0, raidClean: true, raidReward: 0, raidA: 0, raidObj: 'battery' as RaidObjective, raidName: '',
     // debrief counters
-    stats: { kills: {} as Partial<Record<EnemyKind, number>>, dmg: {} as Record<string, number>, taken: {} as Partial<Record<EnemyKind, number>>, raids: 0, clean: 0, armsEvaded: 0, radarHits: 0, drops: 0, recovered: 0, perim: {} as Partial<Record<PerimKind, number>> },
+    stats: { kills: {} as Partial<Record<EnemyKind, number>>, dmg: {} as Record<string, number>, taken: {} as Partial<Record<EnemyKind, number>>, raids: 0, clean: 0, armsEvaded: 0, radarHits: 0, drops: 0, recovered: 0, perim: {} as Partial<Record<PerimKind, number>>,
+      // Every unit that scored, by id (kept after it's sold), and how each level went: time, kills, HP lost, result.
+      units: {} as Record<number, { k: PerimKind; name: string; kills: number }>,
+      levels: [] as { name: string; t: number; kills: number; hp: number; end: 'held' | 'lost' | 'fell' }[],
+      lvKills: 0, lvHp: 0 }, // kills and HP lost when this level started
     mode: 0,
     marked: 0,
     discipline: 1, // index into DISCIPLINES, BALANCED
@@ -573,7 +577,7 @@ export function update(s: State, dt: number) {
   const ls = lastStand(s);
   if (ls !== s.lastStand) { s.lastStand = ls; if (ls) s.events.push({ k: 'lastStand' }); }
   if (s.training) s.hp = Math.max(1, s.hp); // training can't be lost
-  if (s.hp <= 0) { s.hp = 0; s.phase = 'over'; s.events.push({ k: 'over' }); }
+  if (s.hp <= 0) { s.hp = 0; s.phase = 'over'; logLevel(s, 'fell'); s.events.push({ k: 'over' }); }
 }
 
 export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2, rnd = Math.random) {
@@ -619,7 +623,14 @@ function spawnGroup(s: State, g: Partial<Record<EnemyKind, number>>, a: number, 
 }
 
 // The level's raid has resolved: build window, then the next level.
+// The debrief's line for the level in progress: how long it took, kills, HP lost, and how it ended.
+function logLevel(s: State, end: 'held' | 'lost' | 'fell') {
+  const S = s.stats, hp = Object.values(S.taken).reduce((a, b) => a + b, 0);
+  S.levels.push({ name: phaseName(s), t: s.t - s.stageAt, kills: s.kills - S.lvKills, hp: hp - S.lvHp, end });
+  S.lvKills = s.kills; S.lvHp = hp;
+}
 function endStage(s: State, held: boolean, n = held ? BUILD_TIME : BUILD_LOST) {
+  logLevel(s, held ? 'held' : 'lost');
   s.buildUntil = s.t + n;
   for (const p of s.perim) { p.hp = PAD_HP; p.down = false; } // the build window puts every unit back up
   s.events.push({ k: 'build', n });
@@ -1237,6 +1248,7 @@ function damage(s: State, e: Enemy, dmg: number, src: string, pad?: number) {
   const killer = pad === undefined ? undefined : s.perim.find(p => p.slot === pad);
   if (killer) {
     s.stats.perim[killer.k] = (s.stats.perim[killer.k] ?? 0) + 1;
+    s.stats.units[killer.slot] = { k: killer.k, name: padName(killer), kills: killer.kills + 1 };
     const r = vetRank(killer.kills++);
     if (vetRank(killer.kills) > r) s.events.push({ k: 'padRank', x: killer.x, z: killer.z, n: r + 1, kind: killer.k });
   }

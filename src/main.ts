@@ -50,8 +50,17 @@ const hud = createHud({
   pad: act => { if (act === 'upgrade') upgradePad(s); else if (act === 'move') toggleRelocate(s); else sellPad(s); },
   look: (x, z) => view.lookAt(x, z),
   resume: () => { if (s.phase === 'pause') s.phase = 'play'; },
+  setting: (k, v) => { if (k === 'cov') setCov(v); else if (k === 'sfx' || k === 'music') sfx.setVolume(k, v); },
+  settings: () => ({ ...sfx.volume, cov }),
   start, restart, menu, doctrine,
 });
+// Coverage overlay: off, faint (to leave on) or full; cycled with [O] and remembered between runs.
+let cov = (() => { try { return +(localStorage.getItem('x5-cov') ?? 0) % 3 || 0; } catch { return 0; } })();
+function setCov(m: number) {
+  cov = m % 3; view.setCoverage(cov); hud.coverage(cov);
+  try { localStorage.setItem('x5-cov', String(cov)); } catch { /* storage blocked: skip */ }
+}
+setCov(cov);
 
 // ---- input ----
 const canvas = document.querySelector('canvas')!;
@@ -145,7 +154,7 @@ function key(code: string) {
     case 'KeyR': if (s.phase === 'over') restart(); break;
     case 'KeyC': if (s.phase === 'over') hud.share(); break;
     case 'KeyX': speed = 3 - speed; break;
-    case 'KeyO': hud.coverage(view.toggleCoverage()); break;
+    case 'KeyO': setCov(cov + 1); break;
     case 'Tab': hud.toggleShop(); break;
     case 'UiMap': panel('map'); break;
     case 'UiInfo': panel('info'); break;
@@ -191,6 +200,8 @@ function frame(now: number) {
   for (let i = 0; i < speed; i++) update(s, dt * (building(s) ? BUILD_SLOW : 1));
   if (s.sweepA < sweep0) sfx.play('ping'); // sweep completed a revolution
   for (const e of s.events) sfx.play(e.k, e as Parameters<typeof sfx.play>[1]);
+  // Music: calm in the build window, driving with a raid on.
+  sfx.music(s.phase === 'play' || s.phase === 'pause' || s.phase === 'perk', building(s) ? 0 : s.raidLeft || s.raid ? 1 : 0.45);
   view.inset(...hud.insets());
   view.render(s, dt);
   hud.update(s, dt, view.cameraYaw(), view.project, speed, view.target());

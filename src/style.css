@@ -98,6 +98,14 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #threats small { color: var(--mid); }
 #threats div { white-space: nowrap; }
 #threats div.mk { color: var(--hot); }
+/* Critical states: chips mirroring the threat board, beside the left panel. Amber; red for the hull. */
+#warn { top: 80px; left: 264px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+#warn div { padding: 3px 9px; font-size: 11px; font-weight: 700; letter-spacing: 0.1em; white-space: nowrap; color: var(--alert);
+  border: 1px solid var(--alert); background: color-mix(in srgb, var(--alert) 14%, rgba(0, 0, 0, 0.7)); text-shadow: 0 1px 2px #000;
+  animation: warnin 0.35s ease-out, warnpulse 0.8s 0.35s infinite alternate; }
+#warn div.red { color: #fff; border-color: var(--crit); background: color-mix(in srgb, var(--crit) 45%, rgba(0, 0, 0, 0.6)); }
+@keyframes warnin { from { transform: scale(1.4); opacity: 0; } }
+@keyframes warnpulse { to { box-shadow: 0 0 12px currentColor; border-color: currentColor; } }
 #shop button.hint.hint { border-left-color: var(--alert); }
 #shop button.hint .c::before { content: '◆ '; color: var(--alert); }
 #radar { width: 220px; height: 220px; border: 1px solid var(--line); pointer-events: auto; cursor: crosshair; }
@@ -192,7 +200,7 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 
 #overlay { inset: 0; display: none; place-items: safe center; overflow-y: auto; background: rgba(0, 4, 1, 0.78); pointer-events: auto; }
 #overlay.on { display: grid; }
-.card { text-align: center; max-width: 760px; padding: 20px; }
+.card { text-align: center; max-width: min(760px, 100%); min-width: 0; padding: 20px; } /* the debrief grid mustn't push it past a phone's width */
 .card h1 { font-size: 54px; letter-spacing: 0.25em; margin: 0 0 4px; color: var(--hot); text-shadow: 0 0 24px var(--bright); }
 .card h1.logo { font-size: 76px; letter-spacing: 0.18em; margin: 0; line-height: 1; white-space: nowrap;
   text-shadow: 0 0 28px var(--bright), 0 0 4px var(--hot), 0 2px 4px #000; }
@@ -230,6 +238,18 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 .help dd { margin: 0; color: var(--bright); text-transform: none; }
 .help kbd { font: inherit; color: var(--hot); }
 @media (max-width: 620px) { .help { grid-template-columns: 1fr; } }
+.settings { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px 22px; margin: 16px 0 4px; font-size: 11px; letter-spacing: 0.1em; }
+.settings label { display: flex; align-items: center; gap: 8px; }
+.settings input[type=range] { width: 120px; accent-color: var(--hot); }
+.link.sel { color: var(--hot); border-bottom-style: solid; }
+.debrief .wide { grid-column: span 2; }
+.debrief dt .seg { height: 3px; margin-top: 1px; }
+.levels { max-width: 720px; margin: 6px auto 12px; text-align: left; font-size: 11px; }
+.levels table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+.levels > table { display: block; max-height: 190px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--mid) transparent; }
+.levels th { color: var(--mid); font-weight: 400; text-align: right; padding: 0 6px; font-size: 10px; white-space: nowrap; }
+.levels td { text-align: right; padding: 1px 6px; border-top: 1px solid color-mix(in srgb, var(--mid) 20%, transparent); }
+.levels th:first-child, .levels td:first-child { text-align: left; width: 100%; }
 .perk.sel { --c: var(--hot); box-shadow: 0 0 16px color-mix(in srgb, var(--bright) 30%, transparent); }
 .perk.locked { opacity: 0.4; cursor: default; }
 .perk.rule { --c: var(--alert); }
@@ -255,6 +275,7 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 body.cov #covkey { display: block; }
 #covkey i { font-style: normal; margin-left: 8px; }
 #covkey .k0 { color: var(--alert); } #covkey .k1 { color: var(--mid); } #covkey .k2 { color: var(--bright); }
+body.cov-faint #covkey { opacity: 0.6; }
 
 /* Desktop: the view toggles and touch buttons are phone-only. */
 #views, #touch { display: none; }
@@ -302,6 +323,8 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
     width: min(230px, calc(100% - 172px)); font-size: 11px; }
   #shop button { padding: 7px 6px; }
   #bottom, #threats { display: none; }
+  #warn { top: calc(max(6px, env(safe-area-inset-top)) + 42px); left: calc(max(6px, env(safe-area-inset-left)) + 158px); gap: 3px; }
+  #warn div { font-size: 9px; padding: 2px 6px; letter-spacing: 0.05em; }
 
   #touch { display: flex; gap: 5px; pointer-events: auto; bottom: max(6px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%);
     width: min(440px, calc(100% - 12px)); }
@@ -344,6 +367,8 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   #views button svg { width: 15px; height: 15px; }
   /* Coverage legend: under the strip on the right, clear of the mini radar, the tips and the shop sheet. */
   #covkey { top: calc(max(6px, env(safe-area-inset-top)) + 86px); bottom: auto; left: auto; right: max(6px, env(safe-area-inset-right)); transform: none; }
+  /* Warnings: under the strip, right of the mini radar. */
+  #warn { top: calc(max(6px, env(safe-area-inset-top)) + 82px); left: calc(max(6px, env(safe-area-inset-left)) + 108px); }
   /* Mini radar and details hang under the strip (left / right) instead of stretching it. */
   #radar { position: absolute; top: calc(100% + 4px); left: -1px; width: 100px; height: 100px; margin: 0; border: 1px solid var(--line); background: var(--panel); }
   #info { position: absolute; top: calc(100% + 4px); right: -1px; width: 190px; margin: 0; padding: 5px 7px; border: 1px solid var(--line); background: var(--panel); }

@@ -58,6 +58,12 @@ export const ENEMIES: Record<EnemyKind, EnemyType> = {
 // Kills that matter get a bigger blast, a camera shake, a banner and a sound of their own (hud, render, sfx).
 export const BIG_KILLS: Partial<Record<EnemyKind, string>> = { elite: 'SU-34 SPLASHED', ew: 'JAMMER DOWN', tbm: 'BALLISTIC INTERCEPTED' };
 export const BIG_KILL_SHAKE = 0.5;
+// Critical-state warnings on the HUD (hud.warnings): shares of capacity a resource is critical below. sweep: radar
+// speed share while power starves it; waiting: contacts in tracking range waiting for a lock while every slot is
+// taken. A warning stays up `hold` s after its cause clears, so it doesn't flicker at the line.
+export const WARN = { hp: 0.3, power: 0.15, ammo: 0.15, sweep: 0.6, waiting: 2, hold: 1.5 };
+// Sound: default volumes (0..1, the player's own are saved) and the music's tempo, calm and in a raid.
+export const AUDIO = { sfx: 0.8, music: 0.35, bpm: 84, raidBpm: 108 };
 // Munitions heading for the battery: drawn amber, their launches and intercepts logged.
 export const MUNITIONS: EnemyKind[] = ['arm', 'tbm', 'cruise', 'atgm', 'kab'];
 export const KINDS = Object.keys(ENEMIES) as EnemyKind[];
