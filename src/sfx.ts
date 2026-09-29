@@ -60,6 +60,7 @@ export function play(k: string) {
     case 'level': [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.18, 'square', 0.04, f, i * 0.09)); break;
     case 'warning': for (let i = 0; i < 3; i++) { tone(440, 0.2, 'sawtooth', 0.05, 440, i * 0.45); tone(330, 0.2, 'sawtooth', 0.05, 330, i * 0.45 + 0.22); } break;
     case 'arm': for (let i = 0; i < 5; i++) tone(2400, 0.045, 'square', 0.03, 2400, i * 0.08); break; // RWR launch warning
+    case 'cruise': for (let i = 0; i < 3; i++) tone(1400, 0.09, 'sawtooth', 0.03, 900, i * 0.14); break; // cruise missile warning
     case 'tbm': for (let i = 0; i < 4; i++) tone(i % 2 ? 660 : 990, 0.12, 'square', 0.04, i % 2 ? 660 : 990, i * 0.13); break; // ballistic warning
     case 'radarDown': noise(0.7, 0.15, 1500); tone(900, 0.9, 'sawtooth', 0.06, 50); break;
     case 'intercept': [1320, 1760, 1320, 1760].forEach((f, i) => tone(f, 0.07, 'square', 0.035, f, i * 0.07)); break;
