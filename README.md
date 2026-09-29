@@ -45,6 +45,7 @@ The game runs entirely in the browser, with no backend and no asset files. `dist
 | 1 / 2 / 3              | Pick a perk when the base levels up       |
 | 1 – 4 (start screen)   | Pick a doctrine                           |
 | P / Esc                | Pause                                     |
+| O                      | Coverage map: gaps, single cover and crossfire on the ground (toggle) |
 | X                      | 2× speed (toggle)                         |
 | M                      | Mute                                      |
 | C                      | Copy your result line after game over     |
@@ -119,7 +120,7 @@ Perimeter pads (units): **12.7 mm AA MGs** (from the start), **MANTIS 35mm C-RAM
 | Main line    | 17 m     | balanced                                                                                    |
 | Inner ring   | 11 m, all round | safe, covers the flanks, engages late                                                 |
 
-**Fields of fire.** A gun covers a fan pointing away from the base, drawn on the ground: MGs 120°, Stingers 180°, MANTIS all round. It can't shoot what has flown past it. A target inside two guns' fields of fire takes **+20% crossfire damage** from both. Amber ticks on the mini radar rim mark bearings in the threat arc that no working gun covers.
+**Fields of fire.** A gun covers a fan pointing away from the base, drawn on the ground: MGs 120°, Stingers 180°, MANTIS all round. It can't shoot what has flown past it. A target inside two guns' fields of fire takes **+20% crossfire damage** from both. Amber ticks on the mini radar rim mark bearings in the threat arc that no working gun covers. Press `O` (or the half-circle button on phones) for the coverage map: amber ground in the threat arc that nothing covers, dim green where one gun does, bright green where guns cross their fire.
 
 **Placing.** After buying a unit, **click the map** to put it on the nearest free slot. The pulsing slot is the one that covers the most open sky (or, for support units, serves the most guns); if you don't click within 8 seconds, the unit goes there.
 
@@ -224,7 +225,7 @@ This section replaces the old `plan-mvp.md`, `plan.md` and `plan-frontline.md`; 
 ### Shipped
 - **MVP:** the core loop (detect → lock → shoot → credits → upgrade → base level → perks → game over), the upgrade shop, juice and sound, 2,000 pooled enemy instances.
 - **Green radar look:** one green palette (`PAL` in `config.ts`) with amber for warnings and red for critical, wireframe models with bloom and a CRT pass, a polar grid, sweep afterglow and blip ghosts, segmented bars, the system log, the boot sequence and the sweep ping.
-- **Front line, steps 1–5:** the front and widening flank arcs, levels with raids and build windows, the AA MG start with the radar and Patriot as milestones, belt slots with fields of fire, crossfire, support units and unit HP, and Kh-101 cruise missiles with the IRIS-T SLM to stop them.
+- **Front line, steps 1–5:** the front and widening flank arcs, levels with raids and build windows, the AA MG start with the radar and Patriot as milestones, belt slots with fields of fire, crossfire, support units and unit HP, the coverage overlay (`O`), and Kh-101 cruise missiles with the IRIS-T SLM to stop them.
 
 ### Next: finish the front line (step 6)
 - [ ] **Level card** at the end of each level: held or lost, what unlocks next, new directions (e.g. "MISSILES MAY NOW COME FROM ±60°"). Today there's only a banner and a log line.
@@ -233,11 +234,10 @@ This section replaces the old `plan-mvp.md`, `plan.md` and `plan-frontline.md`; 
 - [ ] **Rebalance** with `npm run balance`. Known issues: FORTRESS (−15% fire rate) is weak with gun-heavy starts, and long runs now die to cruise missiles (LOGISTICS max run dropped from 15:00 to 6:56).
 
 ### Placement extras
-- [ ] **Tier-3 branch** for guns: e.g. *AP rounds* against Mi-28s or *high rate* against swarms, possibly topping out at MANTIS.
-- [ ] **Coverage overlay (`O`):** all fields of fire, overlaps and gaps at once.
+- [ ] **Tier-3 branch** for guns: at the ZU-23 (the MG's top tier; MANTIS is its own unit), pick *AP rounds* against Mi-28s or *high rate* against swarms.
 - [ ] **Slot preview while placing:** each free slot shows the field of fire it would add and how much open threat arc it closes.
-- [ ] **Power node:** laser and HPM draw power only within its reach, so it decides where energy weapons can go.
-- [ ] **Terrain tags** (optional): *ridge* (+20% range, drones go for it first), *treeline* (never targeted, −15% range), *road* (half build cost, fast resupply).
+- [ ] **Power node** (with the energy weapons, level 7+): laser and HPM draw power only within its reach, so it decides where they can go.
+- [ ] **Terrain tags** (optional): *ridge* (+20% range, drones go for it first), *treeline* (never targeted, −15% range), *road* (half build cost, fast resupply). Waits until after step 6: it adds a lot of balance surface.
 
 ### Later ideas
 - A front that moves back after a held level, giving more depth for the next one.

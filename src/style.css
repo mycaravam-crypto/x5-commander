@@ -188,6 +188,10 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #tip { bottom: 34px; left: 50%; transform: translateX(-50%); max-width: 460px; padding: 8px 12px; font-size: 12px;
   text-transform: none; --c: var(--hot); opacity: 0; transition: opacity 0.4s; }
 #tip.on { opacity: 1; }
+#covkey { top: 64px; left: 50%; transform: translateX(-50%); padding: 4px 10px; font-size: 10px; letter-spacing: 0.1em; white-space: nowrap; display: none; }
+body.cov #covkey { display: block; }
+#covkey i { font-style: normal; margin-left: 8px; }
+#covkey .k0 { color: var(--alert); } #covkey .k1 { color: var(--mid); } #covkey .k2 { color: var(--bright); }
 
 /* Desktop: the view toggles and touch buttons are phone-only. */
 #views, #touch { display: none; }
@@ -217,7 +221,8 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   #views { display: flex; gap: 4px; margin-top: 5px; }
   #views button { all: unset; flex: 1; display: grid; place-items: center; height: 30px; border: 1px solid var(--line); color: var(--mid); }
   #views button svg { width: 18px; height: 18px; }
-  #views button.on, body.ui-map #views [data-k=UiMap], body.ui-info #views [data-k=UiInfo] { color: var(--hot); border-color: var(--mid);
+  #covkey { top: auto; bottom: calc(max(6px, env(safe-area-inset-bottom)) + 64px); font-size: 9px; }
+  #views button.on, body.ui-map #views [data-k=UiMap], body.ui-info #views [data-k=UiInfo], body.cov #views [data-k=KeyO] { color: var(--hot); border-color: var(--mid);
     background: color-mix(in srgb, var(--bright) 12%, transparent); }
   #info { display: none; margin: 6px 0 0; font-size: 10px; gap: 1px 6px; }
   #info dt { font-size: 9px; }
@@ -268,6 +273,8 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   #views { margin: 0; gap: 3px; }
   #views button { flex: none; width: 26px; height: 24px; }
   #views button svg { width: 15px; height: 15px; }
+  /* Coverage legend: under the strip on the right, clear of the mini radar, the tips and the shop sheet. */
+  #covkey { top: calc(max(6px, env(safe-area-inset-top)) + 86px); bottom: auto; left: auto; right: max(6px, env(safe-area-inset-right)); transform: none; }
   /* Mini radar and details hang under the strip (left / right) instead of stretching it. */
   #radar { position: absolute; top: calc(100% + 4px); left: -1px; width: 100px; height: 100px; margin: 0; border: 1px solid var(--line); background: var(--panel); }
   #info { position: absolute; top: calc(100% + 4px); right: -1px; width: 190px; margin: 0; padding: 5px 7px; border: 1px solid var(--line); background: var(--panel); }

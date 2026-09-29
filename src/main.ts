@@ -99,6 +99,7 @@ function key(code: string) {
     case 'KeyR': if (s.phase === 'over') restart(); break;
     case 'KeyC': if (s.phase === 'over') hud.share(); break;
     case 'KeyX': speed = 3 - speed; break;
+    case 'KeyO': hud.coverage(view.toggleCoverage()); break;
     case 'Tab': hud.toggleShop(); break;
     case 'UiMap': panel('map'); break;
     case 'UiInfo': panel('info'); break;

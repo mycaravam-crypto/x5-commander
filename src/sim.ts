@@ -293,6 +293,11 @@ export function slotScore(s: State, k: PerimKind, slot: number) {
 }
 export const bestSlot = (s: State, k: PerimKind) =>
   freeSlots(s).reduce<number | undefined>((b, i) => b === undefined || slotScore(s, k, i) > slotScore(s, k, b) ? i : b, undefined);
+// How many working guns cover a point: 0 is a gap, 2+ is crossfire. The coverage overlay [O] maps it.
+export function coverage(s: State) {
+  const guns = s.perim.filter(p => GUNS.includes(p.k) && up(p)).map(p => ({ p, r: padStats(s, p).range }));
+  return (x: number, z: number) => guns.reduce((n, { p, r }) => n + +covers(p, x, z, r), 0);
+}
 
 // Put the pending pad on the free slot nearest the click.
 export function placePad(s: State, x: number, z: number) {

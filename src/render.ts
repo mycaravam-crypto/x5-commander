@@ -4,8 +4,8 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { ARENA_R, ENEMIES, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, SLOTS, slotXZ, FANS, GUNS, type EnemyKind } from './config.ts';
-import { emitting, focusBearing, radarRange, radarSector, freeSlots, bestSlot, padStats, phase, shownKind, visible, type Shot, type State } from './sim.ts';
+import { ARENA_R, BASE_R, ENEMIES, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, SLOTS, slotXZ, FANS, GUNS, type EnemyKind } from './config.ts';
+import { emitting, focusBearing, flankArc, radarRange, radarSector, freeSlots, bestSlot, coverage, padStats, phase, shownKind, visible, type Shot, type State } from './sim.ts';
 
 const MAX_ENEMIES = 2000, MAX_LOCKS = 64, MAX_SHOTS = 600, MAX_SHARDS = 2500, MAX_WAVES = 64, MAX_BEAMS = 3000, MAX_FRONTS = 48, MAX_BLIPS = 1024;
 const VIS = 1.6; // enemies drawn bigger than their hitbox so they read at a glance
@@ -409,6 +409,31 @@ export function createRenderer() {
   // Free slots, shown while a bought pad waits to be placed (the best one pulses) or a picked unit could move.
   const padMarks = instanced(segs(ringPts(16, 2)), additive(0xffffff, true), SLOTS.length);
   scene.add(padMarks);
+  // Coverage overlay [O]: how many guns cover each patch of ground. Amber: a gap in the threat arc (inside the
+  // forward line), dim green: one gun, bright green: crossfire. Redrawn only when the layout or the arc changes.
+  const COV_N = 256, COV_R = ARENA_R, GAP_R = 32, cov = document.createElement('canvas');
+  cov.width = cov.height = COV_N;
+  const covTex = new THREE.CanvasTexture(cov);
+  const covMesh = new THREE.Mesh(new THREE.PlaneGeometry(COV_R * 2, COV_R * 2).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ map: covTex, transparent: true, depthWrite: false }));
+  covMesh.position.y = 0.02; covMesh.visible = false; scene.add(covMesh);
+  let showCov = false, covKey = '';
+  const rgb = (c: number) => [c >> 16, c >> 8 & 255, c & 255];
+  function drawCoverage(s: State) {
+    const g = cov.getContext('2d')!, img = g.createImageData(COV_N, COV_N), count = coverage(s);
+    const arc = Math.min(Math.PI, Math.max(FRONT_ARC, flankArc(s.stage)));
+    const shade = [[...rgb(ALERT), 45], [...rgb(MID), 35], [...rgb(BRIGHT), 70]];
+    for (let j = 0; j < COV_N; j++) for (let i = 0; i < COV_N; i++) {
+      // Canvas (i, j) is world (x, z): the plane is laid flat with its top edge at -z.
+      const x = ((i + 0.5) / COV_N * 2 - 1) * COV_R, z = ((j + 0.5) / COV_N * 2 - 1) * COV_R, d = Math.hypot(x, z);
+      if (d > COV_R || d < BASE_R) continue;
+      const n = count(x, z), off = Math.atan2(z, x) - FRONT;
+      if (!n && (d > GAP_R || Math.abs(Math.atan2(Math.sin(off), Math.cos(off))) > arc)) continue;
+      img.data.set(shade[Math.min(n, 2)], (j * COV_N + i) * 4);
+    }
+    g.putImageData(img, 0, 0);
+    covTex.needsUpdate = true;
+  }
 
   // Particle pools: flat arrays, ring-buffer allocation, no per-frame garbage.
   const sh = { p: new Float32Array(MAX_SHARDS * 3), v: new Float32Array(MAX_SHARDS * 3), life: new Float32Array(MAX_SHARDS), max: new Float32Array(MAX_SHARDS), col: new Float32Array(MAX_SHARDS * 3), size: new Float32Array(MAX_SHARDS), next: 0 };
@@ -531,6 +556,8 @@ export function createRenderer() {
     consume(s);
     const key = `${s.level}${s.st.radar}${!!s.st.weapons.cannon}${s.st.aesa}${!!s.st.weapons.pulse}${s.lv.missile ?? 0}${!!s.st.weapons.rail}|${s.perim.map(p => `${p.slot}${p.k}${p.tier}${p.down ? 'd' : ''}`).join()}|${s.selected}`;
     if (key !== baseKey) { baseKey = key; buildBase(s); }
+    covMesh.visible = showCov;
+    if (showCov && `${key}|${s.stage}` !== covKey) { covKey = `${key}|${s.stage}`; drawCoverage(s); }
 
     // camera
     const d = 150, pitch = 0.72;
@@ -801,6 +828,7 @@ export function createRenderer() {
     rotate: (d: number) => { yaw += d; },
     inset: (top: number, bottom: number) => { inTop = top; inBot = bottom; },
     zoomBy: (f: number) => { zoom = Math.min(3, Math.max(0.6, zoom * f)); },
+    toggleCoverage: () => (showCov = !showCov),
     pick(cx: number, cy: number) {
       let x = cx / innerWidth - 0.5, y = cy / innerHeight - 0.5;
       const k = 1 + CURVE * (x * x + y * y); x *= k; y *= k; // same bend as the CRT shader
