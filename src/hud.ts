@@ -160,7 +160,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const best = loadBest();
     let html = '';
     const D = 0.35; // s per boot line
-    if (s.phase === 'start') html = `<div class="card"><h1>X5 COMMANDER</h1>
+    if (s.phase === 'start') html = `<div class="card"><h1 class="logo"><b>X5</b> COMMANDER</h1><p class="byline">by CDS</p>
       <div class="boot">${BOOT.map((l, i) => `<p style="--n:${l.length + 2};--d:${i * D}s">&gt; ${l}</p>`).join('')}</div>
       <div class="later" style="--d:${BOOT.length * D}s"><p class="dim">SCAN · DETECT · LOCK · ENGAGE · EXPAND</p><br>
       <p>You start with <b>one machine gun</b> and your eyes. Guns fire by themselves at whatever they can see.</p>

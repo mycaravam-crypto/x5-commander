@@ -71,6 +71,11 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #raidarrow.on { display: block; }
 
 #left { top: 12px; left: 12px; width: 240px; padding: 10px; }
+/* Name badge heading the vitals panel. */
+#brand { display: flex; align-items: baseline; justify-content: space-between; margin: -2px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+#brand b { color: var(--hot); font-size: 15px; font-weight: 800; letter-spacing: 0.14em; white-space: nowrap; }
+#brand i { font-style: normal; font-size: 1.25em; }
+#brand small { font-size: 9px; letter-spacing: 0.3em; }
 .bar { margin-bottom: 6px; }
 .bar small { display: flex; justify-content: space-between; }
 /* 20-segment bar: --r fills it, the mask cuts the gaps. */
@@ -173,6 +178,13 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #overlay.on { display: grid; }
 .card { text-align: center; max-width: 760px; padding: 20px; }
 .card h1 { font-size: 54px; letter-spacing: 0.25em; margin: 0 0 4px; color: var(--hot); text-shadow: 0 0 24px var(--bright); }
+.card h1.logo { font-size: 76px; letter-spacing: 0.18em; margin: 0; line-height: 1; white-space: nowrap;
+  text-shadow: 0 0 28px var(--bright), 0 0 4px var(--hot), 0 2px 4px #000; }
+.logo b { font-size: 1.3em; font-weight: 800; }
+/* Sub headline: small, spaced, between two faint rules. */
+.card .byline { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 10px auto 4px; max-width: 420px;
+  color: var(--mid); font-size: 12px; letter-spacing: 0.5em; }
+.byline::before, .byline::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 .card h2 { letter-spacing: 0.3em; color: var(--hot); margin: 0 0 18px; }
 .card p { margin: 6px 0; }
 .card .dim { color: var(--mid); }
@@ -240,6 +252,9 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 
   #left { top: calc(max(6px, env(safe-area-inset-top)) + 42px); left: max(6px, env(safe-area-inset-left)); width: 150px; padding: 6px 7px;
     max-height: calc(100% - 140px); overflow-y: auto; scrollbar-width: none; pointer-events: auto; }
+  #brand { margin: 0 0 5px; padding-bottom: 4px; }
+  #brand b { font-size: 11px; letter-spacing: 0.08em; }
+  #brand small { display: none; }
   .bar { margin-bottom: 3px; }
   .bar small { font-size: 9px; }
   .seg { height: 5px; margin-top: 1px; }
@@ -281,6 +296,8 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   #banner { font-size: 18px; white-space: normal; width: 90%; }
   .perks { flex-wrap: wrap; }
   .card h1 { font-size: 32px; }
+  .card h1.logo { font-size: clamp(28px, 9vw, 48px); letter-spacing: 0.1em; }
+  .card .byline { font-size: 10px; letter-spacing: 0.4em; }
 }
 /* Phone portrait: stats and vitals are two thin strips across the top, the shop is a sheet over the bottom third,
    and the view centres the base in the space between (hud.ts insets(), same media query). */
@@ -292,6 +309,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 
   #left { top: calc(max(6px, env(safe-area-inset-top)) + 40px); left: max(6px, env(safe-area-inset-left)); right: max(6px, env(safe-area-inset-right));
     width: auto; max-height: none; overflow: visible; padding: 4px 7px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: 8px; align-items: center; }
+  #brand { display: none; }
   .bar { margin: 0; }
   .bar small { white-space: nowrap; }
   .bar i[data-i]::before { content: attr(data-i); }
