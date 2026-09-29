@@ -82,7 +82,7 @@ The enemy fights your radar, not just your base.
   | FOCUSED | a 120° arc on the bearing you last clicked (or your priority target): +30% range, +30% chance, about 3× the revisit rate. Blind everywhere else. LTAMDS AESA widens the arc to 180°. | ×1.4 | high: Su-34s launch from 25% further out, 30% more often |
   | LPI     | −15% range, −40% chance                            | ×0.6        | low: ARMs only find the radar inside 15 m, so most miss; Su-34s launch half as often |
 - **Decoys (Gerbera)** look exactly like Shaheds. Fire control tells them apart once a decoy has been locked for about 1.5 s, then releases it. Until then they waste lock slots and interceptors. *GaN T/R Modules* shorten that time.
-- **Jammer helicopters (Mi-8MTPR-1)** stop outside the battery and circle it. Inside the sector they cover, detection chance drops to about a third. You see the jammer's bearing as an amber strobe, not its range. The jammer itself shows up clearly on radar, so mark it and kill it.
+- **Jammer helicopters (Mi-8MTPR-1)** stop outside the battery and hold station on their bearing, out on the front. Inside the sector they cover, detection chance drops to about a third. You see the jammer's bearing as an amber strobe, not its range. The jammer itself shows up clearly on radar, so mark it and kill it.
 
 ### Locking and targeting
 Detected enemies are locked, up to your number of **lock slots**. A lock holds as long as the enemy stays within tracking range. All weapons fire automatically at locked targets. Left-click a contact to mark it as the **priority target**: it always gets a lock slot, is engaged first and takes +25% damage, but painting it costs 1.2 power/s for as long as you hold it. Otherwise, the auto mode picks targets (`T` to cycle): **CLOSEST**, then **WEAKEST**, **RICHEST** and **FASTEST**, each unlocked by the *Target Logic* upgrade.
@@ -100,7 +100,7 @@ Detected enemies are locked, up to your number of **lock slots**. A lock holds a
 | Leonidas HPM (microwave) | Power        | Huge hit, affects everything along the line             |
 
 ### Perimeter defenses
-From base level 2 you can buy perimeter pads: **MANTIS 35mm C-RAM** (fast gun, short range), **Stinger teams** (homing, mid range) and **EW jammers** (slow nearby contacts, drain power). Each base level opens 2 more pads, up to 8. Pads engage any radar contact in their own range without using a lock slot. After buying a pad, **click the map** to put it on the nearest free spot on the ring, facing where the threats come from. If you don't click within 8 seconds, it places itself toward the nearest contact.
+From base level 2 you can buy perimeter pads: **MANTIS 35mm C-RAM** (fast gun, short range), **Stinger teams** (homing, mid range) and **EW jammers** (slow nearby contacts, drain power). Each base level opens 2 more pads, up to 8. Pads engage any radar contact in their own range without using a lock slot. After buying a pad, **click the map** to put it on the nearest free spot on the ring. If you don't click within 8 seconds, it places itself toward the nearest contact, or the front if there is none.
 
 ### Power and ammo
 Your generator fills a power pool, and everything draws on it in this order:
@@ -112,6 +112,9 @@ Laser and HPM shots cost power as well. The power and interceptor bars show the 
 
 ### Credits, upgrades and base levels
 Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits. There are 23 upgrades in 7 groups: BATTERY, POWER, SENSORS, FIRE CONTROL, WEAPONS, MAGAZINE and PERIMETER. Each upgrade costs more with every level. There is **no max level**, except for *Threat Evaluation* and *LTAMDS AESA*, which are on/off, and Scan Rate before the AESA. Earth Revetments have diminishing returns, up to 85% less damage taken. Buying upgrades raises your **base level**, which adds visible structures to the base and offers a **perk draft: pick 1 of 3**. Every perk has a tradeoff, for example *GLASS CANNON*: +100% damage, −40% max HP. From base level 3, every draft also offers one **rule perk** (marked ★ NEW RULE) that changes how the battery plays, until you've taken them all. From level 3: *BLACKOUT PROTOCOL* (tracks coast twice as long when the radar goes dark, −30% memory while radiating), *COUNTER-SEAD* (each ARM shot down restores 20% power), *KILL CHAIN* (every 5 kills: +1 lock slot for 8 s), *OVERKILL* (damage past a kill jumps to the nearest contact within 8 m) and *LAST STAND* (below 25% HP: +50% fire rate, −40% power gen). From level 5: *TRACK FUSION* (locks hold while the radar is dark), *LPI WAVEFORM* (LPI mode keeps full detection), *OVERWATCH* (your marked target takes double damage), *ARC LASER* (laser jumps to 2 more targets; needs the laser), *SCAVENGER* (kills refund interceptors) and *FRAG WARHEADS* (PAC-3 hits splash).
+
+### The front
+Enemies attack from one direction: the **front**, a 50° sector at the top of the default view, marked on the ground and on the mini radar rim. Aircraft and short-range drones (Lancet, FPV, Mi-28, Su-34, Mi-8 and their ARMs) always come from the front. Long-range threats (Shaheds, the decoys that fly with them, and Iskanders) come from the front too at first. From the SEAD phase they can come from up to 60° either side of it, from COORDINATED RAID up to 120°, and after that from any direction. The mini radar shades the arc they can currently come from. A raid or package comes off the front only when everything in it is a long-range threat.
 
 ### Enemies and phases
 A new phase starts every 75 seconds. Each one adds a new kind of problem, rather than just more HP:
@@ -131,7 +134,7 @@ After COORDINATED RAID, every phase adds a **condition** on top of that mix, and
 | SEAD PACKAGE | 4:00 | Su-34, 2 Kh-31P, 3 decoys, Shahed        | Su-34      | decoys soak locks while the Su-34 keeps firing ARMs |
 | SATURATION   | 5:00 | 6 decoys, Mi-8 escort, 3 Lancets, Mi-28  | Mi-28      | the heavy hides among decoys and fast Lancets       |
 
-An EW helicopter in a package is an **escort**: it goes in first and holds station on the package's bearing instead of circling, so its jammed sector stays over the package.
+An EW helicopter in a package is an **escort**: it goes in first and holds station on the package's bearing, so its jammed sector stays over the package.
 
 **Raids:** from 1:50, a named raid arrives every 80 seconds, all from one bearing. Each one runs the same way:
 1. **Warning and preparation (10 s):** a briefing card shows the sector, the raid's name, its composition, the objective and the bonus, with chevrons at the rim. When that part of the rim is off screen, an amber arrow on the screen edge points toward it. Use the time to set radar, fire discipline and priority.

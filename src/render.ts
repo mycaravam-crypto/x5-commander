@@ -4,7 +4,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { ARENA_R, ENEMIES, EW_ARC, KINDS, PAL, PAD_SLOTS, PERIM_R, type EnemyKind } from './config.ts';
+import { ARENA_R, ENEMIES, EW_ARC, FRONT, FRONT_ARC, KINDS, PAL, PAD_SLOTS, PERIM_R, type EnemyKind } from './config.ts';
 import { emitting, focusBearing, radarRange, radarSector, freeSlots, padAngle, phase, shownKind, visible, type Shot, type State } from './sim.ts';
 
 const MAX_ENEMIES = 2000, MAX_LOCKS = 64, MAX_SHOTS = 600, MAX_SHARDS = 2500, MAX_WAVES = 64, MAX_BEAMS = 3000, MAX_FRONTS = 48, MAX_BLIPS = 1024;
@@ -50,6 +50,16 @@ function gridTexture(renderer: THREE.WebGLRenderer, R: number) {
   const ring = (r: number, a: number) => { g.globalAlpha = a; g.beginPath(); g.arc(0, 0, r, 0, TAU); g.stroke(); };
   for (let r = 10; r < ARENA_R; r += 10) { ring(r, 0.35); g.globalAlpha = 0.6; g.fillText(String(r), Math.cos(-TAU / 16) * r, Math.sin(-TAU / 16) * r - 0.9); }
   ring(ARENA_R, 0.9);
+  // The front: a hatched band inside the rim over FRONT ± FRONT_ARC, its edges dashed out from the base.
+  g.globalAlpha = 0.3; g.setLineDash([2, 2]); g.beginPath();
+  for (const a of [FRONT - FRONT_ARC, FRONT + FRONT_ARC]) { g.moveTo(Math.cos(a) * 6, Math.sin(a) * 6); g.lineTo(Math.cos(a) * ARENA_R, Math.sin(a) * ARENA_R); }
+  g.stroke(); g.setLineDash([]);
+  g.globalAlpha = 0.55; g.beginPath();
+  for (let a = FRONT - FRONT_ARC; a <= FRONT + FRONT_ARC; a += 0.02) {
+    g.moveTo(Math.cos(a) * (ARENA_R - 5), Math.sin(a) * (ARENA_R - 5)); g.lineTo(Math.cos(a + 0.03) * (ARENA_R - 1), Math.sin(a + 0.03) * (ARENA_R - 1));
+  }
+  g.stroke();
+  g.globalAlpha = 0.9; g.save(); g.rotate(FRONT); g.translate(ARENA_R - 8, 0); g.rotate(Math.PI / 2); g.fillText('F R O N T', 0, 0); g.restore();
   g.globalAlpha = 0.18; g.beginPath();
   for (let d = 0; d < 360; d += 30) { const a = d / 180 * Math.PI; g.moveTo(Math.cos(a) * 4, Math.sin(a) * 4); g.lineTo(Math.cos(a) * ARENA_R, Math.sin(a) * ARENA_R); }
   g.stroke();

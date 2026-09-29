@@ -15,19 +15,21 @@ The game stops being "a 360° Patriot battery from minute one" and becomes a def
 ## Open decisions (ask first, or use the defaults)
 1. **Levels: separate missions or one continuous run?** Default: **one continuous run split into levels.** Each level is a set of waves ending in a raid, followed by a short **build window** (about 20 s, spawns off). This keeps the endless log-scaling and the daily op.
 2. **Does the radar exist at the start?** Default: **no.** Level 1 has visual spotting only, at short range. The search radar is something you build. This changes the tagline "you can only engage what your radar has found" into "…what you can see", and the radar becomes your first big milestone.
-3. **Does the front ever move?** Default: **it stays fixed** (north, 000°). An optional later step: a held level pushes the front back, giving more depth for the next level.
+3. **Does the front ever move?** Default: **it stays fixed** at the top of the default view (bearing 270° on the game's compass). An optional later step: a held level pushes the front back, giving more depth for the next level.
 4. **Does the MG use ammo?** Default: **yes, belts that reload for free but slowly.** That way a second gun is a real upgrade, not just more DPS.
 
 ## 1. The front
-- A new constant `FRONT = { bearing: 90°, arc: 25° }` sets the **front sector** (±25°). All bearing math already goes through `Math.atan2(z, x)` and `bearing()`, so this fits.
-- **Front-only** threats: Mi-28, Su-34, Mi-8 EW, decoys, FPV and Lancet. FPV and Lancet are short-range weapons launched from the line, so it's realistic that they only come from the front.
-- **Flanking** threats: Shahed long-range drones, the new cruise missile (below) and Iskander. They get a per-level **exposure arc** that widens around the front as you level up (±25° → ±60° → ±120° → 360°).
+*Done (step 1).* The flank arc widens by phase for now (SEAD ±60°, COORDINATED RAID ±120°, then 360°); step 2 moves it to `LEVELS`.
+- The constants `FRONT` / `FRONT_ARC` (±25°) set the **front sector**. All bearing math already goes through `Math.atan2(z, x)` and `bearing()`, so this fits.
+- **Front-only** threats: Mi-28, Su-34, Mi-8 EW, FPV and Lancet. (Decoys turned out to belong with the Shaheds: a decoy that could only come from the front would give away every Shahed from the flank.) FPV and Lancet are short-range weapons launched from the line, so it's realistic that they only come from the front.
+- **Flanking** threats: Shahed long-range drones and their decoys, the new cruise missile (below) and Iskander. They get a per-level **exposure arc** that widens around the front as you level up (±25° → ±60° → ±120° → 360°).
 - ARMs keep launching from their Su-34, so they come from the front too.
 - One function decides every bearing. It replaces all `rand() * TAU` calls in `spawn()`:
   ```ts
-  spawnBearing(kind, level, rng) // front kinds: FRONT ± arc; flank kinds: FRONT ± exposure(level)
+  spawnBearing(t, kinds, r) // FRONT ± FRONT_ARC, or FRONT ± flankArc(t) when every kind is long-range
   ```
-  Each enemy type gets `route: 'front' | 'flank'` in `ENEMIES`.
+  Enemy types that can come round the flanks carry `flank: true` in `ENEMIES`. One draw per bearing keeps the seeded streams in step.
+- Mi-8 jammers no longer circle the battery. They hold station on their own bearing, out on the front.
 - Raids and packages take their bearing from their **lead element**. A helo assault comes from the front; a Shahed wave or missile salvo can come from a flank. The briefing card and edge arrow already show the sector, which matters even more now.
 
 ## 2. Start small: the AA machine gun
@@ -62,6 +64,49 @@ Every slot is fixed, so placement stays a click and it's still deterministic for
 - The radar arriving at L4 is timed with the **first threats from off the front axis**. That's where FOCUSED mode (front) versus ACTIVE (all round) becomes a real choice, and it gives the AESA a clear job: covering all directions.
 - The ECS/lock and power systems only switch on once the radar is built. Before that, the HUD shows just what's relevant (HP, ammo, visual contacts), which also makes onboarding easier.
 
+## 3b. Placement: making the slots a base-building decision
+Placement has to be a real choice with a cost: where you put a unit decides what it covers, what it risks and what it boosts. It must also stay readable and deterministic.
+
+**Fields of fire.** Each unit covers a fan from its slot, not a circle. A gun fan is 120°, MANPADS 180°, and C-RAM and SAMs cover all round. It points away from the base by default. Placement is about **overlap**:
+- **Crossfire:** a target inside two or more fans takes +20% damage from all of them. A line of guns covering each other beats the same guns spread out.
+- **Gaps:** bearings nothing covers show as amber gaps on the mini radar rim. From level 4 the flank arc turns gaps into the thing to fix.
+
+**Support units** do no damage themselves but boost the units around them. This is what makes a layout into a base:
+
+| Support       | Effect on units within ~10 m                                  | Why you place it carefully                    |
+|---------------|---------------------------------------------------------------|-----------------------------------------------|
+| Observer post | +40% spotting range before the radar; +detection chance after | forward = sees sooner, but exposed            |
+| Ammo point    | +50% reload / belt refill                                     | forward units starve without one nearby       |
+| Power node    | laser and HPM draw power only in its reach (step 7+)          | decides where the energy weapons can go       |
+
+**Depth trade-off.** Each belt gives something and costs something:
+- **Forward line:** engages earliest and gets crossfire on the front axis. Resupply is slow unless an ammo point is near. FPVs and Lancets that pass within 3 m of a unit dive on it instead of the base.
+- **Main line:** balanced, and the natural spot for ammo points.
+- **Inner ring:** safest and covers all round. It engages late, which is what you want against flank missiles.
+
+**Unit HP and repair.** Units have HP. At 0 they're *disabled* (not destroyed) until repaired: slowly during combat, instantly in the build window. From L5, cruise missiles pick the unit with the highest value instead of the base, so a strong forward line needs point defense behind it.
+
+**Tall or wide.** Every unit can be upgraded in its slot, e.g. **MG → twin MG → ZU-23 → MANTIS** (tier 3 picks a branch such as *AP rounds* against Mi-28s or *high rate* against swarms). You choose between upgrading what you have and filling more slots, and one upgraded unit is better than two weak ones only where fans overlap.
+
+**Terrain tags (optional).** A few slots per map have a fixed tag. **Ridge:** +20% range, but drones go for it first. **Treeline:** never targeted, −15% range. **Road:** half the build cost and fast resupply. These give each layout a character without new systems.
+
+**Moving units.** In the build window, move and sell (full refund) freely. In combat, selling refunds 50%, and moving takes the unit offline for 5 s while it relocates.
+
+**Placement UX.**
+- While placing, each free slot previews the fan it would add and how much uncovered threat arc it closes. The best slot pulses.
+- Auto-place (after 8 s) and the balance bot both pick that best slot with the same function (`bestSlot(s, kind)`), so the bots test real layouts.
+- A coverage overlay (`O`) shows all fans, overlaps and gaps.
+
+**Slot unlocks by level:**
+
+| Level | Opens                                              |
+|-------|----------------------------------------------------|
+| 1     | 2 main-line slots (one holds the MG)               |
+| 2     | +1 main, 2 forward                                 |
+| 3     | +1 forward, 1 support slot                         |
+| 4     | 4 inner-ring slots (the flanks open up)            |
+| 5+    | +1 per level, alternating forward and inner, up to 16 |
+
 ## 4. Threats per level
 Replaces the time-based `PHASES`. Each level sets the spawn weights, the exposure arc and the raid pool.
 
@@ -89,24 +134,25 @@ Replaces the time-based `PHASES`. Each level sets the spawn weights, the exposur
   - `FRONT`, `VISUAL_R`, `route` on `ENEMIES`;
   - a new `LEVELS` table (weights, exposure arc, raid pool, unlocks) replacing `PHASES`;
   - the `mg` / `zu23` / `iris-slm` weapons and the new `cruise` enemy;
-  - `SLOTS` (belt positions) replacing `PAD_SLOTS` / `PERIM_R`;
+  - `SLOTS` (belt, bearing, radius, terrain tag, level it opens) replacing `PAD_SLOTS` / `PERIM_R`;
+  - `FANS` per unit kind, `SUPPORT` effects, and the unit tier trees;
   - unlock requirements on `UPGRADES` via `req`, which already exists.
 - `sim.ts`:
   - `spawnBearing()`;
   - level state and the build window;
   - visual detection for when there's no radar (a `hasRadar` flag, with `radar()` / `track()` skipped until it's built);
   - emplacements as targets for missiles;
-  - placing a pad now means picking a slot on a belt.
+  - placing a pad now means picking a slot on a belt: fans and crossfire in targeting, support auras, unit HP and repair, `bestSlot()`;
 - `render.ts` / `hud.ts`: the front band, belts and exposure arc, the level card, and hiding radar/ECS UI until the radar is built.
 - `sim.check.ts`: front-only kinds always spawn within `FRONT ± arc`; flank kinds stay within the level's exposure; nothing off-axis before L4; the same seed gives the same bearings.
 - `balance.ts`: the bots build the line in unlock order. Report survival per level instead of per phase.
 
 ## Order
 Keep the game runnable after each step.
-1. `FRONT` + `route` + `spawnBearing()`, with all threats from the front. This is the smallest change and already changes how the game feels.
+1. ~~`FRONT` + `flank` + `spawnBearing()`, with the flank arc widening by phase.~~ **Done.** Also: jammers hold the front, the front is drawn on the ground and the mini radar rim, and there's a front/flank spawn check in `npm test`.
 2. The `LEVELS` table replacing `PHASES`, with widening exposure arcs.
 3. The AA MG and visual spotting, with the radar and Patriot moved to the unlock ladder.
-4. Belt slots replacing the ring, and the new emplacements (ZU-23, observer post, IRIS-T SLM).
+4. Belt slots replacing the ring (section 3b), in this order: slots + fans + crossfire + `bestSlot()`, then support units, then unit HP, then tier upgrades in place. After that, the new emplacements (ZU-23, IRIS-T SLM).
 5. The cruise missile and missiles that target emplacements.
 6. Map, mini radar, level card and build window. Then rebalance with `npm run balance`.
 

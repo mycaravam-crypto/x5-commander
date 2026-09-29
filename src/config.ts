@@ -14,6 +14,11 @@ export const ELITE_EVERY = 150, ELITE_FIRST = 225; // s: Su-34 strike packages, 
 // for warnings, red (crit) only for the worst: battery critical, radar knocked out.
 export const PAL = { dim: 0x0b3d1f, mid: 0x1f9e4f, bright: 0x39ff88, hot: 0xc8ffe0, alert: 0xffb000, crit: 0xff4a2a };
 // Radar bearing in degrees, 0-360, measured from +x toward +z (grid labels and the HUD use the same one).
+// The front: manned aircraft and short-range drones (launched from the line) always come from FRONT ± FRONT_ARC,
+// the top of the default view. Long-range drones and missiles (`flank` below) can come from anywhere within the
+// current phase's `arc` around it, which widens as the run goes on.
+export const FRONT = -Math.PI / 2, FRONT_ARC = 25 * Math.PI / 180;
+const DEG = Math.PI / 180;
 export const bearing = (x: number, z: number) => ((Math.atan2(z, x) * 180 / Math.PI) % 360 + 360) % 360;
 
 export type EnemyKind = 'scout' | 'drone' | 'swarm' | 'tank' | 'elite' | 'decoy' | 'arm' | 'ew' | 'tbm';
@@ -23,20 +28,21 @@ export interface EnemyType {
   name: string; code: string; // display name + short label code
   size: number; sig: number; glow: number; // glow: brightness on PAL.bright (tank/elite also blink, see render.ts)
   pack: number; wobble: number;
+  flank?: boolean; // long-range: may come round the flanks (see FRONT)
   pacOnly?: boolean; // only PAC-3 hit-to-kill can stop it
 }
 
 export const ENEMIES: Record<EnemyKind, EnemyType> = {
   scout: { name: 'Lancet-3 loitering munition', code: 'LANCET', hp: 3, speed: 7, dmg: 3, reward: 6, size: 0.8, sig: 0.6, glow: 1, pack: 1, wobble: 3 },
-  drone: { name: 'Shahed-136 one-way attack drone', code: 'SHAHED', hp: 8, speed: 4, dmg: 6, reward: 10, size: 1.1, sig: 0.9, glow: 0.8, pack: 1, wobble: 0.6 },
+  drone: { name: 'Shahed-136 one-way attack drone', code: 'SHAHED', hp: 8, speed: 4, dmg: 6, reward: 10, size: 1.1, sig: 0.9, glow: 0.8, pack: 1, wobble: 0.6, flank: true },
   swarm: { name: 'FPV strike swarm', code: 'FPV', hp: 2, speed: 5.5, dmg: 2, reward: 3, size: 0.5, sig: 0.45, glow: 0.6, pack: 6, wobble: 1.5 },
   tank: { name: 'Mi-28NM attack helicopter', code: 'MI-28', hp: 45, speed: 1.8, dmg: 20, reward: 50, size: 2, sig: 1.4, glow: 1, pack: 1, wobble: 0 },
   elite: { name: 'Su-34 strike fighter', code: 'SU-34', hp: 160, speed: 3.5, dmg: 40, reward: 200, size: 2.4, sig: 1.2, glow: 1.5, pack: 1, wobble: 1 },
   // Looks exactly like a Shahed (bigger radar return, even) until the ECS classifies it. Harmless, worthless.
-  decoy: { name: 'Gerbera decoy drone', code: 'DECOY', hp: 5, speed: 3.8, dmg: 0, reward: 0, size: 1.1, sig: 1.1, glow: 0.8, pack: 3, wobble: 0.6 },
+  decoy: { name: 'Gerbera decoy drone', code: 'DECOY', hp: 5, speed: 3.8, dmg: 0, reward: 0, size: 1.1, sig: 1.1, glow: 0.8, pack: 3, wobble: 0.6, flank: true }, // flies with the Shaheds, so it can't give them away
   arm: { name: 'Kh-31P anti-radiation missile', code: 'KH-31P', hp: 4, speed: 10, dmg: 5, reward: 15, size: 0.8, sig: 0.55, glow: 1.2, pack: 2, wobble: 0 },
   // Big radar return, very fast, hits hard. Nothing but PAC-3 touches it.
-  tbm: { name: 'Iskander-M ballistic missile', code: 'ISKANDER', hp: 5, speed: 12, dmg: 25, reward: 60, size: 1, sig: 1.6, glow: 1.3, pack: 1, wobble: 0, pacOnly: true },
+  tbm: { name: 'Iskander-M ballistic missile', code: 'ISKANDER', hp: 5, speed: 12, dmg: 25, reward: 60, size: 1, sig: 1.6, glow: 1.3, pack: 1, wobble: 0, pacOnly: true, flank: true },
   ew: { name: 'Mi-8MTPR-1 EW helicopter', code: 'MI-8PR', hp: 60, speed: 2.5, dmg: 0, reward: 80, size: 1.8, sig: 1.6, glow: 1, pack: 1, wobble: 0 },
 };
 export const KINDS = Object.keys(ENEMIES) as EnemyKind[];
@@ -45,12 +51,13 @@ export const KINDS = Object.keys(ENEMIES) as EnemyKind[];
 // 1 learn the systems · 2 mixed threats · 3 jammers + decoys · 4 SEAD · 5 heavy coordinated raids ·
 // 6+ conditions on top, with attack packages ever more likely (PK_GROW per loop, up to PK_MAX).
 // Spawn weights per phase; the last entry repeats. pk: chance a spawn event is an attack package instead.
-export const PHASES: { name: string; w: Partial<Record<EnemyKind, number>>; pk?: number }[] = [
+// arc: half-width around FRONT that flank threats can come from (default FRONT_ARC; every direction after the last phase).
+export const PHASES: { name: string; w: Partial<Record<EnemyKind, number>>; pk?: number; arc?: number }[] = [
   { name: 'PROBING', w: { scout: 3, drone: 2 } },
   { name: 'MIXED THREATS', w: { scout: 2, drone: 3, swarm: 1, tank: 0.5 } },
   { name: 'EW SCREEN', w: { scout: 2, drone: 3, swarm: 1, tank: 0.7, decoy: 1.5, ew: 0.15 }, pk: 0.05 },
-  { name: 'SEAD', w: { scout: 1, drone: 3, swarm: 1, tank: 1, decoy: 2, elite: 0.15, arm: 0.3, ew: 0.15 }, pk: 0.07 },
-  { name: 'COORDINATED RAID', w: { scout: 2, drone: 3, swarm: 2, tank: 1.5, elite: 0.3, decoy: 1.5, arm: 0.2, ew: 0.1, tbm: 0.15 }, pk: 0.1 },
+  { name: 'SEAD', w: { scout: 1, drone: 3, swarm: 1, tank: 1, decoy: 2, elite: 0.15, arm: 0.3, ew: 0.15 }, pk: 0.07, arc: 60 * DEG },
+  { name: 'COORDINATED RAID', w: { scout: 2, drone: 3, swarm: 2, tank: 1.5, elite: 0.3, decoy: 1.5, arm: 0.2, ew: 0.1, tbm: 0.15 }, pk: 0.1, arc: 120 * DEG },
 ];
 export const PK_GROW = 0.02, PK_MAX = 0.25;
 

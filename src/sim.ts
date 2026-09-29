@@ -1,7 +1,7 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, PHASE_LEN, ELITE_EVERY, ELITE_FIRST, PK_GROW, PK_MAX,
   ENEMIES, KINDS, WEAPONS, PHASES, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_FIRST, RAID_EVERY, RAID_WARN, RAID_BONUS, RAID_SPAWN, RAID_RECOVER, RAID_CALM, RAID_PRESS, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, SWEEP_CAP, grow, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty, BACKUP_RADAR,
-  RADAR_MODES, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
+  RADAR_MODES, FRONT, FRONT_ARC, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   type EnemyKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
 } from './config.ts';
 
@@ -16,7 +16,7 @@ export interface Enemy {
   orbit: boolean; // Mi-8 jammer: on station and jamming
   raid: number; // id of the raid it belongs to, 0 = none
   pkg: number; // id of the attack package or raid group it flies with, 0 = none
-  hold: number; // escort jammer: bearing it holds station on, NaN = circles
+  hold: number; // Mi-8 jammer: bearing it holds station on (its own, or its package's)
 }
 export interface Shot {
   kind: 'shell' | 'missile' | 'tracer'; x: number; z: number; vx: number; vz: number;
@@ -121,14 +121,23 @@ const AESA_SPIN = 1.2; // rad/s, cosmetic
 const pick = <T>(r: { seed: number }, a: T[]) => a[Math.floor(rand(r) * a.length)];
 export const visible = (s: State, e: Enemy) => e.locked || e.seenUntil > s.t;
 const NO_MOD: Mod = { name: '', desc: '' };
-// Scripted phases first, then COMBINED RAID's mix under a looping condition.
-export function phase(s: State) {
-  const i = Math.floor(s.t / PHASE_LEN);
+// Scripted phases first, then COMBINED RAID's mix under a looping condition, with flank threats from every direction.
+export const phase = (s: State) => phaseAt(s.t);
+export function phaseAt(t: number) {
+  const i = Math.floor(t / PHASE_LEN);
   if (i < PHASES.length) return { ...PHASES[i], mod: NO_MOD };
   const last = PHASES[PHASES.length - 1], mod = MODS[(i - PHASES.length) % MODS.length], w = { ...last.w };
   for (const [k, v] of Object.entries(mod.w ?? {}) as [EnemyKind, number][]) w[k] = (w[k] ?? 0) + v;
   const loop = i - PHASES.length; // packages get likelier every phase past the scripted ones
-  return { name: mod.name, w, mod, pk: Math.min(PK_MAX, (last.pk ?? 0) + PK_GROW * (loop + 1)) };
+  return { name: mod.name, w, mod, pk: Math.min(PK_MAX, (last.pk ?? 0) + PK_GROW * (loop + 1)), arc: Math.PI };
+}
+// Half-width around FRONT that flank threats can come from at time t.
+export const flankArc = (t: number) => Math.max(FRONT_ARC, phaseAt(t).arc ?? 0);
+// Bearing for a group of `kinds` from one uniform draw `r`: the front, unless everything in it can fly round the
+// flanks (an escort jammer goes wherever its group does). One draw per bearing keeps the seeded streams in step.
+export function spawnBearing(t: number, kinds: EnemyKind[], r: number) {
+  const flank = kinds.every(k => k === 'ew' || ENEMIES[k].flank) && kinds.some(k => k !== 'ew');
+  return FRONT + (r * 2 - 1) * (flank ? flankArc(t) : FRONT_ARC);
 }
 export const phaseName = (s: State) => phase(s).name;
 export const emitting = (s: State) => !s.emcon && s.t >= s.radarDownUntil;
@@ -320,10 +329,10 @@ export function update(s: State, dt: number) {
   fire(s, dt);
   perimeter(s, dt);
   if (s.placing && s.t - s.placing.since > PLACE_TIME) {
-    // Nobody picked a spot: face the nearest contact, or any threat at all.
+    // Nobody picked a spot: face the nearest contact, or the front.
     let best = s.enemies[0], bd = Infinity;
     for (const e of s.enemies) { const d = e.x * e.x + e.z * e.z; if (visible(s, e) && d < bd) { bd = d; best = e; } }
-    placePad(s, best?.x ?? 1, best?.z ?? 0);
+    placePad(s, best?.x ?? Math.cos(FRONT), best?.z ?? Math.sin(FRONT));
   }
   moveShots(s, dt);
   const ls = lastStand(s);
@@ -339,7 +348,7 @@ export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2
     id: s.nextId++, kind, x, z, vx: -Math.cos(a) * speed, vz: -Math.sin(a) * speed,
     hp, maxHp: hp, speed, dmg: T.dmg * d.dmg,
     reward: T.reward, size: T.size, seenUntil: -1, locked: false, incoming: 0, wob: rnd() * TAU,
-    born: s.t, cd: 3, aim: NaN, lockT: 0, ided: false, orbit: false, raid: 0, pkg: 0, hold: NaN,
+    born: s.t, cd: 3, aim: NaN, lockT: 0, ided: false, orbit: false, raid: 0, pkg: 0, hold: kind === 'ew' ? a : NaN,
   });
   if (kind === 'arm' || kind === 'tbm') s.events.push({ k: kind, x, z }); // ESM / early warning hears the launch, radar or not
   return s.enemies[s.enemies.length - 1];
@@ -373,26 +382,26 @@ function spawn(s: State, dt: number) {
     s.spawnAcc--;
     const pkgs = PACKAGES.filter(p => s.t >= p.from);
     if (pk && pkgs.length && rw() < pk) {
-      const p = pick(s.world, pkgs), a = rw() * TAU;
+      const p = pick(s.world, pkgs), a = spawnBearing(s.t, Object.keys(p.g) as EnemyKind[], rw());
       spawnGroup(s, p.g, a, 1, rw);
       s.events.push({ k: 'package', x: Math.cos(a) * ARENA_R, z: Math.sin(a) * ARENA_R, name: p.name });
       continue;
     }
     let r = rw() * total, kind: EnemyKind = 'drone';
     for (const k of KINDS) { r -= w[k] ?? 0; if (r <= 0) { kind = k; break; } }
-    const a = rw() * TAU;
+    const a = spawnBearing(s.t, [kind], rw());
     for (let i = 0; i < ENEMIES[kind].pack; i++) spawnEnemy(s, kind, a + (rw() - 0.5) * 0.15, ARENA_R + 2 + rw() * 6, rw);
   }
   if (s.t >= s.nextElite) {
     s.nextElite += ELITE_EVERY;
-    const sr = () => rand(s.strikeRng), a = sr() * TAU, n = Math.floor(grow(s.t / 60, 1));
+    const sr = () => rand(s.strikeRng), a = spawnBearing(s.t, ['elite'], sr()), n = Math.floor(grow(s.t / 60, 1));
     for (let i = 0; i < n; i++) spawnEnemy(s, 'elite', a + (i - n / 2) * 0.08, ARENA_R + 4 + i * 3, sr);
     s.events.push({ k: 'warning' });
   }
   if (!s.raid && s.t >= s.nextRaid - RAID_WARN - s.st.raidWarn) {
     // The pool goes by the raid's number (its nominal time), not the clock, so pacing can't change the pick.
     const due = RAID_FIRST + s.raidNo++ * RAID_EVERY;
-    const r = pick(s.raidRng, RAIDS.filter(r => due >= r.from)), a = rand(s.raidRng) * TAU;
+    const r = pick(s.raidRng, RAIDS.filter(r => due >= r.from)), a = spawnBearing(due, Object.keys(r.g) as EnemyKind[], rand(s.raidRng));
     // Same rounding spawnGroup will use at arrival, so the briefing matches what shows up.
     const scale = grow(s.nextRaid / 60, 0.7), n: Partial<Record<EnemyKind, number>> = {};
     let reward = 0;
@@ -434,10 +443,10 @@ function moveEnemies(s: State, dt: number) {
       e.vx = nx * sp - nz * wob;
       e.vz = nz * sp + nx * wob;
       if (e.kind === 'ew' && (e.orbit || d <= EW_ORBIT)) {
-        // On station: circle the battery (direction from wob), easing back onto the orbit radius.
-        // An escort holds its package's bearing instead, so the jammed sector stays over the package.
+        // On station: stand off on its bearing out on the front (an escort's is its package's, so the jammed
+        // sector stays over the package), easing back onto the orbit radius.
         if (!e.orbit) { e.orbit = true; s.events.push({ k: 'jam', x: e.x, z: e.z }); }
-        const dir = Number.isNaN(e.hold) ? (e.wob < Math.PI ? 1 : -1) : -Math.max(-1, Math.min(1, angDiff(e.hold, Math.atan2(e.z, e.x)) * 4)), pull = (d - EW_ORBIT) * 0.5;
+        const dir = -Math.max(-1, Math.min(1, angDiff(e.hold, Math.atan2(e.z, e.x)) * 4)), pull = (d - EW_ORBIT) * 0.5;
         e.vx = -nz * dir * sp + nx * pull;
         e.vz = nx * dir * sp + nz * pull;
       }

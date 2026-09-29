@@ -1,6 +1,6 @@
-import { ARENA_R, BASE_R, PLACE_TIME, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, RAID_PRESS, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
+import { ARENA_R, BASE_R, FRONT, FRONT_ARC, PLACE_TIME, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, RAID_PRESS, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
 import type { Records } from './config.ts';
-import { cost, emitting, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
+import { cost, emitting, flankArc, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const $ = (id: string) => document.getElementById(id)!;
 const fmt = (n: number) => Math.floor(n).toLocaleString('en-US');
@@ -178,6 +178,13 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     g.fillStyle = `rgba(0,4,1,${s.phase === 'play' ? 1 - Math.exp(-dt * 1.8) : 0})`; g.fillRect(0, 0, cv.width, cv.height);
     g.strokeStyle = rgba(PAL.dim); g.lineWidth = 1;
     for (const r of [0.33, 0.66, 1]) { g.beginPath(); g.arc(C, C, (C - 6) * r, 0, 7); g.stroke(); }
+    // The front on the rim, and the wider arc long-range drones and missiles can come from right now.
+    const rim = (w: number, col: number, lw: number) => {
+      const m = Math.atan2(py(Math.cos(FRONT), Math.sin(FRONT)) - C, px(Math.cos(FRONT), Math.sin(FRONT)) - C);
+      g.strokeStyle = rgba(col); g.lineWidth = lw; g.beginPath(); g.arc(C, C, C - 4, m - w, m + w); g.stroke(); g.lineWidth = 1;
+    };
+    if (flankArc(s.t) > FRONT_ARC) rim(Math.min(Math.PI, flankArc(s.t)), PAL.dim, 3);
+    rim(FRONT_ARC, PAL.mid, 3);
     const rr = radarRange(s) * K, a = s.sweepA + Math.PI / 2 - yaw, sector = radarSector(s);
     g.strokeStyle = rgba(PAL.mid, 0.8); g.beginPath(); g.arc(C, C, rr, 0, 7); g.stroke();
     // Unlocked contacts are painted only as the sweep passes them, so they jump like real radar returns.

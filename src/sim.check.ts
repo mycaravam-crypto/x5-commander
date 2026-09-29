@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, draft, placePad, rand, dailySeed, type State } from './sim.ts';
-import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, PHASES, PHASE_LEN, RAID_WARN, RAID_PRESS } from './config.ts';
+import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, draft, placePad, rand, dailySeed, type State } from './sim.ts';
+import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, PHASES, PHASE_LEN, RAID_WARN, RAID_PRESS, ENEMIES, FRONT, FRONT_ARC } from './config.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
 const rng = { seed: 12345 };
@@ -241,7 +241,7 @@ run(s, 15, () => { for (const e of s.enemies) { ided ||= e.ided; relocked ||= e.
 ok(ided && !relocked, 'decoy classified and released');
 ok(s.enemies.length === 0 && s.hp === s.st.maxHp, 'decoy does no damage');
 
-// Mi-8 jammer stands off, circles, and blanks only its own sector.
+// Mi-8 jammer stands off on its bearing and blanks only its own sector.
 s = quiet(); spawnEnemy(s, 'ew', 0, 45); s.enemies[0].hp = 1e9;
 run(s, 15);
 const j = s.enemies[0], ja = Math.atan2(j.z, j.x);
@@ -303,6 +303,23 @@ ok(raidRun(0).includes('raidLeak'), 'leaked raid does not');
   ok(jam && jam.orbit && Math.abs(Math.atan2(jam.z, jam.x) - a) < EW_ARC && grp.every(e => e.pkg === jam.pkg), 'escort jammer holds its package bearing');
   const swarm = grp.filter(e => e.kind !== 'ew');
   ok(swarm.length && swarm.every(e => jamFactor(q, e) < 1 || Math.hypot(e.x, e.z) < 5), 'package flies inside its escort\'s jammed sector');
+}
+
+// The front: aircraft and short-range drones only ever come from FRONT ± FRONT_ARC. Long-range drones and
+// missiles stay on the front early on, then widen to their phase's arc (checked at spawn, allowing for group spread).
+{
+  const g = newGame(11); g.phase = 'play'; g.st.maxHp = g.hp = 1e9;
+  const off = (e: { x: number; z: number }) => Math.abs(((Math.atan2(e.z, e.x) - FRONT + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI);
+  let seen = g.nextId, front = 0, wide = 0, early = 0;
+  run(g, 900, () => {
+    for (const e of g.enemies) if (e.id >= seen && e.kind !== 'arm') {
+      if (ENEMIES[e.kind].flank) { ok(off(e) < flankArc(g.t + RAID_PRESS * 3) + 0.2, `${e.kind} inside the flank arc`); if (off(e) > FRONT_ARC + 0.2) wide++; }
+      else { ok(off(e) < FRONT_ARC + 0.2, `${e.kind} comes from the front (${off(e).toFixed(2)} rad)`); front++; }
+      if (g.t < PHASE_LEN * 3 - RAID_PRESS * 2) { ok(off(e) < FRONT_ARC + 0.2, `nothing off the front early (${e.kind} at ${g.t.toFixed(0)}s)`); early++; }
+    }
+    seen = g.nextId;
+  });
+  ok(front > 50 && early > 50 && wide > 10, `front ${front} · early ${early} · off-axis ${wide}`);
 }
 
 // Difficulty curve: each phase introduces its problem; nothing turns up before its phase.
