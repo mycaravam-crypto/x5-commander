@@ -11,10 +11,10 @@ export const COMBO_CAP = 50;
 export const LEVEL_LEN = 60, BUILD_TIME = 20, BUILD_LOST = 8; // s
 export const ELITE_FROM = 3; // level index (SEAD) from which every level has a Su-34 strike package halfway through
 
-// Green phosphor palette, shared by the 3D scene and the CSS (hud.ts copies it into CSS variables).
-// Hierarchy: dim/mid for the frame, bright for what's active, hot for what's locked or selected, amber (alert)
-// for warnings, red (crit) only for the worst: battery critical, radar knocked out.
-export const PAL = { dim: 0x0b3d1f, mid: 0x1f9e4f, bright: 0x39ff88, hot: 0xc8ffe0, alert: 0xffb000, crit: 0xff4a2a };
+// HUD palette, shared by the overlays in the 3D scene and the CSS (hud.ts copies it into CSS variables).
+// Hierarchy: dim/mid for frames and labels, bright for text and what's active, hot (cyan) for what's yours, locked or
+// selected, amber (alert) for warnings, red (crit) only for the worst: battery critical, radar knocked out.
+export const PAL = { dim: 0x3b4034, mid: 0x9ca08a, bright: 0xece8d6, hot: 0x7fd8ff, alert: 0xffae2a, crit: 0xff4a2a };
 // Radar bearing in degrees, 0-360, measured from +x toward +z (grid labels and the HUD use the same one).
 // The front: manned aircraft and short-range drones (launched from the line) always come from FRONT ± FRONT_ARC,
 // the top of the default view. Long-range drones and missiles (`flank` below) can come from anywhere within the
@@ -58,6 +58,10 @@ export const ENEMIES: Record<EnemyKind, EnemyType> = {
 // Munitions heading for the battery: drawn amber, their launches and intercepts logged.
 export const MUNITIONS: EnemyKind[] = ['arm', 'tbm', 'cruise', 'atgm', 'kab'];
 export const KINDS = Object.keys(ENEMIES) as EnemyKind[];
+// Drawing only: how high each type flies over the ground (m). The sim is flat; this lets the view read as an
+// airspace over real terrain. A ballistic missile and a glide bomb come down as they close.
+const ALT: Record<EnemyKind, number> = { scout: 4, drone: 5.5, swarm: 2.5, tank: 3.5, elite: 9, decoy: 5.5, arm: 7, ew: 5, tbm: 0, cruise: 1.6, atgm: 2.5, kab: 0 };
+export const altitude = (k: EnemyKind, x: number, z: number) => k === 'tbm' ? 1 + Math.min(22, Math.hypot(x, z) * 0.35) : k === 'kab' ? 1 + Math.min(8, Math.hypot(x, z) * 0.25) : ALT[k];
 
 // Rare drops: a kill sometimes leaves salvage on the ground (chance per kind: ENEMIES.drop). Click it within
 // DROP_LIFE s to recover it; unclaimed salvage is lost. Heavy kills (reward >= DROP_HEAVY) roll TECH more often.
@@ -277,21 +281,20 @@ export const VISUAL_R = 18, PAD_EYES = 15, VISUAL_DARK = 0.6; // m (an emplaceme
 export const MG_BELT = { rounds: 40, reload: 3 }; // the MG feeds from its own belt, not the interceptor pool; s to reload
 export const PLACE_TIME = 8; // s to click a spot before the pad places itself on the best slot
 
-// Slots: three belts facing the front, plus an inner ring for all-round cover. Each opens at a base level.
-// Forward: engages first, but slow to resupply and in the path of FPVs and Lancets. Main: balanced.
-// Inner: safe and all round, but engages late.
+// Building: units go anywhere on open ground inside the build zone, which grows with the base level, at least
+// PAD_GAP from each other and clear of the base compound, water, rock and woods (see terrain.ts). How many units
+// the base can field also grows with the level (PAD_CAP, the last entry repeats).
+// Where a unit stands decides its belt. Forward (24 m+): engages first, but slow to resupply and in the path of
+// FPVs and Lancets. Main: balanced. Inner (inside 14 m): safe and all round, but engages late.
 export type Belt = 'fwd' | 'main' | 'inner';
-export const BELT_R: Record<Belt, number> = { fwd: 30, main: 17, inner: 11 };
-const S = (belt: Belt, off: number, lv: number) => ({ belt, a: FRONT + off * DEG, lv }); // off: degrees from the front
-export const SLOTS = [
-  S('main', 0, 1), S('inner', 0, 1), // level 1: a line in depth on the front axis, the two fields of fire overlapping
-  S('main', -25, 2), S('main', 25, 2), S('fwd', 0, 2),
-  S('fwd', -15, 3), S('fwd', 15, 3),
-  S('inner', -90, 4), S('inner', 90, 4), S('inner', -150, 4), S('inner', 150, 4),
-  S('main', -50, 5), S('inner', 180, 6), S('fwd', -30, 7), S('fwd', 30, 8), S('main', 50, 9),
-];
-export const slotXZ = (i: number) => ({ x: Math.cos(SLOTS[i].a) * BELT_R[SLOTS[i].belt], z: Math.sin(SLOTS[i].a) * BELT_R[SLOTS[i].belt] });
-export const perimSlots = (level: number) => SLOTS.filter(s => s.lv <= level).length;
+export const BELT_R: Record<Belt, number> = { fwd: 30, main: 17, inner: 11 }; // typical distance, for the auto-placer
+export const beltAt = (x: number, z: number): Belt => { const d = Math.hypot(x, z); return d >= 24 ? 'fwd' : d >= 14 ? 'main' : 'inner'; };
+export const BUILD_MIN = 10.5, PAD_GAP = 3.5; // m: clear of the base compound, and between units
+const BUILD_R = [20, 31, 34, 34, 36]; // m, by base level (the last entry repeats)
+export const buildR = (level: number) => BUILD_R[Math.min(level, BUILD_R.length) - 1];
+const PAD_CAP = [2, 5, 7, 11, 12, 13, 14, 15, 16];
+export const perimSlots = (level: number) => PAD_CAP[Math.min(level, PAD_CAP.length) - 1];
+export const START_PAD = { x: 0, z: -17 }; // the starting MG: main line, on the front axis
 
 // Field of fire: half-width around the unit's facing (away from the base). Math.PI = all round.
 export const FANS: Record<PerimKind, number> = { mg: 60 * DEG, mantis: Math.PI, stinger: 90 * DEG, iris: Math.PI, jammer: Math.PI, observer: Math.PI, ammo: Math.PI };

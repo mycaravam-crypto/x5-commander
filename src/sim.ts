@@ -1,11 +1,12 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, LEVEL_LEN, BUILD_TIME, BUILD_LOST, ELITE_FROM, PK_GROW, PK_MAX,
-  ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, SLOTS, slotXZ, FANS, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty, BACKUP_RADAR,
+  ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, FANS, beltAt, buildR, BUILD_MIN, PAD_GAP, START_PAD, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty, BACKUP_RADAR,
   DROPS, DROP_KINDS, DROP_LIFE, DROP_GRAB, DROP_MAX, DROP_HEAVY, CACHE, REPAIR_DROP, OVERDRIVE, MILESTONE, rank,
   RADAR_MODES, CRUISE_LOW, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   DIVE_SPEED, SHAHED_DIVE, LANCET, HELO, KAB_R, KAB_PAIR, EGRESS_SPEED, TBM_TERMINAL, CRUISE_DOGLEG, MUNITIONS,
   type EnemyKind, type DropKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
 } from './config.ts';
+import { ground } from './terrain.ts';
 
 export interface Enemy {
   id: number; kind: EnemyKind; x: number; z: number; vx: number; vz: number;
@@ -100,7 +101,9 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     // sunk into it (for a sale); down: knocked out until repaired to half.
     perim: [] as Pad[],
     placing: null as null | { k: PerimKind; since: number; paid: number }, // bought, waiting for a click on the map
-    selected: -1, // slot of the emplacement the player picked (upgrade / sell / move), -1 = none
+    selected: -1, // id (`slot`) of the emplacement the player picked (upgrade / sell / move), -1 = none
+    relocating: false, // the picked unit waits for a click on its new spot
+    padSeq: 0, // next unit id
     jamming: false,
     emcon: false,
     radarMode: 0, // index into RADAR_MODES
@@ -134,7 +137,7 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
   };
   s.sweepSpeed = s.st.sweep;
   // The starting kit: one AA machine gun on the main line, facing the front.
-  putPad(s, 'mg', 0, 0);
+  putPad(s, 'mg', START_PAD.x, START_PAD.z, 0);
   s.hp = s.st.maxHp; s.power = s.st.powerCap; s.ammo = s.st.ammoCap;
   return s;
 }
@@ -255,10 +258,40 @@ export function draft(s: State) {
 
 // ---------- emplacements ----------
 
-export const freeSlots = (s: State) => SLOTS.map((_, i) => i).filter(i => SLOTS[i].lv <= s.level && !s.perim.some(p => p.slot === i));
-function putPad(s: State, k: PerimKind, slot: number, paid: number) {
-  const { x, z } = slotXZ(slot);
-  s.perim.push({ k, x, z, a: Math.atan2(z, x), slot, cd: 0, belt: MG_BELT.rounds, hp: PAD_HP, tier: 0, paid, down: false });
+function putPad(s: State, k: PerimKind, x: number, z: number, paid: number) {
+  s.perim.push({ k, x, z, a: Math.atan2(z, x), slot: s.padSeq++, cd: 0, belt: MG_BELT.rounds, hp: PAD_HP, tier: 0, paid, down: false });
+}
+// Why a unit can't stand at (x, z), or '' if it can. `self`: the unit being moved (its own spot doesn't count).
+export function buildBlock(s: State, x: number, z: number, self = -1) {
+  const d = Math.hypot(x, z);
+  if (d < BUILD_MIN) return 'BASE COMPOUND';
+  if (d > buildR(s.level)) return 'OUTSIDE BUILD ZONE';
+  const g = ground(x, z);
+  if (g === 'water' || g === 'rock' || g === 'forest') return g.toUpperCase();
+  if (s.perim.some(p => p.slot !== self && (p.x - x) ** 2 + (p.z - z) ** 2 < PAD_GAP * PAD_GAP)) return 'TOO CLOSE';
+  return '';
+}
+export const beltOf = (p: { x: number; z: number }) => beltAt(p.x, p.z);
+// Open spots the auto-placer and the bots choose from: rings 2.5 m apart, about 3 m apart along each ring.
+export function freeSpots(s: State, self = -1) {
+  const out: { x: number; z: number }[] = [];
+  for (let r = BUILD_MIN + 0.5; r <= buildR(s.level); r += 2.5) {
+    const n = Math.floor(TAU * r / 3);
+    for (let i = 0; i < n; i++) {
+      const a = FRONT + i / n * TAU, x = Math.cos(a) * r, z = Math.sin(a) * r;
+      if (!buildBlock(s, x, z, self)) out.push({ x, z });
+    }
+  }
+  return out;
+}
+// Where a click at (x, z) puts a unit: right there (on a half-metre grid) if the ground is open, else the
+// nearest open spot within 4 m (fingers are fat), else nowhere.
+export function spotNear(s: State, x: number, z: number, self = -1) {
+  const gx = Math.round(x * 2) / 2, gz = Math.round(z * 2) / 2;
+  if (!buildBlock(s, gx, gz, self)) return { x: gx, z: gz };
+  let best: { x: number; z: number } | undefined, bd = 16;
+  for (const q of freeSpots(s, self)) { const d = (q.x - x) ** 2 + (q.z - z) ** 2; if (d < bd) { bd = d; best = q; } }
+  return best;
 }
 const up = (p: Pad) => !p.down;
 // Inside the unit's range and field of fire.
@@ -291,8 +324,8 @@ export const sellValue = (s: State, p: Pad) => Math.round(p.paid * (building(s) 
 
 // How much a unit of `k` on `slot` would add: the bearings of the threat arc it covers that nothing covers yet
 // (crossfire where something does), or for support units, the guns it would serve. Auto-place and the bots use it.
-export function slotScore(s: State, k: PerimKind, slot: number) {
-  const { x, z } = slotXZ(slot), p = { k, x, z, a: Math.atan2(z, x) };
+export function spotScore(s: State, k: PerimKind, x: number, z: number) {
+  const p = { k, x, z, a: Math.atan2(z, x) };
   const guns = s.perim.filter(q => GUNS.includes(q.k) && up(q));
   if (k === 'ammo') return guns.filter(q => (q.x - x) ** 2 + (q.z - z) ** 2 <= AMMO_R ** 2).length + 0.01 * Math.hypot(x, z);
   if (k === 'observer') return guns.filter(q => (q.x - x) ** 2 + (q.z - z) ** 2 <= OBSERVER_EYES ** 2).length + 0.05 * Math.hypot(x, z);
@@ -311,43 +344,43 @@ export function slotScore(s: State, k: PerimKind, slot: number) {
   }
   return score;
 }
-export const bestSlot = (s: State, k: PerimKind) =>
-  freeSlots(s).reduce<number | undefined>((b, i) => b === undefined || slotScore(s, k, i) > slotScore(s, k, b) ? i : b, undefined);
+export function bestSpot(s: State, k: PerimKind) {
+  let best: { x: number; z: number } | undefined, bv = -Infinity;
+  for (const q of freeSpots(s)) { const v = spotScore(s, k, q.x, q.z); if (v > bv) { bv = v; best = q; } }
+  return best;
+}
 // How many working guns cover a point: 0 is a gap, 2+ is crossfire. The coverage overlay [O] maps it.
 export function coverage(s: State) {
   const guns = s.perim.filter(p => GUNS.includes(p.k) && up(p)).map(p => ({ p, r: padStats(s, p).range }));
   return (x: number, z: number) => guns.reduce((n, { p, r }) => n + +covers(p, x, z, r), 0);
 }
 
-// Put the pending pad on the free slot nearest the click.
+// Build the pending unit where the player clicked (or the nearest open spot).
 export function placePad(s: State, x: number, z: number) {
   if (!s.placing) return false;
-  const slot = nearestFree(s, x, z, Infinity);
-  if (slot === undefined) return false;
-  putPad(s, s.placing.k, slot, s.placing.paid);
+  const q = spotNear(s, x, z);
+  if (!q) return false;
+  putPad(s, s.placing.k, q.x, q.z, s.placing.paid);
   s.placing = null;
   s.events.push({ k: 'buy' });
   return true;
-}
-function nearestFree(s: State, x: number, z: number, within: number) {
-  let best: number | undefined, bd = within * within;
-  for (const i of freeSlots(s)) { const q = slotXZ(i), d = (q.x - x) ** 2 + (q.z - z) ** 2; if (d < bd) { bd = d; best = i; } }
-  return best;
 }
 export const selectedPad = (s: State) => s.perim.find(p => p.slot === s.selected);
 // Click on one of your units: pick it (to upgrade, sell or move).
 export function selectPad(s: State, x: number, z: number) {
   const p = s.perim.find(p => (p.x - x) ** 2 + (p.z - z) ** 2 < 2.5 * 2.5);
   s.selected = p ? p.slot : -1;
+  s.relocating = false;
   return !!p;
 }
-// With a unit picked, click a free slot to move it there: free in the build window, 5 s offline otherwise.
+// Arm a move order for the picked unit: the next click on open ground moves it there.
+export function toggleRelocate(s: State) { s.relocating = !s.relocating && !!selectedPad(s); }
+// Move the picked unit to open ground at (x, z): free in the build window, 5 s offline otherwise.
 export function movePad(s: State, x: number, z: number) {
-  const p = selectedPad(s), slot = p && nearestFree(s, x, z, 4);
-  if (!p || slot === undefined) return false;
-  const q = slotXZ(slot);
-  Object.assign(p, { x: q.x, z: q.z, a: Math.atan2(q.z, q.x), slot, cd: building(s) ? 0 : MOVE_TIME });
-  s.selected = slot;
+  const p = selectedPad(s), q = p && spotNear(s, x, z, p.slot);
+  if (!p || !q) return false;
+  Object.assign(p, { x: q.x, z: q.z, a: Math.atan2(q.z, q.x), cd: building(s) ? 0 : MOVE_TIME });
+  s.relocating = false;
   s.events.push({ k: 'padMoved', x: p.x, z: p.z, n: building(s) ? 0 : MOVE_TIME, kind: p.k });
   return true;
 }
@@ -365,7 +398,7 @@ export function sellPad(s: State) {
   const n = sellValue(s, p);
   s.credits += n;
   s.perim.splice(s.perim.indexOf(p), 1);
-  s.selected = -1;
+  s.selected = -1; s.relocating = false;
   s.events.push({ k: 'padSold', x: p.x, z: p.z, n, kind: p.k });
   return true;
 }
@@ -517,9 +550,9 @@ export function update(s: State, dt: number) {
   fire(s, dt);
   perimeter(s, dt);
   if (s.placing && s.t - s.placing.since > PLACE_TIME) {
-    // Nobody picked a spot: the slot where it adds the most.
-    const slot = bestSlot(s, s.placing.k);
-    if (slot !== undefined) { const q = slotXZ(slot); placePad(s, q.x, q.z); }
+    // Nobody picked a spot: where it adds the most.
+    const q = bestSpot(s, s.placing.k);
+    if (q) placePad(s, q.x, q.z);
   }
   moveShots(s, dt);
   for (let i = s.drops.length - 1; i >= 0; i--) if (s.t >= s.drops[i].until) s.drops.splice(i, 1);
@@ -721,7 +754,7 @@ function moveEnemies(s: State, dt: number) {
     if (e.kind === 'scout' || e.kind === 'swarm') {
       const lancet = e.kind === 'scout', r = lancet ? LANCET.seek : DIVE_R;
       let tgt: Pad | undefined, bd = r * r;
-      for (const p of s.perim) { const dd = (p.x - e.x) ** 2 + (p.z - e.z) ** 2; if (!p.down && (lancet || SLOTS[p.slot].belt === 'fwd') && dd < bd) { bd = dd; tgt = p; } }
+      for (const p of s.perim) { const dd = (p.x - e.x) ** 2 + (p.z - e.z) ** 2; if (!p.down && (lancet || beltOf(p) === 'fwd') && dd < bd) { bd = dd; tgt = p; } }
       if (tgt && bd < 1) { hitPad(s, tgt, e.dmg); removeAt(s, i); continue; }
       if (tgt) {
         const dd = Math.sqrt(bd), sp = e.speed * (lancet ? DIVE_SPEED : 1);
@@ -807,7 +840,7 @@ function perimeter(s: State, dt: number) {
     // Belt empty: reload. Slower out on the forward line, twice as fast with an ammo point in reach.
     if (p.k === 'mg' && --p.belt <= 0) {
       p.belt = MG_BELT.rounds;
-      p.cd = MG_BELT.reload * (nearAmmo(s, p) ? AMMO_RELOAD : SLOTS[p.slot].belt === 'fwd' ? FWD_RELOAD : 1);
+      p.cd = MG_BELT.reload * (nearAmmo(s, p) ? AMMO_RELOAD : beltOf(p) === 'fwd' ? FWD_RELOAD : 1);
     }
     // Crossfire: the target is inside another gun's field of fire as well.
     const dmg = w.dmg * (guns.some((q, qi) => q !== p && covers(q, t.x, t.z, stats[qi].range)) ? 1 + CROSSFIRE : 1);

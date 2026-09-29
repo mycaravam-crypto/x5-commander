@@ -1,4 +1,4 @@
-import { newGame, dailySeed, update, buy, collectDrop, pickPerk, markAt, placePad, movePad, selectPad, upgradePad, sellPad, cycleMode, cycleDiscipline, cycleRadarMode, aimFocus, emergencyIntercept, toggleEmcon, type State } from './sim.ts';
+import { newGame, dailySeed, update, buy, collectDrop, pickPerk, markAt, placePad, movePad, selectPad, upgradePad, sellPad, toggleRelocate, cycleMode, cycleDiscipline, cycleRadarMode, aimFocus, emergencyIntercept, toggleEmcon, type State } from './sim.ts';
 import { createRenderer } from './render.ts';
 import { createHud, loadBest } from './hud.ts';
 import { DOCTRINES } from './config.ts';
@@ -27,22 +27,44 @@ const doctrine = (i: number) => {
 const hud = createHud({
   buy: id => { if (buy(s, id)) hud.flash(id); },
   perk: i => pickPerk(s, i),
-  pad: act => { if (act === 'upgrade') upgradePad(s); else sellPad(s); },
+  pad: act => { if (act === 'upgrade') upgradePad(s); else if (act === 'move') toggleRelocate(s); else sellPad(s); },
+  look: (x, z) => view.lookAt(x, z),
   start, restart, doctrine,
 });
 
 // ---- input ----
 const canvas = document.querySelector('canvas')!;
-let dragX: number | null = null;
 const tap = (cx: number, cy: number) => {
   const p = view.pick(cx, cy);
-  // Place a bought pad, else recover salvage, else move the picked unit to a free slot, else pick a unit, else mark a contact.
-  if (!p || s.phase !== 'play' || placePad(s, p.x, p.z) || collectDrop(s, p.x, p.z) || movePad(s, p.x, p.z) || selectPad(s, p.x, p.z)) return;
-  markAt(s, p.x, p.z); aimFocus(s, p.x, p.z);
+  if (!p || s.phase !== 'play') return;
+  // Building: the click says where. A move order: where the picked unit goes. Else recover salvage, else pick a unit, else mark a contact.
+  if (s.placing) { placePad(s, p.x, p.z); return; }
+  if (s.relocating) { movePad(s, p.x, p.z); return; }
+  if (collectDrop(s, p.x, p.z)) return; // salvage on the ground
+  if (selectPad(s, p.x, p.z)) return;
+  const c = view.pickContact(s, cx, cy) ?? p; // aircraft are drawn above their ground position
+  markAt(s, c.x, c.z); aimFocus(s, p.x, p.z);
 };
-canvas.addEventListener('mousedown', e => { if (e.button === 2) dragX = e.clientX; else tap(e.clientX, e.clientY); });
+// Mouse: left click acts, right-drag rotates (a right click without a drag moves the picked unit), middle-drag pans.
+let drag: { b: number; x: number; y: number; moved: number } | null = null;
+canvas.addEventListener('mousedown', e => {
+  if (e.button === 0) tap(e.clientX, e.clientY);
+  else drag = { b: e.button, x: e.clientX, y: e.clientY, moved: 0 };
+});
+addEventListener('mousemove', e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  drag.moved += Math.abs(dx) + Math.abs(dy); drag.x = e.clientX; drag.y = e.clientY;
+  if (drag.b === 2) view.rotate(dx * 0.008); else view.pan(dx, dy);
+});
+addEventListener('mouseup', e => {
+  if (drag?.b === 2 && drag.moved < 5 && s.phase === 'play' && s.selected >= 0) { const p = view.pick(e.clientX, e.clientY); if (p) movePad(s, p.x, p.z); }
+  drag = null;
+});
+canvas.addEventListener('mousemove', e => view.hover(e.clientX, e.clientY));
+canvas.addEventListener('mouseleave', () => view.hover(null));
 
-// Touch: tap marks / places, one-finger drag rotates, pinch zooms.
+// Touch: tap acts, one-finger drag pans, two fingers pinch to zoom and twist to rotate.
 const fingers = new Map<number, { x: number; y: number }>();
 let travel = 0;
 canvas.addEventListener('pointerdown', e => {
@@ -55,12 +77,15 @@ canvas.addEventListener('pointerdown', e => {
 canvas.addEventListener('pointermove', e => {
   const f = fingers.get(e.pointerId);
   if (!f) return;
-  if (fingers.size === 1) { travel += Math.abs(e.clientX - f.x) + Math.abs(e.clientY - f.y); view.rotate((e.clientX - f.x) * 0.008); }
+  if (fingers.size === 1) { travel += Math.abs(e.clientX - f.x) + Math.abs(e.clientY - f.y); if (travel > 12) view.pan(e.clientX - f.x, e.clientY - f.y); }
   else {
-    const [a, b] = [...fingers.values()], d0 = Math.hypot(a.x - b.x, a.y - b.y);
+    const [a, b] = [...fingers.values()], d0 = Math.hypot(a.x - b.x, a.y - b.y), a0 = Math.atan2(b.y - a.y, b.x - a.x);
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
     f.x = e.clientX; f.y = e.clientY;
-    const d1 = Math.hypot(a.x - b.x, a.y - b.y);
+    const d1 = Math.hypot(a.x - b.x, a.y - b.y), a1 = Math.atan2(b.y - a.y, b.x - a.x);
     if (d0 > 0) view.zoomBy(d1 / d0);
+    view.rotate(((a1 - a0 + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+    view.pan((a.x + b.x) / 2 - mx, (a.y + b.y) / 2 - my);
   }
   f.x = e.clientX; f.y = e.clientY;
 });
@@ -69,12 +94,10 @@ const lift = (e: PointerEvent) => {
 };
 canvas.addEventListener('pointerup', lift);
 canvas.addEventListener('pointercancel', lift);
-addEventListener('mousemove', e => { if (dragX !== null) { view.rotate((e.clientX - dragX) * 0.008); dragX = e.clientX; } });
-addEventListener('mouseup', () => { dragX = null; });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 canvas.addEventListener('wheel', e => { e.preventDefault(); view.zoomBy(e.deltaY < 0 ? 1.1 : 1 / 1.1); }, { passive: false });
 
-// Compact (phone) HUD: the mini radar and the details list are toggled from #views, remembered across runs.
+// Compact (phone) HUD: the minimap and the details list are toggled from #views, remembered across runs.
 const panel = (k: string, on = !document.body.classList.contains(`ui-${k}`)) => {
   document.body.classList.toggle(`ui-${k}`, on);
   try { localStorage.setItem(`x5-ui-${k}`, on ? '1' : ''); } catch { /* storage blocked: skip */ }
@@ -89,6 +112,7 @@ function key(code: string) {
     case 'Enter': start(); break;
     case 'KeyG': cycleDiscipline(s); break;
     case 'KeyU': upgradePad(s); break;
+    case 'KeyB': toggleRelocate(s); break;
     case 'Delete': case 'Backspace': sellPad(s); break;
     case 'KeyD': start(true); break;
     case 'KeyP': case 'Escape': if (s.phase === 'play') s.phase = 'pause'; else if (s.phase === 'pause') s.phase = 'play'; break;
@@ -114,7 +138,7 @@ const held = new Set<string>();
 addEventListener('keyup', e => held.delete(e.code));
 addEventListener('keydown', e => {
   held.add(e.code);
-  if (e.code === 'Tab' || e.code === 'Space') e.preventDefault();
+  if (e.code === 'Tab' || e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
   if (!e.repeat) key(e.code);
 });
 // On-screen buttons (touch screens) send the same codes as the keys.
@@ -133,13 +157,18 @@ function frame(now: number) {
   last = now;
   if (held.has('KeyQ')) view.rotate(-dt * 1.5);
   if (held.has('KeyE')) view.rotate(dt * 1.5);
+  if (s.phase === 'play' || s.phase === 'pause') { // WASD / arrows pan the camera over the ground
+    const k = dt * 40, ax = +(held.has('KeyD') || held.has('ArrowRight')) - +(held.has('KeyA') || held.has('ArrowLeft'));
+    const ay = +(held.has('KeyW') || held.has('ArrowUp')) - +(held.has('KeyS') || held.has('ArrowDown'));
+    if (ax || ay) view.pan(ax * k, ay * k, false);
+  }
   const sweep0 = s.sweepA;
   for (let i = 0; i < speed; i++) update(s, dt);
   if (s.sweepA < sweep0) sfx.play('ping'); // sweep completed a revolution
   for (const e of s.events) sfx.play(e.k, e as { n?: number; star?: boolean; drop?: string });
   view.inset(...hud.insets());
   view.render(s, dt);
-  hud.update(s, dt, view.cameraYaw(), view.project, speed);
+  hud.update(s, dt, view.cameraYaw(), view.project, speed, view.target());
   s.events.length = 0;
   requestAnimationFrame(frame);
 }
