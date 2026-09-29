@@ -5,6 +5,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ARENA_R, BASE_R, ENEMIES, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, SLOTS, slotXZ, FANS, GUNS, type EnemyKind } from './config.ts';
+import { enemyGeos, ROTORS, rotorPts } from './models.ts';
 import { emitting, focusBearing, flankArc, radarRange, radarSector, freeSlots, bestSlot, coverage, padStats, phase, shownKind, visible, type Shot, type State } from './sim.ts';
 
 const MAX_ENEMIES = 2000, MAX_LOCKS = 64, MAX_SHOTS = 600, MAX_SHARDS = 2500, MAX_WAVES = 64, MAX_BEAMS = 3000, MAX_FRONTS = 48, MAX_BLIPS = 1024;
@@ -348,22 +349,14 @@ export function createRenderer() {
   }
 
   // ---- instanced pools ----
-  // Enemies: near-black fill (hides what's behind) + glowing edges. Types differ by shape, brightness and blink.
-  const geos: Record<EnemyKind, THREE.BufferGeometry> = {
-    scout: new THREE.ConeGeometry(0.55, 1.5, 3).rotateZ(-Math.PI / 2),
-    drone: new THREE.OctahedronGeometry(0.65),
-    swarm: new THREE.TetrahedronGeometry(0.7),
-    tank: new THREE.BoxGeometry(1.2, 0.8, 1.2),
-    elite: new THREE.DodecahedronGeometry(0.65),
-    decoy: new THREE.OctahedronGeometry(0.65), // same as the Shahed; only drawn once classified
-    arm: new THREE.ConeGeometry(0.22, 1.8, 4).rotateZ(-Math.PI / 2),
-    ew: new THREE.CylinderGeometry(0.75, 0.75, 0.45, 6),
-    tbm: new THREE.ConeGeometry(0.35, 2.4, 6).rotateZ(-Math.PI / 2),
-    cruise: new THREE.CylinderGeometry(0.18, 0.18, 1.6, 5).rotateZ(-Math.PI / 2).translate(0, 0.1, 0), // a slim airframe, low
-  };
+  // Enemies: near-black fill (hides what's behind) + glowing edges. Each type is a low-poly model of what it is
+  // (models.ts), told apart further by brightness and blink; helicopters get a spinning rotor on top.
+  const geos = enemyGeos();
   const wire = new THREE.MeshBasicMaterial({ wireframe: true });
   const enemyFills = {} as Record<EnemyKind, THREE.InstancedMesh>, enemyEdges = {} as Record<EnemyKind, THREE.InstancedMesh>;
   for (const k of KINDS) scene.add(enemyFills[k] = instanced(geos[k], fill, MAX_ENEMIES), enemyEdges[k] = instanced(edges(geos[k]), wire, MAX_ENEMIES));
+  const rotors = instanced(segs(rotorPts()), additive(0xffffff, true), MAX_ENEMIES);
+  scene.add(rotors);
 
   // Corner-bracket reticle ⌐ ¬, billboarded to the camera.
   const bracketPts: number[] = [];
@@ -543,7 +536,7 @@ export function createRenderer() {
     }
   }
 
-  const pools = [...Object.values(enemyFills), ...Object.values(enemyEdges), brackets, hpBars, shells, tracers, missiles, shardMesh, waveMesh, beamMesh, frontMesh, blipMesh, jamMesh, padMarks, dwellMesh];
+  const pools = [...Object.values(enemyFills), ...Object.values(enemyEdges), rotors, brackets, hpBars, shells, tracers, missiles, shardMesh, waveMesh, beamMesh, frontMesh, blipMesh, jamMesh, padMarks, dwellMesh];
   const sent = new Map<THREE.InstancedMesh, number>();
   const dummy = new THREE.Object3D();
   const camRight = new THREE.Vector3();
@@ -650,6 +643,7 @@ export function createRenderer() {
 
     // enemies, locks, hp bars
     for (const k of KINDS) enemyFills[k].count = enemyEdges[k].count = 0;
+    rotors.count = 0;
     let nl = 0, marked = false;
     for (const e of s.enemies) {
       if (!visible(s, e)) continue;
@@ -664,12 +658,20 @@ export function createRenderer() {
       const col = k === 'arm' || k === 'tbm' || k === 'cruise' ? ALERT : e.locked ? HOT : BRIGHT; // missiles on the battery are amber
       const sz = e.size * VIS;
       dummy.position.set(e.x, sz * 0.6, e.z);
-      dummy.rotation.set(k === 'drone' || k === 'elite' ? clock * 2 : 0, -Math.atan2(e.vz, e.vx) + (k === 'swarm' ? clock * 6 : k === 'ew' ? clock : 0), 0);
+      // Nose along the flight path; FPVs rock as they jink.
+      dummy.rotation.set(k === 'swarm' ? 0.25 * Math.sin(clock * 9 + e.id) : 0, -Math.atan2(e.vz, e.vx), 0);
       dummy.scale.setScalar(sz);
       dummy.updateMatrix();
       f.setMatrixAt(f.count++, dummy.matrix);
       m.setMatrixAt(m.count, dummy.matrix);
       m.setColorAt(m.count++, tmpC.setHex(col).multiplyScalar(b));
+      const rotor = ROTORS[k];
+      if (rotor) {
+        dummy.position.y += rotor.y * sz; dummy.rotation.set(0, clock * 14 + e.id, 0); dummy.scale.set(rotor.r * sz, 1, rotor.r * sz);
+        dummy.updateMatrix();
+        rotors.setMatrixAt(rotors.count, dummy.matrix);
+        rotors.setColorAt(rotors.count++, tmpC.setHex(col).multiplyScalar(b * 0.7));
+      }
       if (e.id === s.marked) {
         marked = true;
         markRing.position.set(e.x, 0.1, e.z);
