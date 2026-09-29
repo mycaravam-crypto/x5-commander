@@ -21,7 +21,6 @@ Other scripts:
 |-----------------|-----------------------------------------------------------|
 | `npm run build` | Type-checks, then builds a static site into `dist/`        |
 | `npm test`      | Runs a headless check of the game simulation in Node       |
-| `npm run balance` | Bots play many seeds; survival per doctrine and perk     |
 | `npm run bench` | Times the simulation under a heavy swarm (e.g. `npm run bench -- 2000`) |
 | `npm run balance [seeds] [cap-s]` | Bots play many seeded runs; median survival per doctrine and per perk |
 
@@ -218,6 +217,39 @@ The level-up card names what was built. The LTAMDS AESA upgrade adds rear arrays
 
 An enemy that reaches the base damages it and dies. When base HP hits 0, the game is over. Your best time, kills, level and credits earned are saved in `localStorage`. The game-over card has **COPY RESULT** (`C`), which copies a one-line result to paste into a chat. It also shows a **debrief**: kills by enemy type, each weapon's share of the damage, clean raids, ARMs evaded and radar hits.
 
+## Roadmap
+
+This section replaces the old `plan-mvp.md`, `plan.md` and `plan-frontline.md`; they are still in git history.
+
+### Shipped
+- **MVP:** the core loop (detect → lock → shoot → credits → upgrade → base level → perks → game over), the upgrade shop, juice and sound, 2,000 pooled enemy instances.
+- **Green radar look:** one green palette (`PAL` in `config.ts`) with amber for warnings and red for critical, wireframe models with bloom and a CRT pass, a polar grid, sweep afterglow and blip ghosts, segmented bars, the system log, the boot sequence and the sweep ping.
+- **Front line, steps 1–5:** the front and widening flank arcs, levels with raids and build windows, the AA MG start with the radar and Patriot as milestones, belt slots with fields of fire, crossfire, support units and unit HP, and Kh-101 cruise missiles with the IRIS-T SLM to stop them.
+
+### Next: finish the front line (step 6)
+- [ ] **Level card** at the end of each level: held or lost, what unlocks next, new directions (e.g. "MISSILES MAY NOW COME FROM ±60°"). Today there's only a banner and a log line.
+- [ ] **Build window as its own state:** slow motion, shop open, free slots highlighted.
+- [ ] **Map polish:** draw the belts as dim dashed arcs and shade enemy territory beyond the front.
+- [ ] **Rebalance** with `npm run balance`. Known issues: FORTRESS (−15% fire rate) is weak with gun-heavy starts, and long runs now die to cruise missiles (LOGISTICS max run dropped from 15:00 to 6:56).
+
+### Placement extras
+- [ ] **Tier-3 branch** for guns: e.g. *AP rounds* against Mi-28s or *high rate* against swarms, possibly topping out at MANTIS.
+- [ ] **Coverage overlay (`O`):** all fields of fire, overlaps and gaps at once.
+- [ ] **Slot preview while placing:** each free slot shows the field of fire it would add and how much open threat arc it closes.
+- [ ] **Power node:** laser and HPM draw power only within its reach, so it decides where energy weapons can go.
+- [ ] **Terrain tags** (optional): *ridge* (+20% range, drones go for it first), *treeline* (never targeted, −15% range), *road* (half build cost, fast resupply).
+
+### Later ideas
+- A front that moves back after a held level, giving more depth for the next one.
+- Achievements, more arenas, boss enemies, music.
+
+### Ground rules for any change
+- `sim.ts` never touches rendering; `render.ts` and `hud.ts` only read state. No per-frame allocation of meshes or DOM.
+- The daily op must stay deterministic: every spawn source draws from its own seeded stream.
+- Every off-axis attack is telegraphed with a warning and bearing. Players should lose to gaps in their cover, not to surprises.
+- Auto-place and the balance bots use the same `bestSlot()`, so the bots test real layouts.
+- Keep the game runnable after every step. `npm test` and `npm run build` stay green, and new mechanics get cases in `sim.check.ts` and `balance.ts`.
+
 ## Project layout
 
 ```
@@ -230,7 +262,6 @@ src/main.ts       boot, input, main loop
 src/sim.check.ts  `npm test` self-check
 src/balance.ts    `npm run balance` bot survival
 src/bench.ts      `npm run bench` sim timing under load
-src/balance.ts    `npm run balance` bot survey
 ```
 
 To rebalance the game, edit `src/config.ts`. Built with TypeScript, Vite and Three.js.
