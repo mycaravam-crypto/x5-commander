@@ -19,7 +19,7 @@ The game stops being "a 360° Patriot battery from minute one" and becomes a def
 4. **Does the MG use ammo?** Default: **yes, belts that reload for free but slowly.** That way a second gun is a real upgrade, not just more DPS.
 
 ## 1. The front
-*Done (step 1).* The flank arc widens by phase for now (SEAD ±60°, COORDINATED RAID ±120°, then 360°); step 2 moves it to `LEVELS`.
+*Done (steps 1–2).* The flank arc widens by level: SEAD ±60°, COORDINATED RAID ±120°, then 360°.
 - The constants `FRONT` / `FRONT_ARC` (±25°) set the **front sector**. All bearing math already goes through `Math.atan2(z, x)` and `bearing()`, so this fits.
 - **Front-only** threats: Mi-28, Su-34, Mi-8 EW, FPV and Lancet. (Decoys turned out to belong with the Shaheds: a decoy that could only come from the front would give away every Shahed from the flank.) FPV and Lancet are short-range weapons launched from the line, so it's realistic that they only come from the front.
 - **Flanking** threats: Shahed long-range drones and their decoys, the new cruise missile (below) and Iskander. They get a per-level **exposure arc** that widens around the front as you level up (±25° → ±60° → ±120° → 360°).
@@ -150,7 +150,7 @@ Replaces the time-based `PHASES`. Each level sets the spawn weights, the exposur
 ## Order
 Keep the game runnable after each step.
 1. ~~`FRONT` + `flank` + `spawnBearing()`, with the flank arc widening by phase.~~ **Done.** Also: jammers hold the front, the front is drawn on the ground and the mini radar rim, and there's a front/flank spawn check in `npm test`.
-2. The `LEVELS` table replacing `PHASES`, with widening exposure arcs.
+2. ~~The `LEVELS` table replacing `PHASES`, with widening exposure arcs.~~ **Done.** Each level is `LEVEL_LEN` (60 s) of waves, then its raid, then a build window with no spawns (20 s held / 8 s lost, which replaces the old recovery lull and "next raid sooner"). Strike packages come once per level from SEAD on. Packages and raids unlock by level, and raid size goes by level (`raidScale`). The wave stream is reseeded per level, so each level of a daily op sends the same things however long earlier levels took. The balance script reports the level reached. Still to do in step 6: the level card and the slow-motion build state.
 3. The AA MG and visual spotting, with the radar and Patriot moved to the unlock ladder.
 4. Belt slots replacing the ring (section 3b), in this order: slots + fans + crossfire + `bestSlot()`, then support units, then unit HP, then tier upgrades in place. After that, the new emplacements (ZU-23, IRIS-T SLM).
 5. The cruise missile and missiles that target emplacements.

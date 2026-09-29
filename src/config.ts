@@ -6,8 +6,10 @@ export const START_CREDITS = 150;
 export const COMBO_WINDOW = 1.5; // s between kills to keep the combo
 export const COMBO_BONUS = 0.02; // +2% credits per combo step
 export const COMBO_CAP = 50;
-export const PHASE_LEN = 75; // s
-export const ELITE_EVERY = 150, ELITE_FIRST = 225; // s: Su-34 strike packages, from the SEAD phase on
+// A run is a string of levels: LEVEL_LEN s of waves, then the level's raid, then a build window with no spawns
+// (BUILD_TIME if the raid's objective held, BUILD_LOST if not) before the next level starts.
+export const LEVEL_LEN = 60, BUILD_TIME = 20, BUILD_LOST = 8; // s
+export const ELITE_FROM = 3; // level index (SEAD) from which every level has a Su-34 strike package halfway through
 
 // Green phosphor palette, shared by the 3D scene and the CSS (hud.ts copies it into CSS variables).
 // Hierarchy: dim/mid for the frame, bright for what's active, hot for what's locked or selected, amber (alert)
@@ -16,7 +18,7 @@ export const PAL = { dim: 0x0b3d1f, mid: 0x1f9e4f, bright: 0x39ff88, hot: 0xc8ff
 // Radar bearing in degrees, 0-360, measured from +x toward +z (grid labels and the HUD use the same one).
 // The front: manned aircraft and short-range drones (launched from the line) always come from FRONT ± FRONT_ARC,
 // the top of the default view. Long-range drones and missiles (`flank` below) can come from anywhere within the
-// current phase's `arc` around it, which widens as the run goes on.
+// current level's `arc` around it, which widens as the run goes on.
 export const FRONT = -Math.PI / 2, FRONT_ARC = 25 * Math.PI / 180;
 const DEG = Math.PI / 180;
 export const bearing = (x: number, z: number) => ((Math.atan2(z, x) * 180 / Math.PI) % 360 + 360) % 360;
@@ -47,12 +49,12 @@ export const ENEMIES: Record<EnemyKind, EnemyType> = {
 };
 export const KINDS = Object.keys(ENEMIES) as EnemyKind[];
 
-// Difficulty comes in phases of PHASE_LEN, each adding a kind of problem rather than just more HP:
+// Each level adds a kind of problem rather than just more HP:
 // 1 learn the systems · 2 mixed threats · 3 jammers + decoys · 4 SEAD · 5 heavy coordinated raids ·
 // 6+ conditions on top, with attack packages ever more likely (PK_GROW per loop, up to PK_MAX).
-// Spawn weights per phase; the last entry repeats. pk: chance a spawn event is an attack package instead.
-// arc: half-width around FRONT that flank threats can come from (default FRONT_ARC; every direction after the last phase).
-export const PHASES: { name: string; w: Partial<Record<EnemyKind, number>>; pk?: number; arc?: number }[] = [
+// Spawn weights per level; the last entry repeats. pk: chance a spawn event is an attack package instead.
+// arc: half-width around FRONT that flank threats can come from (default FRONT_ARC; every direction after the last level).
+export const LEVELS: { name: string; w: Partial<Record<EnemyKind, number>>; pk?: number; arc?: number }[] = [
   { name: 'PROBING', w: { scout: 3, drone: 2 } },
   { name: 'MIXED THREATS', w: { scout: 2, drone: 3, swarm: 1, tank: 0.5 } },
   { name: 'EW SCREEN', w: { scout: 2, drone: 3, swarm: 1, tank: 0.7, decoy: 1.5, ew: 0.15 }, pk: 0.05 },
@@ -61,21 +63,21 @@ export const PHASES: { name: string; w: Partial<Record<EnemyKind, number>>; pk?:
 ];
 export const PK_GROW = 0.02, PK_MAX = 0.25;
 
-// Attack packages: existing types flying in together from one bearing, each covering another's weakness.
+// Attack packages (`from`: first level index): existing types flying in together from one bearing, each covering another's weakness.
 // Counts are packs (a decoy pack is 3, an FPV pack 6). An EW helicopter in a package is an escort: it holds
 // station on the package's bearing instead of circling, so its jammed sector covers the rest of the package.
 // `first` is the element to dismantle first; `why` says what happens if you don't.
 export interface Package { name: string; from: number; g: Partial<Record<EnemyKind, number>>; first: EnemyKind; why: string }
 export const PACKAGES: Package[] = [
-  { name: 'SEAD PACKAGE', from: 225, g: { elite: 1, arm: 1, decoy: 1, drone: 1 }, first: 'elite',
+  { name: 'SEAD PACKAGE', from: 3, g: { elite: 1, arm: 1, decoy: 1, drone: 1 }, first: 'elite',
     why: 'decoys soak locks while the Su-34 keeps launching ARMs' },
-  { name: 'JAMMED SWARM', from: 150, g: { ew: 1, swarm: 2, drone: 2 }, first: 'ew',
+  { name: 'JAMMED SWARM', from: 2, g: { ew: 1, swarm: 2, drone: 2 }, first: 'ew',
     why: 'the swarm hides in the jammer\'s sector' },
-  { name: 'SATURATION', from: 300, g: { decoy: 2, ew: 1, scout: 3, tank: 1 }, first: 'tank',
+  { name: 'SATURATION', from: 4, g: { decoy: 2, ew: 1, scout: 3, tank: 1 }, first: 'tank',
     why: 'the Mi-28 hides among decoys and fast Lancets under jamming' },
 ];
 
-// After the last phase, each PHASE_LEN brings a new condition on top of COMBINED RAID's mix, looping in order.
+// After the last scripted level, each level brings a new condition on top of COORDINATED RAID's mix, looping in order.
 // sig/persist: detection chance / contact memory multipliers; spawn/hp: on top of difficulty(); w: extra spawn weights.
 export interface Mod { name: string; desc: string; sig?: number; persist?: number; spawn?: number; hp?: number; dark?: boolean; w?: Partial<Record<EnemyKind, number>> }
 export const MODS: Mod[] = [
@@ -87,26 +89,27 @@ export const MODS: Mod[] = [
   { name: 'SEAD WAVE', desc: 'strike aircraft and ARMs', w: { arm: 0.8, elite: 0.3 } },
 ];
 
-// Raids: a named group from one bearing. Announced RAID_WARN s ahead (the preparation window) with its
-// composition, objective and bonus. Counts are packs, scaled up over time. While the attack is on, normal
-// spawns thin out (RAID_SPAWN) so the raid stands out.
-// Objective held (nothing in the raid reaches the battery; for 'radar', no ARM hits the radar): bonus, then a
-// RAID_RECOVER s recovery lull. Objective lost: no bonus, no lull, and the next raid comes RAID_PRESS s sooner.
-export const RAID_FIRST = 110, RAID_EVERY = 80, RAID_WARN = 10; // s
+// Raids: every level ends with one, a named group from one bearing (`from`: first level index it can be drawn at).
+// Announced RAID_WARN s ahead (the preparation window) with its composition, objective and bonus. Counts are packs,
+// scaled up level by level (raidScale). While the attack is on, normal spawns thin out (RAID_SPAWN) so the raid
+// stands out. Objective held (nothing in the raid reaches the battery; for 'radar', no ARM hits the radar): bonus
+// and the full build window. Lost: no bonus and a short build window. Either way the level ends with the raid.
+export const RAID_WARN = 10; // s
 export const RAID_BONUS = 0.5; // share of the raid's total reward, + 25 flat
-export const RAID_SPAWN = 0.4, RAID_RECOVER = 15, RAID_CALM = 0.3, RAID_PRESS = 20; // spawn x during attack, s, spawn x during recovery, s
+export const RAID_SPAWN = 0.4; // spawn x during the attack
+export const raidScale = (level: number) => grow(level * 1.5, 0.7); // ~1.5 min of play per level
 export type RaidObjective = 'battery' | 'radar';
 export const OBJECTIVES: Record<RaidObjective, string> = { battery: 'PROTECT BATTERY', radar: 'PROTECT RADAR' };
 export const RAIDS: { name: string; from: number; g: Partial<Record<EnemyKind, number>>; obj?: RaidObjective }[] = [
   { name: 'SHAHED WAVE', from: 0, g: { drone: 6 } },
   { name: 'LANCET PACK', from: 0, g: { scout: 7 } },
-  { name: 'FPV SWARM', from: 0, g: { swarm: 3 } },
-  { name: 'DECOY SCREEN', from: 150, g: { decoy: 2, drone: 4 } },
-  { name: 'HELO ASSAULT', from: 200, g: { tank: 3, scout: 3 } },
-  { name: 'SEAD STRIKE', from: 225, g: { elite: 1, arm: 2, decoy: 2, drone: 2 }, obj: 'radar' },
-  { name: 'SWARM ASSAULT', from: 150, g: { ew: 1, swarm: 3, drone: 4 } },
-  { name: 'SATURATION STRIKE', from: 300, g: { decoy: 2, ew: 1, scout: 5, tank: 2 } },
-  { name: 'ISKANDER SALVO', from: 300, g: { tbm: 3 } },
+  { name: 'FPV SWARM', from: 1, g: { swarm: 3 } },
+  { name: 'DECOY SCREEN', from: 2, g: { decoy: 2, drone: 4 } },
+  { name: 'HELO ASSAULT', from: 2, g: { tank: 3, scout: 3 } },
+  { name: 'SEAD STRIKE', from: 3, g: { elite: 1, arm: 2, decoy: 2, drone: 2 }, obj: 'radar' },
+  { name: 'SWARM ASSAULT', from: 2, g: { ew: 1, swarm: 3, drone: 4 } },
+  { name: 'SATURATION STRIKE', from: 4, g: { decoy: 2, ew: 1, scout: 5, tank: 2 } },
+  { name: 'ISKANDER SALVO', from: 4, g: { tbm: 3 } },
 ];
 
 // Radar threats. ARMs home on the radar while it radiates, and a hit takes it offline. EMCON [F] silences it:
@@ -138,7 +141,7 @@ export const grow = (m: number, k: number) => 1 + k * Math.log1p(m / 4);
 export function difficulty(t: number) {
   const m = t / 60;
   return {
-    // Composition carries most of the difficulty (see PHASES), so raw numbers grow gently.
+    // Composition carries most of the difficulty (see LEVELS), so raw numbers grow gently.
     spawnRate: 0.6 * grow(m, 1.4), // spawn events / s
     hp: grow(m, 0.75),
     speed: 1 + 0.025 * Math.min(m, 20),

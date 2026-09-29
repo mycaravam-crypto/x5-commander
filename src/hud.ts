@@ -1,6 +1,6 @@
-import { ARENA_R, BASE_R, FRONT, FRONT_ARC, PLACE_TIME, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, RAID_PRESS, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
+import { ARENA_R, BASE_R, FRONT, FRONT_ARC, PLACE_TIME, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
 import type { Records } from './config.ts';
-import { cost, emitting, flankArc, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
+import { cost, emitting, flankArc, building, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const $ = (id: string) => document.getElementById(id)!;
 const fmt = (n: number) => Math.floor(n).toLocaleString('en-US');
@@ -28,7 +28,7 @@ const TIPS: Record<string, string> = {
   start: 'Click a contact to make it the priority target: engaged first, +25% damage, costs power while held. Spend credits in the shop [Tab].',
   discipline: 'Fire discipline [G]: CONSERVE saves interceptors and fires late, MAXIMUM fires fast and overkills.',
   intercept: 'Emergency intercept: every weapon on one threat for a few seconds. Long cooldown, costs power.',
-  raid: 'Raid inbound: you have a few seconds to prepare. Set radar, fire discipline and priority before it arrives. Hold the objective for the bonus and a recovery lull; lose it and the next raid comes sooner.',
+  raid: 'Raid inbound: you have a few seconds to prepare. Set radar, fire discipline and priority before it arrives. The raid ends the level. Hold the objective for the bonus and a full build window; lose it and the build window is short.',
   warning: 'Su-34s are tough and fire anti-radiation missiles at a radiating radar. Click one to focus fire on it.',
   arm: 'ARM launch: it homes on your radar. [F] EMCON before it gets close (you lose every lock), or [V] to LPI: ARMs only find you inside 15m.',
   radarMode: 'Radar mode [V]: ACTIVE all round · FOCUSED searches the bearing you click, further and faster, but draws ARMs · LPI is hard for ARMs to find but sees less.',
@@ -183,7 +183,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       const m = Math.atan2(py(Math.cos(FRONT), Math.sin(FRONT)) - C, px(Math.cos(FRONT), Math.sin(FRONT)) - C);
       g.strokeStyle = rgba(col); g.lineWidth = lw; g.beginPath(); g.arc(C, C, C - 4, m - w, m + w); g.stroke(); g.lineWidth = 1;
     };
-    if (flankArc(s.t) > FRONT_ARC) rim(Math.min(Math.PI, flankArc(s.t)), PAL.dim, 3);
+    if (flankArc(s.stage) > FRONT_ARC) rim(Math.min(Math.PI, flankArc(s.stage)), PAL.dim, 3);
     rim(FRONT_ARC, PAL.mid, 3);
     const rr = radarRange(s) * K, a = s.sweepA + Math.PI / 2 - yaw, sector = radarSector(s);
     g.strokeStyle = rgba(PAL.mid, 0.8); g.beginPath(); g.arc(C, C, rr, 0, 7); g.stroke();
@@ -351,7 +351,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       ...s.placing ? [['PAD', `<span class="hot">CLICK MAP · ${Math.max(0, PLACE_TIME - (s.t - s.placing.since)).toFixed(0)}s</span>`]] : [],
       ...s.raid ? [['RAID', `<span class="alert">${pad3(bearing(Math.cos(s.raid.a), Math.sin(s.raid.a)))}° T-${Math.max(0, s.raid.at - s.t).toFixed(0)}s</span>`]]
         : s.raidLeft ? [['RAID', `<span class="alert">${s.raidLeft}</span> · ${s.raidClean ? 'HELD' : '<span class="alert">LOST</span>'}`]]
-        : s.t < s.calmUntil ? [['RECOVERY', `${Math.ceil(s.calmUntil - s.t)}s`]] : [],
+        : building(s) ? [['BUILD', `<span class="hot">${Math.ceil(s.buildUntil - s.t)}s</span>`]] : [],
     ].map(([k, v]) => v === '' ? `<dt class="grp">${k}</dt>` : `<dt>${k}</dt><dd>${v}</dd>`).join('');
     if (html !== infoHtml) { infoHtml = html; infoEl.innerHTML = html; } // no DOM churn when nothing changed
     threatBoard(s);
@@ -460,9 +460,10 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
           log(p.why.toUpperCase());
         }
         else if (e.k === 'raidStart') { say(`${e.name} · ENGAGE`, 'warn'); log(`RAID IN · ${e.name} · ${OBJECTIVES[s.raidObj]}`, 'alert'); }
-        else if (e.k === 'raidClear') { say(`OBJECTIVE HELD · +${fmt(e.n)}`, 'info'); log(`RAID DEFEATED · +${fmt(e.n)} CR · RECOVERY`); }
-        else if (e.k === 'raidLeak') { say('OBJECTIVE LOST', 'warn'); log(`OBJECTIVE LOST · NEXT RAID ${RAID_PRESS}s SOONER`, 'alert'); }
-        else if (e.k === 'raidEnd') log('RAID OVER · NO BONUS · NO RECOVERY', 'alert');
+        else if (e.k === 'raidClear') { say(`OBJECTIVE HELD · +${fmt(e.n)}`, 'info'); log(`RAID DEFEATED · +${fmt(e.n)} CR`); }
+        else if (e.k === 'raidLeak') { say('OBJECTIVE LOST', 'warn'); log(`OBJECTIVE LOST · BUILD WINDOW CUT TO ${BUILD_LOST}s`, 'alert'); }
+        else if (e.k === 'raidEnd') log('RAID OVER · NO BONUS', 'alert');
+        else if (e.k === 'build') { say(`LEVEL ${s.stage + 1} COMPLETE · BUILD ${e.n}s`, 'info'); log(`LEVEL ${s.stage + 1} COMPLETE · BUILD WINDOW ${e.n}s · NO NEW CONTACTS`); }
         else if (e.k === 'aesa') { say('LTAMDS ONLINE · 360° STARE', 'info'); log('AESA ONLINE · SWEEP RETIRED'); }
         else if (e.k === 'level') { const b = baseLevelInfo(s.level); say(`LV ${s.level} · ${b.name}`, 'info'); log(`BATTERY LV ${s.level} · ${b.name} · ${b.desc}`); }
         else if (e.k === 'buy' || e.k === 'discipline') { acc = 1; if (e.k === 'discipline') log(`FIRE DISCIPLINE · ${DISCIPLINES[s.discipline].name}`); }
@@ -471,7 +472,9 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       const pn = phaseName(s);
       if (s.phase === 'play' && pn !== lastPhase) {
         const { mod } = phase(s);
-        if (lastPhase) { say(`PHASE · ${pn}`, mod.name ? 'warn' : 'info'); if (mod.desc) log(mod.desc.toUpperCase(), 'alert'); }
+        if (lastPhase) { say(`LEVEL ${s.stage + 1} · ${phase(s).name}`, mod.name ? 'warn' : 'info'); if (mod.desc) log(mod.desc.toUpperCase(), 'alert');
+          const arc = flankArc(s.stage);
+          if (s.stage && arc > flankArc(s.stage - 1)) log(`DRONES + MISSILES NOW FROM ${arc >= Math.PI ? 'ANY DIRECTION' : `FRONT ±${Math.round(arc * 180 / Math.PI)}°`}`, 'alert'); }
         lastPhase = pn;
       }
       if (s.phase === 'start') { lastPhase = ''; armSaid = tbmSaid = -99; }
