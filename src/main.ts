@@ -26,13 +26,16 @@ document.querySelector('canvas')!.addEventListener('webglcontextlost', e => {
 });
 
 const today = () => new Date().toISOString().slice(0, 10);
-const start = (daily = false) => {
+const start = (mode?: 'daily' | 'training') => {
   if (s.phase !== 'start') return;
   sfx.unlock();
-  if (daily) s = newGame(dailySeed(today()), today());
+  if (mode === 'daily') s = newGame(dailySeed(today()), today());
+  if (mode === 'training') s = newGame(undefined, '', 'standard', true);
   s.phase = 'play';
 };
-const restart = () => { s = s.daily ? newGame(dailySeed(s.daily), s.daily) : newGame(undefined, '', s.doctrine); s.phase = 'play'; };
+const restart = () => { s = s.training ? newGame(undefined, '', 'standard', true) : s.daily ? newGame(dailySeed(s.daily), s.daily) : newGame(undefined, '', s.doctrine); s.phase = 'play'; };
+// Back to the start screen: a fresh map, the last doctrine picked.
+const menu = () => { if (s.phase === 'pause' || s.phase === 'over') s = newGame(undefined, '', openDoc(savedDoctrine())); };
 const doctrine = (i: number) => {
   const d = DOCTRINES[i];
   if (s.phase !== 'start' || !d || openDoc(d.id) !== d.id) return;
@@ -47,7 +50,7 @@ const hud = createHud({
   pad: act => { if (act === 'upgrade') upgradePad(s); else if (act === 'move') toggleRelocate(s); else sellPad(s); },
   look: (x, z) => view.lookAt(x, z),
   resume: () => { if (s.phase === 'pause') s.phase = 'play'; },
-  start, restart, doctrine,
+  start, restart, menu, doctrine,
 });
 
 // ---- input ----
@@ -127,16 +130,15 @@ let speed = 1; // 2 = fast-forward: two sim steps per frame
 function key(code: string) {
   switch (code) {
     case 'Space': if (s.phase === 'start') start(); else emergencyIntercept(s); break;
-    case 'Enter': start(); break;
+    case 'Enter': if (s.phase === 'over' && s.training) menu(); else start(); break;
     case 'KeyG': cycleDiscipline(s); break;
     case 'KeyU': upgradePad(s); break;
-    case 'KeyN': skipBuild(s); break;
+    case 'KeyN': if (s.phase === 'start') reroll(); else skipBuild(s); break;
     case 'KeyB': toggleRelocate(s); break;
     case 'Delete': case 'Backspace': sellPad(s); break;
-    case 'KeyD': start(true); break;
-    case 'KeyN': reroll(); break;
+    case 'KeyD': start('daily'); break;
     case 'KeyP': case 'Escape': if (s.phase === 'play') s.phase = 'pause'; else if (s.phase === 'pause') s.phase = 'play'; break;
-    case 'KeyT': cycleMode(s); break;
+    case 'KeyT': if (s.phase === 'start') start('training'); else cycleMode(s); break;
     case 'KeyF': toggleEmcon(s); break;
     case 'KeyV': cycleRadarMode(s); break;
     case 'KeyM': sfx.toggleMute(); break;
@@ -168,8 +170,8 @@ document.getElementById('views')!.onclick = press;
 document.getElementById('raidcard')!.onclick = press; // the level card's START NOW
 addEventListener('blur', () => { if (s.phase === 'play') s.phase = 'pause'; });
 
-// Dev builds only: poke the running game from the console, e.g. x5().nextRaid = x5().t + 12.
-if (import.meta.env.DEV) Object.assign(window, { x5: () => s });
+// Dev builds only: poke the running game from the console, e.g. x5().nextRaid = x5().t + 12, or x5run(30) to play 30 s at once.
+if (import.meta.env.DEV) Object.assign(window, { x5: () => s, x5run: (secs: number) => { for (let i = 0; i < secs * 60 && s.phase === 'play'; i++) { s.events.length = 0; update(s, 1 / 60); } } });
 
 // ---- loop ----
 let last = performance.now();

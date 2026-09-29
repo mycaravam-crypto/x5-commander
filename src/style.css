@@ -204,6 +204,16 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 .debrief dd { margin: 0; text-align: right; }
 .docs { margin: 8px 0 18px; }
 .docs .perk { width: 170px; padding: 10px; }
+.btn.hotbtn { color: var(--hot); border-color: var(--hot); box-shadow: 0 0 14px color-mix(in srgb, var(--hot) 35%, transparent); }
+.link { all: unset; cursor: pointer; color: var(--mid); font-size: 11px; letter-spacing: 0.12em; border-bottom: 1px dotted var(--mid); }
+.link:hover { color: var(--hot); }
+/* Pause menu: help panel (systems, keys) and settings. */
+.help { display: grid; grid-template-columns: 1.6fr 1fr; gap: 18px; text-align: left; margin: 16px auto 8px; max-width: 720px; font-size: 11px; }
+.help dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 4px 0 0; }
+.help dt { color: var(--hot); white-space: nowrap; }
+.help dd { margin: 0; color: var(--bright); text-transform: none; }
+.help kbd { font: inherit; color: var(--hot); }
+@media (max-width: 620px) { .help { grid-template-columns: 1fr; } }
 .perk.sel { --c: var(--hot); box-shadow: 0 0 16px color-mix(in srgb, var(--bright) 30%, transparent); }
 .perk.locked { opacity: 0.4; cursor: default; }
 .perk.rule { --c: var(--alert); }

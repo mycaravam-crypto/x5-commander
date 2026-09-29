@@ -1,4 +1,4 @@
-import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, DROP_LIFE, MILESTONE, OVERDRIVE, rank } from './config.ts';
+import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, DROP_LIFE, MILESTONE, OVERDRIVE, rank, TRAINING } from './config.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import { mapSeed } from './terrain.ts';
 import type { Records } from './config.ts';
@@ -54,9 +54,30 @@ const TIPS: Record<string, string> = {
   level: 'Base level up: every level builds something that changes what the battery can do, plus a launcher and 2 perimeter pads. Pads fire on their own, without lock slots.',
 };
 const seenTips = (() => { try { return new Set<string>(JSON.parse(localStorage.getItem('x5-tips') ?? '[]')); } catch { return new Set<string>(); } })();
+const store = (k: string, v: string | null) => { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* storage blocked: skip */ } };
+const trained = () => { try { return !!localStorage.getItem('x5-trained'); } catch { return true; } };
+
+// The pause menu's help panel: the systems in a line each, and the keys.
+const HELP_SYSTEMS: [string, string][] = [
+  ['EYES', 'guns fire at what they can see: near the base, a gun, or an observer post'],
+  ['BUILD', 'buy a unit, click open ground in the dashed ring · guns cover a fan; two fans crossing = +20% crossfire'],
+  ['RADAR', 'from battery lv 3: sees far, locks targets for the Patriot · power starves it'],
+  ['ARMS', 'home on a radiating radar · [F] EMCON goes silent (locks drop) · LPI mode hides you'],
+  ['DECOYS', 'look like Shaheds until locked for a moment, then grey out'],
+  ['RAIDS', 'end every level · hold the objective for the bonus and a long build window'],
+  ['POWER', 'locks, radar, then ammo and repairs · watch the net flow on the bars'],
+  ['SALVAGE', `click crates within ${DROP_LIFE}s: credits, refills, repairs, free tech`],
+];
+const HELP_KEYS: [string, string][] = [
+  ['TAB', 'shop'], ['CLICK', 'build · pick unit · mark target'], ['U / DEL / B', 'upgrade / sell / move unit'], ['SPACE', 'emergency intercept'],
+  ['G', 'fire discipline'], ['T', 'target mode'], ['V', 'radar mode'], ['F', 'EMCON'], ['N', 'next level now'], ['O', 'coverage map'],
+  ['X', '2× speed'], ['WASD / Q E', 'pan / rotate'], ['P / ESC', 'pause'], ['M', 'mute'],
+];
+const helpHtml = () => `<div class="help"><div><small>SYSTEMS</small><dl>${HELP_SYSTEMS.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl></div>
+  <div><small>KEYS</small><dl>${HELP_KEYS.map(([k, v]) => `<dt><kbd>${k}</kbd></dt><dd>${v}</dd>`).join('')}</dl></div></div>`;
 
 // One line to paste in a chat.
-export const resultLine = (s: State) => `X5 COMMANDER · ${s.daily ? `DAILY OP ${s.daily}` : `${DOCTRINES.find(d => d.id === s.doctrine)!.name} RUN`} · ${clock(s.t)} · ${fmt(s.kills)} kills · lv ${s.level} · ${s.stats.clean}/${s.stats.raids} clean raids`;
+export const resultLine = (s: State) => `X5 COMMANDER · ${s.training ? 'TRAINING' : s.daily ? `DAILY OP ${s.daily}` : `${DOCTRINES.find(d => d.id === s.doctrine)!.name} RUN`} · ${clock(s.t)} · ${fmt(s.kills)} kills · lv ${s.level} · ${s.stats.clean}/${s.stats.raids} clean raids`;
 
 const docsHtml = (s: State, best: Best) => DOCTRINES.map((d, i) => {
   const open = d.unlock(best);
@@ -96,7 +117,7 @@ function debrief(s: State) {
     <div><small>OPS</small><dl><dt>RAIDS CLEAN</dt><dd>${S.clean} / ${S.raids}</dd><dt>ARMS EVADED</dt><dd>${S.armsEvaded}</dd><dt>RADAR HITS</dt><dd>${S.radarHits}</dd><dt>SALVAGE</dt><dd>${S.recovered} / ${S.drops}</dd></dl></div></div>`;
 }
 
-export function createHud(actions: { buy(id: string): void; perk(i: number): void; pad(act: string): void; start(daily?: boolean): void; restart(): void; resume(): void; doctrine(i: number): void; look(x: number, z: number): void }) {
+export function createHud(actions: { buy(id: string): void; perk(i: number): void; pad(act: string): void; start(mode?: 'daily' | 'training'): void; restart(): void; resume(): void; menu(): void; doctrine(i: number): void; look(x: number, z: number): void }) {
   for (const [k, v] of Object.entries(PAL)) document.documentElement.style.setProperty(`--${k}`, rgba(v));
 
   // ---- shop (built once) ----
@@ -142,13 +163,17 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   overlay.onclick = e => {
     const a = (e.target as HTMLElement).closest<HTMLElement>('[data-a]')?.dataset.a;
     if (a === 'start') actions.start();
-    else if (a === 'daily') actions.start(true);
+    else if (a === 'daily') actions.start('daily');
+    else if (a === 'training') actions.start('training');
+    else if (a === 'menu') actions.menu();
+    else if (a === 'resume') actions.resume();
+    else if (a === 'resetTips') resetTips((e.target as HTMLElement).closest('button'));
     else if (a?.startsWith('doc')) actions.doctrine(+a.slice(3));
     else if (a === 'restart') actions.restart();
     else if (a === 'share') share();
     else if (a?.startsWith('perk')) actions.perk(+a.slice(4));
-    // The pause card covers the on-screen pause button, so any tap on it resumes.
-    else if (shownPhase.startsWith('pause')) actions.resume();
+    // The pause card covers the on-screen pause button, so a tap off the menu resumes.
+    else if (shownPhase.startsWith('pause') && !(e.target as HTMLElement).closest('.card')) actions.resume();
   };
   let shownPhase = '', shownDoc = '', shownSeed = NaN;
   function showOverlay(s: State) {
@@ -173,12 +198,24 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       <p class="dim mapline"></p>
       ${best.time ? `<p class="dim">BEST · ${clock(best.time)} · ${fmt(best.kills)} kills · base lv ${best.level}</p>` : ''}
       <p class="dim">DOCTRINE · starting loadout, unlocked by your records</p><div class="perks docs">${docsHtml(s, best)}</div>
-      <button class="btn" data-a="start">DEPLOY [SPACE]</button> <button class="btn" data-a="daily">DAILY OP [D]</button>
+      ${trained() ? '' : '<p class="hot">NEW HERE? A 3-MINUTE DRILL: EYES, RADAR, ARMS, DECOYS</p><button class="btn hotbtn" data-a="training">TRAINING [T]</button><br>'}
+      <button class="btn" data-a="start">DEPLOY [SPACE]</button> <button class="btn" data-a="daily">DAILY OP [D]</button>${trained() ? ' <button class="btn" data-a="training">TRAINING [T]</button>' : ''}
+      <p><button class="link" data-a="resetTips">RESET TIPS</button></p>
       <p class="dim">Daily op: same raid for everyone today. ${(d => d.time ? `Your best today · ${clock(d.time)} · ${fmt(d.kills)} kills` : 'Not flown yet today.')(loadDaily(new Date().toISOString().slice(0, 10)))}</p></div></div>`;
-    else if (s.phase === 'pause') html = `<div class="card"><h2>PAUSED</h2><p class="dim">[P] or tap to resume</p></div>`;
+    else if (s.phase === 'pause') html = `<div class="card menu"><h2>PAUSED</h2>
+      <button class="btn" data-a="resume">RESUME [P]</button> <button class="btn" data-a="menu">QUIT TO MENU</button>
+      ${helpHtml()}
+      <p><button class="link" data-a="resetTips">RESET TIPS</button> <span class="dim">· show every tip again</span></p>
+      <p class="dim">[P] or tap outside to resume</p></div>`;
     else if (s.phase === 'perk') html = `<div class="card"><h2>BATTERY LEVEL ${s.level} · ${baseLevelInfo(s.level).name}</h2><p class="hot">${baseLevelInfo(s.level).desc}</p>${s.level > 1 ? `<p class="dim">${s.st.weapons.cannon ? '+1 M903 LAUNCHER · ' : ''}${perimSlots(s.level)} PERIMETER PADS</p>` : ''}<h2>CHOOSE A PERK</h2><div class="perks">${
       s.perkChoices.map((id, i) => { const p = PERKS.find(p => p.id === id)!; return `<button class="perk frame${p.rule ? ' rule' : ''}" data-a="perk${i}">${p.rule ? '<i>★ NEW RULE</i>' : ''}<b>${p.name}</b><span>${p.desc}</span><kbd>[${i + 1}]</kbd></button>`; }).join('')
     }</div></div>`;
+    else if (s.phase === 'over' && s.training) {
+      store('x5-trained', '1');
+      html = `<div class="card"><h1>TRAINING COMPLETE</h1><p class="hot">EYES · RADAR · ARMS AND EMCON · DECOYS</p>
+        <p>The real war starts with one gun and no radar, and doesn't stop. Build across the front, get the radar at battery level 3, and watch for ARMs.</p>
+        <button class="btn hotbtn" data-a="menu">TO THE FRONT [ENTER]</button> <button class="btn" data-a="restart">AGAIN [R]</button></div>`;
+    }
     else if (s.phase === 'over') {
       const now = { time: s.t, kills: s.kills, level: s.level, earned: s.earned };
       const rec = (k: keyof Best) => now[k] > best[k];
@@ -213,12 +250,17 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
 
   // ---- tips ----
   const tipEl = $('tip');
-  let tipUntil = 0;
+  let tipUntil = 0, drillTip = -1;
   function tip(k: string, t: number) {
     if (!TIPS[k] || seenTips.has(k)) return;
     seenTips.add(k);
-    try { localStorage.setItem('x5-tips', JSON.stringify([...seenTips])); } catch { /* storage blocked: skip */ }
-    tipEl.textContent = TIPS[k]; tipEl.classList.add('on'); tipUntil = t + 9;
+    store('x5-tips', JSON.stringify([...seenTips]));
+    show(TIPS[k], t, 9);
+  }
+  function show(text: string, t: number, secs: number) { tipEl.textContent = text; tipEl.classList.add('on'); tipUntil = t + secs; }
+  function resetTips(btn: HTMLElement | null) {
+    seenTips.clear(); store('x5-tips', null);
+    if (btn) btn.textContent = 'TIPS RESET ✓';
   }
 
   // ---- banner + popups ----
@@ -598,7 +640,12 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   function raidCard(s: State) {
     let h = '', cls = '';
     const on = s.phase === 'play' || s.phase === 'pause';
-    if (on && s.raid) {
+    if (on && s.training) { // the drill: which lesson, and what's next
+      const w = TRAINING[s.stage], next = TRAINING[s.stage + 1];
+      h = building(s) ? `<small>TRAINING ${s.stage + 1}/${TRAINING.length} COMPLETE</small><b>NEXT · ${next.name}</b>${next.desc.toUpperCase()} · ${Math.ceil(s.buildUntil - s.t)}s<br><button data-k="KeyN">[N] START NOW</button>`
+        : `<small>TRAINING ${s.stage + 1}/${TRAINING.length}</small><b>${w.name}</b>${w.desc.toUpperCase()}`;
+      cls = 'on build';
+    } else if (on && s.raid) {
       const r = s.raid, comp = (Object.entries(r.n) as [keyof typeof ENEMIES, number][]).map(([k, n]) => `${n} × ${ENEMIES[k].code}`).join(' &nbsp; ');
       h = `<small>INCOMING RAID · SECTOR ${pad3(bearing(Math.cos(r.a), Math.sin(r.a)))}° · T-${Math.max(0, r.at - s.t).toFixed(0)}s</small><b>${r.name}</b>${comp}<br>
         <small>OBJECTIVE</small> <span class="obj">${OBJECTIVES[r.obj]}</span> &nbsp; <small>BONUS</small> <span class="obj">+${fmt(r.bonus * s.st.credits)} CR</span>`;
@@ -622,9 +669,11 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   return {
     update(s: State, dt: number, yaw: number, project: Project, speed = 1, look = { x: 0, z: 0 }) {
       lastState = s; ffSpeed = speed;
-      if (s.phase === 'play' && s.t > 2) tip('startMg', s.t);
+      if (s.training) { // each wave's lesson, every time: training is for learning
+        if (s.phase === 'play' && drillTip !== s.stage && !building(s) && s.t > 0.5) { drillTip = s.stage; show(TRAINING[s.stage].tip, s.t, 16); }
+      } else if (s.phase === 'play' && s.t > 2) tip('startMg', s.t);
       for (const e of s.events) tip(e.k, s.t);
-      if (tipEl.classList.contains('on') && (s.t > tipUntil || s.t < tipUntil - 9 || s.phase === 'start')) tipEl.classList.remove('on');
+      if (tipEl.classList.contains('on') && (s.t > tipUntil || s.t < tipUntil - 16 || s.phase === 'start')) tipEl.classList.remove('on');
       for (const e of s.events) {
         if (e.k === 'kill') {
           if (e.n) pop(project, e.x, e.z, `+${e.n}`, '');
@@ -671,6 +720,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         else if (e.k === 'raidClear') { say(`OBJECTIVE HELD · +${fmt(e.n)}`, 'info'); log(`RAID DEFEATED · +${fmt(e.n)} CR`); }
         else if (e.k === 'raidLeak') { say('OBJECTIVE LOST', 'warn'); log(`OBJECTIVE LOST · BUILD WINDOW CUT TO ${BUILD_LOST}s`, 'alert'); }
         else if (e.k === 'raidEnd') log('RAID OVER · NO BONUS', 'alert');
+        else if (e.k === 'build' && s.training) { say(`DRILL ${s.stage + 1} COMPLETE`, 'info'); log(`DRILL ${s.stage + 1} COMPLETE · NEXT IN ${e.n}s`); }
         else if (e.k === 'build') { say(`LEVEL ${s.stage + 1} COMPLETE · BUILD ${e.n}s`, 'info'); log(`LEVEL ${s.stage + 1} COMPLETE · BUILD WINDOW ${e.n}s · NO NEW CONTACTS`); }
         else if (e.k === 'padDown') { say('⚠ EMPLACEMENT DOWN', 'warn'); log(`${e.kind.toUpperCase()} DOWN BRG ${pad3(bearing(e.x, e.z))} · REPAIRING`, 'alert'); }
         else if (e.k === 'padUp') { if (e.n) { const n = MG_TIERS[e.n].name; say(n, 'info'); log(`UPGRADED · ${n}`); } else log(`${e.kind.toUpperCase()} BACK IN ACTION BRG ${pad3(bearing(e.x, e.z))}`); }
@@ -698,12 +748,13 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       const pn = phaseName(s);
       if (s.phase === 'play' && pn !== lastPhase) {
         const { mod } = phase(s);
-        if (lastPhase) { say(`LEVEL ${s.stage + 1} · ${phase(s).name}`, mod.name ? 'warn' : 'info'); if (mod.desc) log(mod.desc.toUpperCase(), 'alert');
+        if (lastPhase && s.training) { say(`TRAINING ${s.stage + 1} · ${TRAINING[s.stage].name}`, 'info'); log(`TRAINING ${s.stage + 1} · ${TRAINING[s.stage].desc.toUpperCase()}`); }
+        else if (lastPhase) { say(`LEVEL ${s.stage + 1} · ${phase(s).name}`, mod.name ? 'warn' : 'info'); if (mod.desc) log(mod.desc.toUpperCase(), 'alert');
           const arc = flankArc(s.stage);
           if (s.stage && arc > flankArc(s.stage - 1)) log(`DRONES + MISSILES NOW FROM ${arc >= Math.PI ? 'ANY DIRECTION' : `FRONT ±${Math.round(arc * 180 / Math.PI)}°`}`, 'alert'); }
         lastPhase = pn;
       }
-      if (s.phase === 'start') { lastPhase = ''; armSaid = tbmSaid = cruiseSaid = -99; launches.length = 0; shopForBuild = false; }
+      if (s.phase === 'start') { drillTip = -1; lastPhase = ''; armSaid = tbmSaid = cruiseSaid = -99; launches.length = 0; shopForBuild = false; }
       drawRadar(s, yaw, look);
       placeLabels(s, project);
       raidArrow(s, project);

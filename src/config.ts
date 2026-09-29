@@ -128,6 +128,28 @@ export const LEVELS: { name: string; desc: string; w: Partial<Record<EnemyKind, 
 ];
 export const PK_GROW = 0.02, PK_MAX = 0.25;
 
+// Training: a short first-run drill, one lesson per wave, on a fixed map (sim.drill). Waves follow a script instead
+// of the level's mix: `n` packs of `kind` `at` s after the wave starts, `off` rad off the front, `r` m out (default:
+// the rim). `grant`: upgrades handed out free as the wave starts. A wave ends once its script has run and the sky
+// is clear, then a short build window. The battery can't fall in training (HP stops at 1) and no records are kept.
+export const TRAINING_SEED = 0x5eed7a1;
+export const TRAINING_BUILD = 6; // s between waves
+export interface Drill { name: string; desc: string; tip: string; grant?: string[]; spawns: { at: number; kind: EnemyKind; n: number; off?: number; r?: number }[] }
+export const TRAINING: Drill[] = [
+  { name: 'EYESIGHT', desc: 'guns fire at what they can see',
+    tip: 'TRAINING 1/4 · EYESIGHT: no radar yet. Anything close to the base or a gun is seen, and guns fire at it by themselves. Buy a second gun in the shop [Tab] and click open ground in the dashed ring to build it.',
+    spawns: [{ at: 2, kind: 'drone', n: 1 }, { at: 7, kind: 'scout', n: 2 }, { at: 14, kind: 'drone', n: 2, off: 0.25 }, { at: 20, kind: 'scout', n: 3, off: -0.2 }] },
+  { name: 'RADAR', desc: 'see far, lock, and let the Patriot shoot', grant: ['radar', 'pac3'],
+    tip: 'TRAINING 2/4 · RADAR: radar and Patriot online. The radar sees far beyond your eyes, fire control locks what it sees, and the Patriot fires at every lock. Click a contact to make it the priority target.',
+    spawns: [{ at: 3, kind: 'drone', n: 2, off: 0.6 }, { at: 9, kind: 'drone', n: 2, off: -0.6 }, { at: 15, kind: 'scout', n: 3 }, { at: 21, kind: 'tank', n: 1 }] },
+  { name: 'ARMS AND EMCON', desc: 'go silent when an ARM comes in',
+    tip: 'TRAINING 3/4 · ARMs: anti-radiation missiles home on a radiating radar and knock it out. When the ARM warning sounds, press [F] EMCON to go silent (you lose your locks), then [F] again once it has veered off.',
+    spawns: [{ at: 2, kind: 'drone', n: 2 }, { at: 5, kind: 'arm', n: 1 }, { at: 16, kind: 'arm', n: 1, off: 0.3 }, { at: 18, kind: 'drone', n: 2, off: -0.3 }, { at: 28, kind: 'arm', n: 1, off: -0.2 }] },
+  { name: 'DECOYS', desc: 'decoys look like Shaheds until classified',
+    tip: 'TRAINING 4/4 · DECOYS: Gerbera decoys look exactly like Shaheds and soak up locks. Fire control classifies one after holding it for a moment, then greys it out and releases it. Don\'t waste your priority target on them.',
+    spawns: [{ at: 2, kind: 'decoy', n: 1 }, { at: 3, kind: 'drone', n: 1 }, { at: 10, kind: 'decoy', n: 1, off: 0.3 }, { at: 11, kind: 'drone', n: 2, off: 0.3 }, { at: 19, kind: 'decoy', n: 2, off: -0.2 }, { at: 20, kind: 'drone', n: 1, off: -0.2 }] },
+];
+
 // Attack packages (`from`: first level index): existing types flying in together from one bearing, each covering another's weakness.
 // Counts are packs (a decoy pack is 3, an FPV pack 6). An EW helicopter in a package is an escort: it holds
 // station on the package's bearing instead of circling, so its jammed sector covers the rest of the package.

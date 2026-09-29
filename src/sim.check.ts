@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
 import { newGame, update, buy, skipBuild, cruiseTarget, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive, noAmmo } from './sim.ts';
-import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, TERRAIN, AMMO_RELOAD, GUNS, HELO, LANCET, MILESTONE, DROP_LIFE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE, VETERANCY } from './config.ts';
+import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, TERRAIN, AMMO_RELOAD, GUNS, HELO, LANCET, MILESTONE, DROP_LIFE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE, VETERANCY, TRAINING, TRAINING_BUILD } from './config.ts';
 import { site, PONDS, ROCKS, FARMS, mapSeed, openShare, OPEN_MIN, ground, riverZ, RIVER_W } from './terrain.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
@@ -805,6 +805,28 @@ ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies stan
   const h = quiet(); let n = 0;
   for (let i = 0; i < 2000; i++) if (rollDrop(h, 'elite', 0, 0)) { n++; h.drops.length = 0; }
   ok(Math.abs(n / 2000 - ENEMIES.elite.drop) < 0.05, `drop rate (${n}/2000)`);
+}
+
+// Training: four scripted waves (eyes, radar, ARMs, decoys) that can't be lost, then it's done.
+{
+  const g = newGame(undefined, '', 'sensor', true); g.phase = 'play' as State['phase'];
+  ok(g.training && g.doctrine === 'standard' && !g.st.radar, 'training starts as STANDARD, eyes only');
+  const seen = new Set<string>(); let radarAt = -1, hpMin = Infinity, trained = false;
+  for (let i = 0; i < 60 * 600 && g.phase === 'play'; i++) {
+    update(g, 1 / 60);
+    for (const e of g.enemies) seen.add(`${g.stage}${e.kind}`);
+    if (g.st.radar && radarAt < 0) radarAt = g.stage;
+    hpMin = Math.min(hpMin, g.hp);
+    if (g.events.some(e => e.k === 'trained')) trained = true;
+    g.events.length = 0;
+  }
+  ok(trained && g.phase === 'over' && g.stage === TRAINING.length - 1, `training runs its ${TRAINING.length} waves and ends (stage ${g.stage}, ${g.phase})`);
+  ok(radarAt === 1 && g.st.weapons.cannon, 'wave 2 hands out the radar and the Patriot');
+  ok(seen.has('2arm') && seen.has('3decoy') && !seen.has('0arm'), 'ARMs in wave 3, decoys in wave 4');
+  ok(hpMin >= 1, 'training can\'t be lost');
+  ok(g.t < TRAINING.length * (40 + TRAINING_BUILD) * 2, `training is short (${g.t.toFixed(0)}s)`);
+  const h = newGame(undefined, '', 'standard', true);
+  ok(h.seed === g.seed, 'training flies the same map every time');
 }
 
 // Debrief counters add up.
