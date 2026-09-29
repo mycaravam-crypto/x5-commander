@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
 import { newGame, update, stageInfo, spawnGroupAt, seedCode, parseCode, parseResult, buy, skipBuild, cruiseTarget, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive, noAmmo, spotted, irHit, shownKind, horizonMask } from './sim.ts';
-import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, TERRAIN, AMMO_RELOAD, GUNS, HELO, LANCET, MILESTONE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE, VETERANCY, TRAINING, TRAINING_BUILD, DOCTRINES, RAIDS, EW_MAX, RECON, KA52, SU25, SEAD as SEAD_FTR, ARM2, ARM_STUN, MASK, horizon, flightAlt, KINDS } from './config.ts';
+import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, START_PADS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, TERRAIN, AMMO_RELOAD, GUNS, HELO, LANCET, MILESTONE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE, VETERANCY, TRAINING, TRAINING_BUILD, DOCTRINES, RAIDS, EW_MAX, RECON, KA52, SU25, SEAD as SEAD_FTR, ARM2, ARM_STUN, MASK, horizon, flightAlt, KINDS } from './config.ts';
 import { site, PONDS, ROCKS, FARMS, mapSeed, openShare, OPEN_MIN, ground, riverZ, RIVER_W } from './terrain.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
@@ -19,7 +19,7 @@ const ok = (c: unknown, msg: string) => { if (!c) throw new Error('FAIL: ' + msg
   const d = newGame(dailySeed('2026-01-01'), '2026-01-01'); ok(mapSeed === d.seed, 'the daily op flies over its own seed\'s map');
   for (let seed = 1; seed <= 60; seed++) {
     const g = newGame(seed * 7919);
-    ok(!buildBlock(g, g.perim[0].x, g.perim[0].z, g.perim[0].slot), `starting MG on open ground (seed ${seed})`);
+    ok(g.perim.every(p => !buildBlock(g, p.x, p.z, p.slot)), `starting MGs on open ground (seed ${seed})`);
     ok(openShare() >= OPEN_MIN, `enough open ground to build on (seed ${seed})`);
     ok(PONDS.length >= 1 && ROCKS.length >= 3, `ponds and outcrops (seed ${seed})`);
     for (let x = -36; x <= 36; x += 2) ok(Math.abs(riverZ(x)) - RIVER_W > 36 || Math.hypot(x, riverZ(x)) > 36, `river beyond the build zone (seed ${seed})`);
@@ -139,21 +139,22 @@ ok(b.level >= 3 && b.perks.length === b.level - 1, `base grows + perks (lv ${b.l
   ok(b.level === 2 && b.st.gen === deriveStats(b.lv, [], 2).gen, 'level-up refreshes stats');
 }
 
-// Perimeter: gated by base level and open slots; a pad kills things on its own. The starting MG takes one of lv1's 2.
+// Perimeter: gated by base level and open slots; a pad kills things on its own. The two starting MGs take two of lv1's 3.
 s = newGame(); s.phase = 'play'; s.credits = 1e6;
 ok(!buy(s, 'mantis'), 'mantis locked at lv1');
 ok(buy(s, 'mg') && !placePad(s, 0, 0) && s.placing, 'no building inside the base compound');
-{ const q = slotXZ(1); ok(placePad(s, q.x, q.z) && near(s.perim[1], q) && !buy(s, 'mg'), 'lv1 = 2 units, the starting MG and one more'); }
+{ const q = slotXZ(1); ok(placePad(s, q.x, q.z) && near(s.perim[START_PADS.length], q) && !buy(s, 'mg'), 'lv1 = 3 units, the starting MGs and one more'); }
 s.level = 2;
 ok(buy(s, 'mantis') && !buy(s, 'mantis'), 'one pad placed at a time');
-{ const f = slotXZ(3);
+{ const f = slotXZ(15); // clear of the starting MGs
   ok(!placePad(s, 0, -buildR(2) - 8), 'nothing outside the build zone');
-  ok(placePad(s, f.x + 0.2, f.z) && near(s.perim[2], f), 'a unit goes where you click');
-  ok(buy(s, 'mantis') && placePad(s, f.x, f.z) && Math.hypot(s.perim[3].x - f.x, s.perim[3].z - f.z) >= PAD_GAP - 1e-9, 'a taken spot: the nearest open one'); }
+  const n = START_PADS.length;
+  ok(placePad(s, f.x + 0.2, f.z) && near(s.perim[n + 1], f), 'a unit goes where you click');
+  ok(buy(s, 'mantis') && placePad(s, f.x, f.z) && Math.hypot(s.perim[n + 2].x - f.x, s.perim[n + 2].z - f.z) >= PAD_GAP - 1e-9, 'a taken spot: the nearest open one'); }
 ok(!!buildBlock(s, PONDS[0].x, PONDS[0].z) && !!buildBlock(s, ROCKS[0].x, ROCKS[0].z), 'no building on water or rock');
-{ const q = slotXZ(4); ok(buy(s, 'mg') && placePad(s, q.x, q.z) && !buy(s, 'mantis') && lockReason(s, 'mantis') === 'PADS FULL', 'lv2 = 5 units'); }
+ok(s.perim.length === 5 && !buy(s, 'mantis') && lockReason(s, 'mantis') === 'PADS FULL', 'lv2 = 5 units');
 ok(s.perim.every(p => Math.hypot(p.x, p.z) >= BUILD_MIN && Math.hypot(p.x, p.z) <= buildR(2)), 'units stay inside the build zone');
-ok(perimSlots(1) === 2 && perimSlots(9) === 16 && buildR(1) < buildR(3), 'the unit cap and the build zone grow with the base level');
+ok(perimSlots(1) === 3 && perimSlots(9) === 16 && buildR(1) < buildR(3), 'the unit cap and the build zone grow with the base level');
 { const g = quiet(); g.credits = 1e6; g.level = 2; buy(g, 'mantis'); run(g, 9); ok(g.perim.length === 1 && !g.placing, 'unplaced pad places itself'); }
 s.st.slots = 0; // no main-battery locks: only the pads can shoot
 run(s, 40);
@@ -166,20 +167,20 @@ const addPad = (g: State, k: string, slot: number) => { g.credits += 1e6; ok(buy
 {
   // A gun shoots inside its field of fire only: not at what's behind it.
   const g = quiet(); g.level = 9; g.st.slots = 0;
-  const mg = addPad(g, 'mg', 0), behind = spawnEnemy(g, 'tank', FRONT, 8), ahead = spawnEnemy(g, 'tank', FRONT, 26);
+  const mg = addPad(g, 'mg', 0), behind = spawnEnemy(g, 'tank', FRONT, 9), ahead = spawnEnemy(g, 'tank', FRONT, 24);
   for (const e of [behind, ahead]) { e.speed = e.vx = e.vz = 0; e.hp = 1e9; }
   const hits = { b: 0, a: 0 };
   run(g, 3, () => { for (const sh of g.shots) if (sh.src === 'MG') { if (sh.target === behind.id) hits.b++; if (sh.target === ahead.id) hits.a++; } });
-  ok(Math.hypot(behind.x - mg.x, behind.z - mg.z) < 15 && hits.b === 0 && hits.a > 0, `MG fires ahead, not behind (${hits.a}/${hits.b})`);
-  // Crossfire: the inner MG covers the same contact, so both hit harder.
-  addPad(g, 'mg', 1); g.shots.length = 0;
+  ok(Math.hypot(behind.x - mg.x, behind.z - mg.z) <= MG_TIERS[0].range && hits.b === 0 && hits.a > 0, `MG fires ahead, not behind (${hits.a}/${hits.b})`);
+  // Crossfire: an inner MANTIS covers the same contact, so the MG hits harder.
+  addPad(g, 'mantis', 1); g.shots.length = 0;
   let dmg = 0;
   run(g, 0.5, () => { for (const sh of g.shots) if (sh.src === 'MG' && sh.target === ahead.id) dmg = Math.max(dmg, sh.dmg); });
   ok(Math.abs(dmg - MG_TIERS[0].dmg * g.st.padDmg * (1 + CROSSFIRE)) < 1e-9, `crossfire: +${CROSSFIRE * 100}% inside two fields of fire`);
-  // The coverage map [O] agrees: crossfire ahead, a gap behind both guns, and a gun that's down covers nothing.
+  // The coverage map [O] agrees: crossfire ahead, a gap behind the base, and a gun that's down covers nothing.
   const at = (r: number) => coverage(g)(Math.cos(FRONT) * r, Math.sin(FRONT) * r);
-  ok(at(26) === 2 && at(8) === 0, `coverage: 2 guns ahead, none behind (${at(26)}/${at(8)})`);
-  g.perim[0].down = true; ok(at(26) === 1, 'coverage skips a unit that is down'); g.perim[0].down = false;
+  ok(at(24) === 2 && at(-8) === 0, `coverage: 2 guns ahead, none behind (${at(24)}/${at(-8)})`);
+  g.perim[0].down = true; ok(at(24) === 1, 'coverage skips a unit that is down'); g.perim[0].down = false;
 }
 {
   // Auto-place goes where it adds the most: with the front covered and the flanks open, an inner flank slot.
@@ -322,15 +323,15 @@ const addPad = (g: State, k: string, slot: number) => { g.credits += 1e6; ok(buy
   ok(first === cm.id, 'the SAM takes the cruise missile first');
 }
 
-// The starting kit: one AA machine gun facing the front, eyes, and no radar or Patriot.
+// The starting kit: a section of AA machine guns facing the front, eyes, and no radar or Patriot.
 {
   const g = newGame(); g.phase = 'play'; g.spawnAcc = -1e9; g.nextRaid = g.nextElite = 1e9;
-  const mg = g.perim[0], off = Math.abs(Math.atan2(mg.z, mg.x) - FRONT);
-  ok(g.perim.length === 1 && mg.k === 'mg' && off < 0.5 && !g.st.radar && !g.st.weapons.cannon && !emitting(g), 'start: one MG on the front, no radar, no Patriot');
+  const mg = g.perim[0], mgA = Math.atan2(mg.z, mg.x), off = (p: { x: number; z: number }) => Math.abs(Math.atan2(p.z, p.x) - FRONT);
+  ok(g.perim.length === START_PADS.length && g.perim.every(p => p.k === 'mg' && off(p) < 0.5) && !g.st.radar && !g.st.weapons.cannon && !emitting(g), 'start: two MGs on the front, no radar, no Patriot');
   // Eyes: the base sees VISUAL_R all round, an emplacement sees PAD_EYES round itself; beyond that, nothing.
   const near = spawnEnemy(g, 'tank', FRONT + Math.PI, VISUAL_R - 2), far = spawnEnemy(g, 'tank', FRONT + Math.PI, VISUAL_R + 4);
-  const fwd = spawnEnemy(g, 'tank', FRONT, Math.hypot(mg.x, mg.z) + PAD_EYES - 2);
-  for (const e of [near, far, fwd]) { e.speed = e.vx = e.vz = 0; e.hp = 1e9; }
+  const fwd = spawnEnemy(g, 'tank', mgA, Math.hypot(mg.x, mg.z) + PAD_EYES - 2), inReach = spawnEnemy(g, 'tank', mgA + 0.05, Math.hypot(mg.x, mg.z) + MG_TIERS[0].range - 2); // eyes reach further than the gun
+  for (const e of [near, far, fwd, inReach]) { e.speed = e.vx = e.vz = 0; e.hp = 1e9; }
   run(g, 0.5);
   ok(visible(g, near) && visible(g, fwd) && !visible(g, far), 'eyes: close to the base or to an emplacement');
   ok(g.enemies.every(e => !e.locked), 'no radar: no locks');
@@ -353,14 +354,15 @@ const addPad = (g: State, k: string, slot: number) => { g.credits += 1e6; ok(buy
 }
 {
   const g = newGame(); g.phase = 'play'; g.spawnAcc = -1e9; g.nextRaid = g.nextElite = 1e9; g.st.maxHp = g.hp = 1e9;
-  const e = spawnEnemy(g, 'drone', FRONT, 40);
+  g.perim.length = 1; // one of the starting pair, on its own
+  const e = spawnEnemy(g, 'drone', Math.atan2(g.perim[0].z, g.perim[0].x), 40);
   run(g, 15);
-  ok(!g.enemies.includes(e) && g.kills === 1 && g.hp === g.st.maxHp, 'the MG alone stops a Shahed from the front');
+  ok(!g.enemies.includes(e) && g.kills === 1 && g.hp === g.st.maxHp, 'one MG alone stops a Shahed coming at it');
   ok(g.perim[0].kills === 1 && g.stats.perim.mg === 1, 'the MG is credited with its kill');
   // Veterancy: kills make the unit better, and the step to a new rank is announced.
   const mg = g.perim[0], green = padStats(g, mg);
   mg.kills = VETERANCY[1].kills - 1; let ranked = false;
-  const d = spawnEnemy(g, 'drone', FRONT, 30); run(g, 15, () => { ranked ||= g.events.some(e => e.k === 'padRank' && e.n === 1); });
+  const d = spawnEnemy(g, 'drone', Math.atan2(mg.z, mg.x), 30); run(g, 15, () => { ranked ||= g.events.some(e => e.k === 'padRank' && e.n === 1); });
   ok(!g.enemies.includes(d) && mg.kills === VETERANCY[1].kills && ranked, 'a gun ranks up on its kills');
   const vet = padStats(g, mg);
   ok(vet.dmg > green.dmg && vet.rate > green.rate, 'a ranked gun hits harder and fires faster');
@@ -424,8 +426,8 @@ if (v) { markAt(s, v.x, v.z); ok(s.marked === v.id, 'markAt'); }
 // Emergency intercept: costs power, starts a cooldown, puts every weapon on one target.
 {
   const g = quiet(); g.lv.pulse = 1; g.st = deriveStats(g.lv, []); g.st.slots = 3;
-  const far = spawnEnemy(g, 'tank', 0, 30), near = spawnEnemy(g, 'tank', 2, 20);
-  far.hp = far.maxHp = near.hp = near.maxHp = 1e9;
+  const far = spawnEnemy(g, 'tank', 0, 30), near = spawnEnemy(g, 'tank', 2, 9); // inside the laser's reach
+  far.hp = far.maxHp = near.hp = near.maxHp = 1e9; far.cd = near.cd = 1e9; // holding their ATGMs: only the two of them in the air
   run(g, 3);
   ok(interceptBlock(g) === '', 'intercept ready');
   const pw = g.power;
@@ -479,7 +481,7 @@ ok(s.power >= pw, 'silent radar draws no power');
   const [foc, act] = [avg(1), avg(0)];
   ok(foc < act * 0.7, `FOCUSED detects faster on its bearing (${foc.toFixed(2)}s vs ${act.toFixed(2)}s)`);
   ok(firstSeen(1, Math.PI, 30) === Infinity, 'FOCUSED is blind off its bearing');
-  ok(firstSeen(1, 0, 50) < Infinity && firstSeen(0, 0, 50) === Infinity, 'FOCUSED reaches further');
+  ok(firstSeen(1, 0, 78) < Infinity && firstSeen(0, 0, 78) === Infinity, 'FOCUSED reaches further'); // ACTIVE 68 m, FOCUSED 88
   const g = quiet(); cycleRadarMode(g); cycleRadarMode(g);
   ok(g.radarMode === 2 && radarRange(g) < g.st.radarRange, 'V cycles to LPI, which sees less');
 }
@@ -552,7 +554,7 @@ ok(armSeen, 'Su-34 fires ARMs');
 {
   // Ka-52: settles at standoff (exposed), masks in the trees, pops up to fire ATGM pairs at your nearest unit, then leaves.
   const g = quiet(); g.level = 9; g.st.slots = 0; g.st.maxHp = g.hp = 1e9;
-  const obs = addPad(g, 'observer', 5);
+  const obs = addPad(g, 'observer', 5); g.st.slots = 0; // after the buy, which refreshes the stats: no Patriot shooting the ATGMs down
   const h = spawnEnemy(g, 'ka52', FRONT, 45); h.hp = 1e9;
   let settle = false, atUnit = 0, masked = false, exposedSettling = false, closest = 99;
   run(g, 20, () => {
@@ -709,7 +711,7 @@ ok(raidRun(0).includes('raidLeak'), 'leaked raid does not');
   run(g, 20);
   ok(!g.raidClean && g.stats.radarHits > 0, 'ARM hit loses PROTECT RADAR');
   const h = newGame(); h.phase = 'play'; h.spawnAcc = -1e9; h.nextElite = 1e9; h.stage = SEAD; h.nextRaid = RAID_WARN;
-  for (let i = 0; i < 30 && (!h.raid || h.raid.name !== 'SEAD STRIKE'); i++) { h.raid = null; h.nextRaid = h.t + RAID_WARN; run(h, 1 / 60); }
+  for (let i = 0; i < 300 && (!h.raid || h.raid.name !== 'SEAD STRIKE'); i++) { h.raid = null; h.nextRaid = h.t + RAID_WARN; run(h, 1 / 60); }
   ok(h.raid?.name === 'SEAD STRIKE' && h.raid.obj === 'battery', 'no radar yet: SEAD STRIKE is PROTECT BATTERY');
 }
 
@@ -969,7 +971,7 @@ ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies stan
 {
   // Su-35S: holds station, fires Kh-58s only while the radar radiates, goes home when it's out.
   const g = quiet(); g.st.slots = 0; g.st.maxHp = g.hp = 1e9; g.radarDownUntil = 0;
-  const f = spawnEnemy(g, 'sead', FRONT, 50); f.hp = 1e9;
+  const f = spawnEnemy(g, 'sead', FRONT, SEAD_FTR.standoff + 10); f.hp = 1e9;
   toggleEmcon(g);
   let launches = 0, closest = 99;
   const count = () => { launches += g.events.filter(v => v.k === 'arm' && v.kind === 'arm2').length; if (g.enemies.includes(f)) closest = Math.min(closest, Math.hypot(f.x, f.z)); g.enemies = g.enemies.filter(e => e.kind !== 'arm2'); }; // its missiles taken away, so the radar stays up
