@@ -165,6 +165,7 @@ Keep the game runnable after each step.
    - **Levels follow section 4 now:** FPVs at 2, helicopters and decoys at 3, flank Shaheds at 4, cruise missiles and jammers at 5, SEAD (Su-34s, ARMs, Iskanders) at 6. The Su-34 was the level-4 wall: a 160-HP jet about 60 s after the Patriot came online.
    - **Late game:** each level past the scripted six adds +50% enemy HP and spawn rate (`LOOP_PRESS`), and time growth is a little steeper. A full line of guns outgrew the log curve and survived indefinitely.
    - **Balance bots:** the default bot now fills open slots with guns (like a player); `naive` keeps the old cheapest-first bot. Default: median ~19 min (L14); naive: 8:29 (dies in SEAD).
+   - **Perks** (`npm run balance -- 8 1500`): HAIR TRIGGER and FORTRESS are no longer weak. GLASS CANNON ran to the cap (a gun line barely misses hull), so it's +60% damage now (was +100%): median 21:58 against 19:33.
 
 ## Done when
 - In levels 1–3 everything arrives from the front, and a single MG then a small line can hold it.
