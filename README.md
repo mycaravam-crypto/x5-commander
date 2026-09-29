@@ -116,7 +116,7 @@ Perimeter pads (units): **12.7 mm AA MGs** (from the start), **MANTIS 35mm C-RAM
 
 | Belt         | Distance | Trade-off                                                                                   |
 |--------------|----------|---------------------------------------------------------------------------------------------|
-| Forward line | 30 m     | engages first; belts reload 50% slower without an ammo point; FPVs and Lancets that pass within 3 m dive on the unit |
+| Forward line | 30 m     | engages first; belts reload 50% slower without an ammo point; FPVs that pass within 3 m dive on the unit (Lancets hunt units on every belt, within 5 m) |
 | Main line    | 17 m     | balanced                                                                                    |
 | Inner ring   | 11 m, all round | safe, covers the flanks, engages late                                                 |
 
@@ -179,16 +179,16 @@ Spawn rate, HP and damage grow **logarithmically** with play time, and raid size
 
 | Threat                      | Notes                                     |
 |-----------------------------|-------------------------------------------|
-| Lancet-3 loitering munition | Fast, low signature, erratic              |
-| Shahed-136 attack drone     | Standard                                  |
+| Lancet-3 loitering munition | Fast, low signature, erratic. **Hunts:** dives on any unit it passes within 5 m of; otherwise circles about 26 m out for 3 s, searching, then dives on the battery |
+| Shahed-136 attack drone     | Slow and straight, then a fast terminal dive over the last 10 m |
 | FPV strike swarm            | Weak, arrives in packs of 6, hard to see  |
-| Mi-28NM attack helicopter   | Slow, tough, hits hard                    |
-| Su-34 strike fighter        | Very tough, big reward, launches ARMs     |
-| Gerbera decoy               | Looks like a Shahed, harmless, no reward  |
+| Mi-28NM attack helicopter   | Slow and tough. Never comes in: **hovers about 26 m out** and fires 4 Ataka anti-tank missiles (shootable, 4 s apart), then flies home |
+| Su-34 strike fighter        | Very tough, big reward, launches ARMs. **Releases two KAB glide bombs** about 32 m out, then turns for home: kill it before it lets go. The bombs are slow but heavy (35 HP) and hit hard |
+| Gerbera decoy               | Looks like a Shahed and flies the same profile, dive included. Harmless, no reward |
 | Kh-31P anti-radiation missile | Very fast, knocks the radar offline     |
 | Mi-8MTPR-1 EW helicopter    | Stands off and jams a sector              |
-| Iskander-M ballistic missile | Very fast, big radar return, hits hard. **Only PAC-3 can hit it** |
-| Kh-101 cruise missile       | Fast, low and weaving, can come from the flanks. **Goes for your most valuable unit** (the one you've spent the most on) and knocks it out in one hit; the base only when no unit is up. Flies under the radar horizon: radar sees it only within 60% of its range. Every launch is announced with its bearing and target |
+| Iskander-M ballistic missile | Very fast, big radar return, hits hard. Straight in, then **jinks hard over the last 25 m**. **Only PAC-3 can hit it** |
+| Kh-101 cruise missile       | Fast, low and weaving, can come from the flanks. Flies a dogleg off its launch bearing, so it turns in from somewhere else. **Goes for your most valuable unit** (the one you've spent the most on) and knocks it out in one hit; the base only when no unit is up. Flies under the radar horizon: radar sees it only within 60% of its range. Every launch is announced with its bearing and target |
 
 ### The battery
 The base is laid out like a Patriot site. Every base level builds something that changes what it can do, plus an M903 launcher once you have the Patriot (up to 8), and 2 more perimeter pads:
