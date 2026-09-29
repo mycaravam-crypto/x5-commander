@@ -1,9 +1,9 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, LEVEL_LEN, BUILD_TIME, BUILD_LOST, ELITE_FROM, PK_GROW, PK_MAX, EW_GROW, EW_MAX,
   TERRAIN, ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, FANS, beltAt, buildR, BUILD_MIN, PAD_GAP, START_PAD, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, VETERANCY, vetRank, deriveStats, difficulty, BACKUP_RADAR,
-  BIG_KILLS, BIG_KILL_SHAKE, DROPS, DROP_KINDS, DROP_LIFE, DROP_GRAB, DROP_MAX, DROP_HEAVY, CACHE, REPAIR_DROP, OVERDRIVE, MILESTONE, rank,
+  BIG_KILLS, BIG_KILL_SHAKE, DROPS, DROP_KINDS, DROP_GRAB, DROP_MAX, DROP_HEAVY, CACHE, REPAIR_DROP, OVERDRIVE, MILESTONE, rank,
   RADAR_MODES, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
-  TRAINING, TRAINING_BUILD, TRAINING_SEED, DIVE_SPEED, SHAHED_DIVE, LANCET, HELO, KAB_R, KAB_PAIR, KAB_FIRST, EGRESS_SPEED, TERMINAL, CRUISE_DOGLEG, CRUISE_TERMINAL, KA52, SWARM, RECON, MASK, IR_SEEKER, horizon, flightAlt, MUNITIONS, AGILITY, HOMING_BOOST, HOMING_SNAP,
+  TRAINING, TRAINING_BUILD, TRAINING_SEED, DIVE_SPEED, SHAHED_DIVE, LANCET, HELO, KAB_R, KAB_PAIR, KAB_FIRST, EGRESS_SPEED, TERMINAL, CRUISE_DOGLEG, CRUISE_TERMINAL, KA52, SU25, SEAD, ARM2, ARMS, SWARM, RECON, MASK, IR_SEEKER, horizon, flightAlt, MUNITIONS, AGILITY, HOMING_BOOST, HOMING_SNAP,
   type EnemyKind, type DropKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
 } from './config.ts';
 import { ground, setMap, site, type Site } from './terrain.ts';
@@ -22,9 +22,9 @@ export interface Enemy {
   orbit: boolean; // Mi-8 jammer: on station and jamming
   raid: number; // id of the raid it belongs to, 0 = none
   pkg: number; // id of the attack package or raid group it flies with, 0 = none
-  hold: number; // Mi-8 jammer: bearing it holds station on (its own, or its package's)
+  hold: number; // Mi-8 jammer: bearing it holds station on (its own, or its package's) · Su-35S: s it waits on station
   tgt: number; // cruise missile, Ka-52's ATGM: slot of the unit it's going for, -1 = the base
-  pop: number; // Ka-52: s left exposed (settling, or popped up to fire); masked in the trees otherwise
+  pop: number; // Ka-52: s left exposed (settling, or popped up to fire), masked in the trees otherwise · Su-25: s left of its pop-up, flares out
 }
 // in: inbound · loiter: Lancet circling, searching · dive: terminal dive (a cruise missile's pop-up) · hover: Mi-28 or
 // Ka-52 firing from standoff ·
@@ -51,7 +51,7 @@ export type Ev =
   | { k: 'level' | 'warning' | 'buy' | 'placing' | 'lock' | 'over' | 'trained' | 'emcon' | 'radarDown' | 'aesa' | 'radarOnline' | 'pac3' | 'discipline' | 'radarMode' | 'killChain' | 'counterSead' | 'lastStand' };
 
 export type Phase = 'start' | 'play' | 'pause' | 'perk' | 'over';
-export interface Drop { id: number; k: DropKind; x: number; z: number; until: number; v: number } // v: the kill's reward (a cache scales with it)
+export interface Drop { id: number; k: DropKind; x: number; z: number; v: number } // v: the kill's reward (a cache scales with it); on the ground until clicked
 export interface Pad { k: PerimKind; x: number; z: number; a: number; slot: number; cd: number; belt: number; hp: number; tier: number; paid: number; down: boolean; site: Site; kills: number }
 
 // mulberry32: tiny seeded PRNG, so a seed replays the same schedule (daily op, tests).
@@ -469,7 +469,7 @@ export function rollDrop(s: State, kind: EnemyKind, x: number, z: number, r = Ma
   return spawnDrop(s, k, x, z, ENEMIES[kind].reward);
 }
 export function spawnDrop(s: State, k: DropKind, x: number, z: number, v = 10) {
-  const d: Drop = { id: ++s.stats.drops, k, x, z, until: s.t + DROP_LIFE, v }; // own counter: enemy ids stay as they were
+  const d: Drop = { id: ++s.stats.drops, k, x, z, v }; // own counter: enemy ids stay as they were
   s.drops.push(d);
   s.events.push({ k: 'drop', x, z, drop: k });
   return d;
@@ -609,7 +609,6 @@ export function update(s: State, dt: number) {
     if (q) placePad(s, q.x, q.z);
   }
   moveShots(s, dt);
-  for (let i = s.drops.length - 1; i >= 0; i--) if (s.t >= s.drops[i].until) s.drops.splice(i, 1);
   const ls = lastStand(s);
   if (ls !== s.lastStand) { s.lastStand = ls; if (ls) s.events.push({ k: 'lastStand' }); }
   if (s.training) s.hp = Math.max(1, s.hp); // training can't be lost
@@ -630,8 +629,8 @@ export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2
     hp, maxHp: hp, speed, dmg: T.dmg * d.dmg,
     reward: T.reward, size: T.size, seenUntil: -1, locked: false, incoming: 0, wob: rnd() * TAU,
     born: s.t, cd: kind === 'tank' ? 1 : kind === 'scout' ? LANCET.time : kind === 'recon' ? RECON.time : 3, act: 'in',
-    ammo: kind === 'tank' ? HELO.ammo : kind === 'ka52' ? KA52.ammo : kind === 'elite' ? (s.stage <= ELITE_FROM ? KAB_FIRST : KAB_PAIR) : 0,
-    wx: NaN, wz: NaN, aim: NaN, lockT: 0, ided: false, orbit: false, raid: 0, pkg: 0, hold: kind === 'ew' ? a : NaN, tgt: -1, pop: 0,
+    ammo: kind === 'tank' ? HELO.ammo : kind === 'ka52' ? KA52.ammo : kind === 'su25' ? SU25.passes : kind === 'sead' ? SEAD.ammo : kind === 'elite' ? (s.stage <= ELITE_FROM ? KAB_FIRST : KAB_PAIR) : 0,
+    wx: NaN, wz: NaN, aim: NaN, lockT: 0, ided: false, orbit: false, raid: 0, pkg: 0, hold: kind === 'ew' ? a : kind === 'sead' ? SEAD.time : NaN, tgt: -1, pop: 0,
   });
   const e = s.enemies[s.enemies.length - 1];
   if (flies(kind) === 'cruise') {
@@ -642,7 +641,7 @@ export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2
   }
   // ESM / early warning hears the launch, radar or not (a cruise missile's warning says what it's going for). A Kinzhal
   // is a ballistic launch; a Kh-55 decoy is announced as the cruise missile it copies.
-  const heard = ENEMIES[kind].ballistic ? 'tbm' : flies(kind);
+  const heard = ENEMIES[kind].ballistic ? 'tbm' : ARMS.includes(kind) ? 'arm' : flies(kind);
   if (heard === 'arm' || heard === 'tbm' || heard === 'cruise') s.events.push({ k: heard, x, z, n: e.tgt, kind });
   return e;
 }
@@ -777,9 +776,9 @@ function isolation(s: State) {
   for (const p of s.perim) out.set(p.slot, guns.reduce((n, g) => n + +(g.p !== p && covers(g.p, p.x, p.z, g.r)), 0));
   return out;
 }
-// The unit a Ka-52 fires on: the nearest one up in reach that the treeline doesn't hide, else the battery.
-export function ka52Target(s: State, e: { x: number; z: number }) {
-  let best: Pad | undefined, bd = KA52.reach ** 2;
+// The unit a Ka-52 or Su-25 fires on: the nearest one up within `reach` that the treeline doesn't hide, else the battery.
+export function nearestUnit(s: State, e: { x: number; z: number }, reach: number) {
+  let best: Pad | undefined, bd = reach ** 2;
   for (const p of s.perim) {
     const d = (p.x - e.x) ** 2 + (p.z - e.z) ** 2;
     if (!p.down && p.site !== 'treeline' && d < bd) { bd = d; best = p; }
@@ -803,19 +802,21 @@ function moveEnemies(s: State, dt: number) {
     const pvx = e.vx, pvz = e.vz;
     let homing = 0; // 1: homing on a unit or waypoint, 2: close enough to fly straight at it
     if (e.pop > 0) e.pop -= dt;
-    if (e.kind === 'arm') {
+    if (ARMS.includes(e.kind)) {
       steerArm(s, e, dt);
       // Out of motor, or veered off past the arena: it's gone.
-      if (s.t - e.born > ARM_LIFE || d > ARENA_R + 12) {
+      if (s.t - e.born > (e.kind === 'arm2' ? ARM2.life : ARM_LIFE) || d > ARENA_R + 12) {
         if (d < ARENA_R) s.events.push({ k: 'hit', x: e.x, z: e.z, n: 2 });
         s.stats.armsEvaded++;
         removeAt(s, i); continue;
       }
     } else if (e.act === 'egress') {
-      // Heading home: straight out, and gone at the rim.
+      // Heading home: straight out, and gone at the rim. A Su-25 with a pass left breaks away, banks round far enough
+      // out and comes back in for the next one.
       const sp = e.speed * EGRESS_SPEED;
       e.vx = -nx * sp; e.vz = -nz * sp;
-      if (d > ARENA_R + 4) { removeAt(s, i); continue; }
+      if (e.kind === 'su25' && e.ammo > 0 && d > SU25.turn) e.act = 'in';
+      else if (d > ARENA_R + 4) { removeAt(s, i); continue; }
     } else {
       // Ballistic missiles fly a straight path, then jink hard (and a Kinzhal speeds up) on the way down.
       const T = TERMINAL[e.kind], term = !!T && d < T.r;
@@ -862,10 +863,27 @@ function moveEnemies(s: State, dt: number) {
         e.vx = -nz * drift - nx * pull; e.vz = nx * drift - nz * pull;
         if ((e.cd -= dt) <= 0) {
           e.cd = KA52.every; e.pop = KA52.pop;
-          const p = ka52Target(s, e);
+          const p = nearestUnit(s, e, KA52.reach);
           for (let n = 0; n < KA52.salvo && e.ammo > 0; n++, e.ammo--) launch(s, e, 'atgm', d, (n - (KA52.salvo - 1) / 2) * 0.05, p?.slot ?? -1);
           if (e.ammo <= 0) { e.act = 'egress'; s.events.push({ k: 'egress', x: e.x, z: e.z, kind: e.kind }); }
         }
+      }
+      // Su-25 attack run: at SU25.release it pops up, flares out, fires an S-8 salvo at the nearest unit in reach (the
+      // battery if none) and breaks away (egress, above), coming round again while it has passes left.
+      if (e.kind === 'su25' && e.act === 'in' && d <= SU25.release) {
+        const p = nearestUnit(s, e, SU25.reach);
+        for (let n = 0; n < SU25.salvo; n++) launch(s, e, 'rocket', d, (n - (SU25.salvo - 1) / 2) * SU25.spread, p?.slot ?? -1);
+        e.pop = SU25.pop; e.ammo--; e.act = 'egress';
+        s.events.push({ k: 'egress', x: e.x, z: e.z, kind: e.kind, n: e.ammo });
+      }
+      // Su-35S SEAD: holds station out on the front, circling, and fires Kh-58s while the radar radiates; home once
+      // it's out of them or has waited long enough.
+      if (e.kind === 'sead' && (e.orbit || d <= SEAD.standoff)) {
+        e.orbit = true;
+        const dir = e.wob < Math.PI ? 1 : -1, pull = (d - SEAD.standoff) * 0.5;
+        e.vx = -nz * dir * sp + nx * pull; e.vz = nx * dir * sp + nz * pull;
+        if ((e.cd -= dt) <= 0 && emitting(s)) { e.cd = SEAD.every * radarMode(s).armEvery; launch(s, e, 'arm2', d); e.ammo--; }
+        if (e.ammo <= 0 || (e.hold -= dt) <= 0) { e.act = 'egress'; e.orbit = false; s.events.push({ k: 'egress', x: e.x, z: e.z, kind: e.kind }); }
       }
       // Su-34: releases its pair of glide bombs from standoff, then turns for home.
       if (e.kind === 'elite' && e.ammo > 0 && d <= KAB_R) {
@@ -906,13 +924,13 @@ function moveEnemies(s: State, dt: number) {
       const sp = e.speed * (term ? CRUISE_TERMINAL.speed : 1);
       e.vx = dx / dd * sp - dz / dd * w; e.vz = dz / dd * sp + dx / dd * w;
     }
-    // A Ka-52's ATGM flies at the unit it was fired at (the base if that's down by then).
-    if (e.kind === 'atgm' && e.tgt >= 0) {
+    // A Ka-52's ATGM or a Su-25's rocket flies at the unit it was fired at (the base if that's down by then).
+    if (ENEMIES[e.kind].padHit && e.tgt >= 0) {
       const p = s.perim.find(q => q.slot === e.tgt && !q.down);
       if (!p) e.tgt = -1;
       else {
         const dx = p.x - e.x, dz = p.z - e.z, dd = Math.hypot(dx, dz) || 1;
-        if (dd < 1) { hitPad(s, p, e.dmg * KA52.padHit * (spotted(s, e) ? RECON.dmg : 1)); removeAt(s, i); continue; }
+        if (dd < 1) { hitPad(s, p, e.dmg * ENEMIES[e.kind].padHit! * (spotted(s, e) ? RECON.dmg : 1)); removeAt(s, i); continue; }
         homing = dd < HOMING_SNAP ? 2 : 1;
         e.vx = dx / dd * e.speed; e.vz = dz / dd * e.speed;
       }
@@ -939,13 +957,13 @@ function moveEnemies(s: State, dt: number) {
         homing = dd < HOMING_SNAP ? 2 : 1;
       }
     }
-    if (e.kind !== 'arm' && homing < 2) steer(e, pvx, pvz, dt, homing ? HOMING_BOOST : 1);
+    if (!ARMS.includes(e.kind) && homing < 2) steer(e, pvx, pvz, dt, homing ? HOMING_BOOST : 1);
     e.x += e.vx * dt; e.z += e.vz * dt;
     if (d < BASE_R + e.size * 0.5) {
       // Objective lost: PROTECT BATTERY by anything of the raid landing, PROTECT RADAR by any ARM hit while it's on.
-      if (s.raidClean && s.raidLeft && (s.raidObj === 'radar' ? e.kind === 'arm' : e.raid === s.raidId && e.dmg > 0)) raidLost(s);
-      if (e.kind === 'arm' && s.st.radar) {
-        const stun = ARM_STUN * s.st.armStun;
+      if (s.raidClean && s.raidLeft && (s.raidObj === 'radar' ? ARMS.includes(e.kind) : e.raid === s.raidId && e.dmg > 0)) raidLost(s);
+      if (ARMS.includes(e.kind) && s.st.radar) {
+        const stun = ARM_STUN * s.st.armStun * (e.kind === 'arm2' ? ARM2.stun : 1);
         s.radarDownUntil = Math.min(Math.max(s.radarDownUntil, s.t) + stun, s.t + 2 * stun);
         s.events.push({ k: 'radarDown' });
         s.stats.radarHits++;
@@ -989,8 +1007,20 @@ function steer(e: Enemy, pvx: number, pvz: number, dt: number, boost: number) {
 
 // Homes on the radar while it radiates. When it goes dark the seeker loses the emitter and the missile
 // swings ARM_VEER off its last heading; the turn rate is limited, so a late EMCON still eats the hit.
+// A Kh-58 remembers instead: it flies on at where it last heard the radar, off to the side of its path by up to
+// ARM2.scatter (its own draw, from e.wob), so it hits only if that's close enough.
 function steerArm(s: State, e: Enemy, dt: number) {
-  if (emitting(s) && (!radarMode(s).lpi || e.x * e.x + e.z * e.z < LPI_R * LPI_R)) e.aim = NaN;
+  const heard = emitting(s) && (!radarMode(s).lpi || e.x * e.x + e.z * e.z < LPI_R * LPI_R);
+  if (heard) { e.aim = NaN; e.wx = e.wz = NaN; }
+  else if (e.kind === 'arm2') {
+    if (Number.isNaN(e.wx)) {
+      const h = Math.atan2(e.vz, e.vx), off = ARM2.scatter * (e.wob / Math.PI - 1); // -scatter..scatter, across its heading
+      e.wx = -Math.sin(h) * off; e.wz = Math.cos(h) * off;
+    }
+    // Past the remembered point it can't see anything to turn toward: straight on until the motor quits.
+    if ((e.wx - e.x) * e.vx + (e.wz - e.z) * e.vz > 0) e.aim = Math.atan2(e.wz - e.z, e.wx - e.x);
+    else if (Number.isNaN(e.aim)) e.aim = Math.atan2(e.vz, e.vx);
+  }
   else if (Number.isNaN(e.aim)) e.aim = Math.atan2(e.vz, e.vx) + (e.wob < Math.PI ? ARM_VEER : -ARM_VEER);
   const h = Math.atan2(e.vz, e.vx), want = Number.isNaN(e.aim) ? Math.atan2(-e.z, -e.x) : e.aim;
   const nh = h + Math.max(-ARM_TURN * dt, Math.min(ARM_TURN * dt, angDiff(want, h)));
@@ -1003,7 +1033,7 @@ function launch(s: State, e: Enemy, kind: EnemyKind, d: number, off = 0, tgt = -
   const r = { seed: e.id * 7919 + s.nextId }; // seeded off the launcher: a daily's raids end the same way whatever else draws randoms
   const m = spawnEnemy(s, kind, Math.atan2(e.z, e.x) + off, d - 1, () => rand(r));
   m.tgt = tgt;
-  if (kind !== 'arm') s.events.push({ k: 'release', x: e.x, z: e.z, kind, n: tgt }); // ARMs announce themselves (spawnEnemy)
+  if (!ARMS.includes(kind)) s.events.push({ k: 'release', x: e.x, z: e.z, kind, n: tgt }); // ARMs announce themselves (spawnEnemy)
   if (e.raid && e.raid === s.raidId) { m.raid = e.raid; s.raidLeft++; }
   return m;
 }
@@ -1014,9 +1044,10 @@ function jammed(s: State, e: Enemy) {
   return s.perim.some(p => p.k === 'jammer' && up(p) && (e.x - p.x) ** 2 + (e.z - p.z) ** 2 < r2);
 }
 
-const isMissile = (e: Enemy) => MUNITIONS.includes(e.kind);
+const isMissile = (e: Enemy) => MUNITIONS.includes(e.kind) && e.kind !== 'rocket'; // S-8s aren't worth a SAM
 // IR seekers (Stinger, IRIS-T) lock harder on a hot target: damage x by its heat signature.
-export const irHit = (e: Enemy) => 1 + IR_SEEKER * (ENEMIES[e.kind].ir - 1);
+// A Su-25 on its attack run has flares out: IR seekers get SU25.flares of that.
+export const irHit = (e: Enemy) => (1 + IR_SEEKER * (ENEMIES[e.kind].ir - 1)) * (e.kind === 'su25' && e.pop > 0 ? SU25.flares : 1);
 // Pads engage the closest visible contact in their range and field of fire; no lock slot needed. Repairs run here too.
 function perimeter(s: State, dt: number) {
   const r2 = PERIM.jammer.range ** 2;
@@ -1385,7 +1416,7 @@ function damage(s: State, e: Enemy, dmg: number, src: string, pad?: number) {
   s.events.push({ k: 'kill', x: e.x, z: e.z, kind: e.kind, n: gain });
   rollDrop(s, e.kind, e.x, e.z);
   if (s.st.chain) explode(s, e.x, e.z, 4, s.st.chain, 'CHAIN');
-  if (s.st.counterSead && e.kind === 'arm') { s.power = Math.min(s.st.powerCap, s.power + s.st.powerCap * COUNTER_SEAD); s.events.push({ k: 'counterSead' }); }
+  if (s.st.counterSead && ARMS.includes(e.kind)) { s.power = Math.min(s.st.powerCap, s.power + s.st.powerCap * COUNTER_SEAD); s.events.push({ k: 'counterSead' }); }
   if (s.st.killChain && ++s.chainKills >= KILL_CHAIN.every) { s.chainKills = 0; s.chainUntil = s.t + KILL_CHAIN.time; s.events.push({ k: 'killChain' }); }
   if (s.st.overkill && excess > 0.5) { // OVERKILL: what's left over jumps to the nearest contact
     let next: Enemy | null = null, bd = OVERKILL_R ** 2;

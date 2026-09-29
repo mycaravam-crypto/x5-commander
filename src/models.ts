@@ -148,6 +148,34 @@ export function enemyGeos(): Record<EnemyKind, THREE.BufferGeometry> {
       box(0.22, 0.03, 1.0, -0.02, -0.08),
       ...[-0.46, 0.46].map(z => tube(0.06, 0.06, 0.34, -0.02, -0.16, z)),
     ),
+    // Su-25: straight tapered wing with pylons, engine nacelles hugging the fuselage, tall tail.
+    su25: merge(
+      tube(0.1, 0.12, 1.3, 0), nose(0.1, 0.35, 0.65), box(0.25, 0.1, 0.16, 0.45, 0.12),
+      tube(0.1, 0.1, 0.6, -0.15, -0.02, 0.17), tube(0.1, 0.1, 0.6, -0.15, -0.02, -0.17),
+      wing([[0.22, 0.1], [0.02, 0.9], [-0.14, 0.9], [-0.18, 0.1]], 0.03),
+      ...[0.35, 0.55, 0.75].flatMap(z => [tube(0.03, 0.03, 0.25, -0.02, -0.08, z), tube(0.03, 0.03, 0.25, -0.02, -0.08, -z)]),
+      wing([[-0.5, 0.05], [-0.62, 0.35], [-0.72, 0.35], [-0.7, 0.05]], 0.02, 0.2),
+      fin([[-0.45, 0], [-0.68, 0.42], [-0.78, 0.42], [-0.7, 0]], 0.03),
+    ),
+    // S-8: a thin rocket with flick-out fins.
+    rocket: merge(tube(0.05, 0.05, 0.9, -0.1), nose(0.05, 0.2, 0.35), ...[0, Math.PI / 2].map(a => wing([[-0.5, 0.05], [-0.55, 0.16], [-0.6, 0.16], [-0.6, 0.05]], 0.01).rotateX(a))),
+    // Su-35S: Flanker, slimmer than the Su-34 (pointed nose, no platypus), Kh-58s under the intakes.
+    sead: merge(
+      box(1.15, 0.16, 0.3, -0.05), nose(0.12, 0.5, 0.52), box(0.22, 0.1, 0.16, 0.45, 0.1),
+      tube(0.09, 0.09, 0.55, -0.4, -0.04, 0.12), tube(0.09, 0.09, 0.55, -0.4, -0.04, -0.12),
+      wing([[0.3, 0.14], [-0.32, 0.72], [-0.46, 0.72], [-0.5, 0.14]], 0.03),
+      wing([[-0.56, 0.14], [-0.8, 0.42], [-0.9, 0.42], [-0.88, 0.14]], 0.02),
+      ...[-1, 1].map(s => fin([[-0.48, 0], [-0.76, 0.34], [-0.88, 0.34], [-0.83, 0]], 0.02).rotateX(s * 0.15).translate(0, 0.07, s * 0.18)),
+      tube(0.05, 0.05, 0.6, 0, -0.14, 0.3), tube(0.05, 0.05, 0.6, 0, -0.14, -0.3),
+    ),
+    // Kh-58: long body, cruciform wings well forward, big tail fins.
+    arm2: merge(
+      tube(0.11, 0.11, 1.4, -0.1), nose(0.11, 0.4, 0.6),
+      ...[0, Math.PI / 2].flatMap(a => [
+        wing([[0.2, 0.1], [0.05, 0.38], [-0.08, 0.38], [-0.08, 0.1]], 0.02).rotateX(a),
+        wing([[-0.55, 0.1], [-0.72, 0.34], [-0.82, 0.34], [-0.82, 0.1]], 0.02).rotateX(a),
+      ]),
+    ),
     // Kinzhal: long slender cone, four small tail fins, diving steeply.
     hyper: merge(
       tube(0.14, 0.17, 1.2, -0.35, 0, 0, 8), nose(0.14, 0.75, 0.25, 0, 8),

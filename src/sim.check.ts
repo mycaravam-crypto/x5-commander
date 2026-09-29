@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
 import { newGame, update, stageInfo, spawnGroupAt, seedCode, parseCode, parseResult, buy, skipBuild, cruiseTarget, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive, noAmmo, spotted, irHit, shownKind, horizonMask } from './sim.ts';
-import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, TERRAIN, AMMO_RELOAD, GUNS, HELO, LANCET, MILESTONE, DROP_LIFE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE, VETERANCY, TRAINING, TRAINING_BUILD, DOCTRINES, RAIDS, EW_MAX, RECON, KA52, MASK, horizon, flightAlt, KINDS } from './config.ts';
+import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, TERRAIN, AMMO_RELOAD, GUNS, HELO, LANCET, MILESTONE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE, VETERANCY, TRAINING, TRAINING_BUILD, DOCTRINES, RAIDS, EW_MAX, RECON, KA52, SU25, SEAD as SEAD_FTR, ARM2, ARM_STUN, MASK, horizon, flightAlt, KINDS } from './config.ts';
 import { site, PONDS, ROCKS, FARMS, mapSeed, openShare, OPEN_MIN, ground, riverZ, RIVER_W } from './terrain.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
@@ -695,7 +695,7 @@ ok(raidRun(0).includes('raidLeak'), 'leaked raid does not');
   for (let i = 0; i < 400 * 60 && stages < 2; i++) {
     const n = g.nextId, was = building(g);
     update(g, 1 / 60);
-    if (was && building(g) && g.enemies.some(e => e.id >= n && !['arm', 'atgm', 'kab'].includes(e.kind))) quietBuild = false; // what aircraft still up fire is not a new contact
+    if (was && building(g) && g.enemies.some(e => e.id >= n && !['arm', 'arm2', 'atgm', 'kab', 'rocket'].includes(e.kind))) quietBuild = false; // what aircraft still up fire is not a new contact
     for (const e of g.events) if (e.k === 'stage') { stages++; t0 = g.t; }
     g.events.length = 0;
   }
@@ -739,7 +739,7 @@ ok(raidRun(0).includes('raidLeak'), 'leaked raid does not');
   const off = (e: { x: number; z: number }) => Math.abs(((Math.atan2(e.z, e.x) - FRONT + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI);
   let seen = g.nextId, front = 0, wide = 0, early = 0;
   run(g, 900, () => {
-    for (const e of g.enemies) if (e.id >= seen && !['arm', 'atgm', 'kab'].includes(e.kind)) { // launched where their aircraft are
+    for (const e of g.enemies) if (e.id >= seen && !['arm', 'arm2', 'atgm', 'kab', 'rocket'].includes(e.kind)) { // launched where their aircraft are
       if (ENEMIES[e.kind].flank) { ok(off(e) < flankArc(g.stage) + 0.2, `${e.kind} inside the flank arc`); if (off(e) > FRONT_ARC + 0.2) wide++; }
       else { ok(off(e) < FRONT_ARC + 0.2, `${e.kind} comes from the front (${off(e).toFixed(2)} rad)`); front++; }
       if (g.stage < 3) { ok(off(e) < FRONT_ARC + 0.2, `nothing off the front early (${e.kind} at ${g.t.toFixed(0)}s)`); early++; }
@@ -884,15 +884,16 @@ ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies stan
   ok(g.st.maxHp >= (100 + 40 * (MILESTONE + 1)) * Math.min(...PERKS.map(p => p.fx.hp ?? 1)) && toRank(g, 'hp') === MILESTONE, 'rank counts in the stats, next rank 5 buys away');
 }
 
-// Salvage: rare drops on kills, clicked to recover, lost if left.
+// Salvage: rare drops on kills, on the ground until clicked.
 {
   const g = quiet(), always = () => 0, never = () => 0.999;
   ok(!rollDrop(g, 'tank', 10, 0, never) && !rollDrop(g, 'decoy', 10, 0, always), 'drops are rare, decoys drop nothing');
   const d = rollDrop(g, 'tank', 10, 0, always)!;
   ok(d && g.drops.length === 1 && g.events.some(e => e.k === 'drop'), 'a kill can drop salvage');
   ok(!collectDrop(g, 30, 0) && g.drops.length === 1, 'clicking far away misses it');
-  run(g, DROP_LIFE + 0.5);
-  ok(g.drops.length === 0, 'unclaimed salvage is lost');
+  run(g, 120);
+  ok(g.drops.length === 1 && g.drops[0] === d, 'unclaimed salvage stays until it is clicked');
+  ok(collectDrop(g, d.x + 1, d.z) && g.drops.length === 0, 'and is recovered whenever it is');
   const c0 = g.credits; spawnDrop(g, 'cache', 10, 0, 50);
   ok(collectDrop(g, 11, 1) && g.credits - c0 === Math.round((CACHE.flat + CACHE.reward * 50) * g.st.credits) && g.drops.length === 0, 'cache pays credits');
   g.ammo = 0; g.power = 0; spawnDrop(g, 'ammo', 0, 20); spawnDrop(g, 'power', 0, -20);
@@ -945,6 +946,49 @@ ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies stan
   ok(cost(log, 'hp') === Math.round(60 * DOCTRINES.find(d => d.id === 'logistics')!.price!) && cost(std, 'hp') === 60, 'LOGISTICS: upgrades cost less');
   ok(sen.st.radarRange > deriveStats(sen.lv, []).radarRange * 1.14 && sen.st.padDmg < std.st.padDmg, 'SENSOR NET: sees further, hits softer');
   ok(newGame(9, '2026-01-01', 'strike').st.maxHp === std.st.maxHp, 'daily ops fly STANDARD, trade-free');
+}
+
+{
+  // Su-25: comes in low, pops up with flares out, fires an S-8 salvo at a unit, breaks away and comes round again.
+  const g = quiet(); g.level = 9; g.st.slots = 0; g.st.maxHp = g.hp = 1e9;
+  const obs = addPad(g, 'observer', 0);
+  const j = spawnEnemy(g, 'su25', FRONT, 50); j.hp = 1e9;
+  ok(flightAlt(j) < MASK.alt + 1 && horizon(flightAlt(j)) < 1, 'a Su-25 comes in under the radar horizon');
+  let salvos = 0, rockets = 0, atUnit = 0, flares = false, back = false, broke = false;
+  run(g, 60, () => {
+    const r = g.events.filter(v => v.k === 'release' && v.kind === 'rocket');
+    rockets += r.length; atUnit += r.filter(v => 'n' in v && v.n === obs.slot).length;
+    if (r.length) { salvos++; flares ||= j.pop > 0 && irHit(j) < irHit({ ...j, pop: 0 }) && flightAlt(j) > flightAlt({ ...j, pop: 0 }); }
+    broke ||= j.act === 'egress' && j.ammo > 0;
+    back ||= broke && j.act === 'in';
+  });
+  ok(salvos === SU25.passes && rockets === SU25.passes * SU25.salvo, `two attack runs, a salvo each (${salvos} runs, ${rockets} rockets)`);
+  ok(atUnit >= SU25.salvo && obs.hp < PAD_HP, `its rockets go for the unit in reach (${atUnit})`);
+  ok(flares && broke && back && !g.enemies.includes(j), 'pops up with flares out, breaks away, comes round, then goes home');
+}
+{
+  // Su-35S: holds station, fires Kh-58s only while the radar radiates, goes home when it's out.
+  const g = quiet(); g.st.slots = 0; g.st.maxHp = g.hp = 1e9; g.radarDownUntil = 0;
+  const f = spawnEnemy(g, 'sead', FRONT, 50); f.hp = 1e9;
+  toggleEmcon(g);
+  let launches = 0, closest = 99;
+  const count = () => { launches += g.events.filter(v => v.k === 'arm' && v.kind === 'arm2').length; if (g.enemies.includes(f)) closest = Math.min(closest, Math.hypot(f.x, f.z)); g.enemies = g.enemies.filter(e => e.kind !== 'arm2'); }; // its missiles taken away, so the radar stays up
+  run(g, 15, count);
+  ok(f.orbit && launches === 0, 'a Su-35S on station holds its Kh-58s while the radar is dark');
+  toggleEmcon(g);
+  run(g, 60, count);
+  ok(launches === SEAD_FTR.ammo && closest > SEAD_FTR.standoff - 6 && !g.enemies.includes(f), `then fires them all from standoff and goes home (${launches}, ${closest.toFixed(1)}m)`);
+  // Kh-58 memory seeker: going dark doesn't make it veer off. Over many, some still hit, some miss; a Kh-31P misses.
+  const hits = (kind: 'arm' | 'arm2') => { let n = 0;
+    for (let i = 0; i < 40; i++) {
+      const q = quiet(); q.st.maxHp = q.hp = 1e9; const m = spawnEnemy(q, kind, FRONT + i * 0.1, 30); m.hp = 1e9; m.wob = i / 40 * 6.283;
+      run(q, 0.5); toggleEmcon(q); run(q, 20); n += q.stats.radarHits;
+    } return n; };
+  const h2 = hits('arm2'), h1 = hits('arm');
+  ok(h1 === 0 && h2 >= 8 && h2 <= 28, `EMCON early: Kh-31Ps all miss, Kh-58s hit some of the time (${h2}/40)`);
+  const q = quiet(); spawnEnemy(q, 'arm2', FRONT, 20).hp = 1e9; let out = 0;
+  run(q, 5, () => { if (q.events.some(v => v.k === 'radarDown')) out = q.radarDownUntil - q.t; });
+  ok(Math.abs(out - ARM_STUN * ARM2.stun * q.st.armStun) < 1e-6, `a Kh-58 hit knocks the radar out longer (${out.toFixed(1)}s)`);
 }
 
 // Late game: jammers get likelier every level past the script, new packages and raids join the mix.
