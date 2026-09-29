@@ -1,7 +1,7 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive, noAmmo } from './sim.ts';
-import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, HELO, LANCET, MILESTONE, DROP_LIFE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE } from './config.ts';
-import { PONDS, ROCKS, FARMS, mapSeed, openShare, OPEN_MIN, ground, riverZ, RIVER_W } from './terrain.ts';
+import { newGame, update, buy, skipBuild, cruiseTarget, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive, noAmmo } from './sim.ts';
+import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, TERRAIN, AMMO_RELOAD, GUNS, HELO, LANCET, MILESTONE, DROP_LIFE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE } from './config.ts';
+import { site, PONDS, ROCKS, FARMS, mapSeed, openShare, OPEN_MIN, ground, riverZ, RIVER_W } from './terrain.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
 const rng = { seed: 12345 };
@@ -107,9 +107,10 @@ const bot = () => {
   const g = newGame(); g.phase = 'play';
   run(g, 1200, () => {
     if (g.phase === 'perk') pickPerk(g, 0);
-    // The milestones first: once one opens up, save for it.
+    // The milestones first: once one opens up, save for it. Then fill any room for another unit with a gun.
     const goal = ['radar', 'pac3'].find(id => cost(g, id) < Infinity);
-    buy(g, goal ?? UPGRADES.map(u => u.id).sort((a, b) => cost(g, a) - cost(g, b))[0]);
+    const gun = !g.placing && g.perim.length < perimSlots(g.level) ? GUNS.filter(k => cost(g, k) < Infinity).sort((a, b) => cost(g, a) - cost(g, b))[0] : undefined;
+    buy(g, goal ?? gun ?? UPGRADES.map(u => u.id).sort((a, b) => cost(g, a) - cost(g, b))[0]);
     if (g.phase === 'over') return;
   });
   return g;
@@ -155,6 +156,8 @@ ok(perimSlots(1) === 2 && perimSlots(9) === 16 && buildR(1) < buildR(3), 'the un
 s.st.slots = 0; // no main-battery locks: only the pads can shoot
 run(s, 40);
 ok(s.kills > 0, `pads engage without locks (kills=${s.kills})`);
+
+const SEAD = LEVELS.findIndex(l => l.name === 'SEAD'); // Su-34s, ARMs and Iskanders from here
 
 // Slots and fields of fire. addPad: buy a unit and put it on a given slot.
 const addPad = (g: State, k: string, slot: number) => { g.credits += 1e6; ok(buy(g, k), `buy ${k}`); const q = slotXZ(slot); ok(placePad(g, q.x, q.z) && g.perim.some(p => near(p, q)), `place ${k} on ${slot}`); return g.perim.find(p => near(p, q))!; };
@@ -236,6 +239,47 @@ const addPad = (g: State, k: string, slot: number) => { g.credits += 1e6; ok(buy
   ok(movePad(g, q2.x, q2.z) && b.cd === 0, 'moving in the build window is free');
   const cr2 = g.credits; ok(sellPad(g) && g.credits === cr2 + b.paid, 'selling in the build window refunds it all');
   ok(!selectPad(g, 40, 40) && g.selected === -1, 'clicking empty ground picks nothing');
+}
+
+// Terrain: high ground reaches further but draws fire, the treeline hides but reaches less, the road reloads fast.
+{
+  // Maps are random: take the first seed whose map has every kind of ground, near in and on the forward line.
+  const has = (g: State, t: string, fwd: boolean) => freeSpots(g).some(q => site(q.x, q.z) === t && (fwd ? Math.hypot(q.x, q.z) >= 24 : Math.hypot(q.x, q.z) < 30));
+  let g = quiet();
+  for (let seed = 1; ; seed++) {
+    g = armed(newGame(seed)); Object.assign(g, { phase: 'play', spawnAcc: -1e9, nextElite: 1e9, nextRaid: 1e9, level: 9 }); g.perim.length = 0;
+    if (['high', 'treeline', 'road', ''].every(t => has(g, t, false)) && has(g, 'high', true) && has(g, 'treeline', true)) break;
+  }
+  g.st.slots = 0; g.st.maxHp = g.hp = 1e9;
+  const spotOf = (t: string) => freeSpots(g).find(q => site(q.x, q.z) === t && Math.hypot(q.x, q.z) < 30)!;
+  const put = (t: string) => { const q = t ? spotOf(t) : freeSpots(g).find(q => !site(q.x, q.z))!; ok(q, `a ${t || 'plain'} spot`); g.credits += 1e6; buy(g, 'mg'); placePad(g, q.x, q.z); return g.perim[g.perim.length - 1]; };
+  const high = put('high'), tree = put('treeline'), plain = put('');
+  ok(high.site === 'high' && tree.site === 'treeline' && plain.site === '', 'units know the ground they stand on');
+  ok(Math.abs(padStats(g, high).range - MG_TIERS[0].range * TERRAIN.high.range) < 1e-9 && Math.abs(padStats(g, tree).range - MG_TIERS[0].range * TERRAIN.treeline.range) < 1e-9
+    && padStats(g, plain).range === MG_TIERS[0].range, 'high ground +20% range, treeline -15%');
+  for (const p of [high, tree, plain]) p.paid = 100; // equal price: only the ground differs
+  ok(cruiseTarget(g, { x: 0, z: -60 }) === high, 'a cruise missile goes for the unit on high ground first');
+  tree.paid = 1e6; ok(cruiseTarget(g, { x: 0, z: -60 }) !== tree, 'and never finds the one at the treeline');
+  // An FPV heading in 4 m off a forward unit (beyond its usual 3 m): dives on high ground (skyline), never on the treeline.
+  const h = new Set(g.perim);
+  const fwd = (t: string) => { const q = freeSpots(g).find(q => site(q.x, q.z) === t && Math.hypot(q.x, q.z) >= 24)!; g.credits += 1e6; buy(g, 'mg'); placePad(g, q.x, q.z); return g.perim.find(p => !h.has(p) && p.site === t)!; };
+  for (const p of g.perim) p.down = true; // only the forward units below are up
+  const fHigh = fwd('high'), fTree = fwd('treeline');
+  const pass = (p: typeof high) => { const a = Math.atan2(p.z, p.x), side = a + Math.PI / 2, e = spawnEnemy(g, 'swarm', a, Math.hypot(p.x, p.z) + 10);
+    e.x += Math.cos(side) * 4; e.z += Math.sin(side) * 4; e.hp = 1e9; e.dmg = 1; const hp = p.hp; run(g, 3); g.enemies.length = 0; return p.hp < hp; };
+  ok(pass(fHigh) && !pass(fTree), 'FPVs dive on high ground from further out, never on the treeline');
+  g.perim = g.perim.filter(p => h.has(p));
+  for (const p of g.perim) p.down = false;
+  // The road: an MG there reloads its belt as fast as with an ammo point in reach.
+  const road = put('road'); road.belt = 1; road.cd = 0;
+  spawnEnemy(g, 'tank', Math.atan2(road.z, road.x), Math.hypot(road.x, road.z) + 6).hp = 1e9;
+  run(g, 0.5);
+  ok(road.belt === MG_BELT.rounds && road.cd <= MG_BELT.reload * AMMO_RELOAD + 1e-9, `an MG on the road reloads fast (cd ${road.cd.toFixed(2)})`);
+}
+{
+  // The build window can be cut short: the next level starts now.
+  const g = quiet(); run(g, 1); g.buildUntil = g.t + 20; run(g, 0.5); skipBuild(g); run(g, 0.1);
+  ok(!building(g) && g.stage === 1, 'skipping the build window starts the next level');
 }
 
 // Cruise missiles: announced with their target, they go for the unit you've sunk the most into and knock it out.
@@ -460,7 +504,7 @@ ok(armSeen, 'Su-34 fires ARMs');
   run(q, 40, () => { kab ||= q.enemies.some(e => e.kind === 'kab'); egress ||= su.act === 'egress'; });
   ok(kab && egress && !q.enemies.includes(su) && q.hp < q.st.maxHp && q.stats.kills.elite === undefined, 'Su-34 lobs a glide bomb and egresses');
   ok(su.ammo === 0 && spawnEnemy(q, 'elite', 0, 50).ammo === KAB_FIRST, 'on the SEAD level, where the Su-34 is new, it carries one bomb');
-  q.stage = 4; ok(spawnEnemy(q, 'elite', 0, 50).ammo === KAB_PAIR, 'after that, a pair');
+  q.stage = SEAD + 1; ok(spawnEnemy(q, 'elite', 0, 50).ammo === KAB_PAIR, 'after that, a pair');
   // Lancet: circles out at LANCET.loiter searching, then dives.
   const l = quiet(); l.st.slots = 0;
   const la = spawnEnemy(l, 'scout', 0, 35); la.hp = 1e9;
@@ -543,14 +587,14 @@ ok(raidRun(0).includes('raidLeak'), 'leaked raid does not');
   run(g, 1 / 60); g.raid!.g = { arm: 1, drone: 1 }; g.raid!.obj = 'radar';
   run(g, 20);
   ok(!g.raidClean && g.stats.radarHits > 0, 'ARM hit loses PROTECT RADAR');
-  const h = newGame(); h.phase = 'play'; h.spawnAcc = -1e9; h.nextElite = 1e9; h.stage = 3; h.nextRaid = RAID_WARN;
+  const h = newGame(); h.phase = 'play'; h.spawnAcc = -1e9; h.nextElite = 1e9; h.stage = SEAD; h.nextRaid = RAID_WARN;
   for (let i = 0; i < 30 && (!h.raid || h.raid.name !== 'SEAD STRIKE'); i++) { h.raid = null; h.nextRaid = h.t + RAID_WARN; run(h, 1 / 60); }
   ok(h.raid?.name === 'SEAD STRIKE' && h.raid.obj === 'battery', 'no radar yet: SEAD STRIKE is PROTECT BATTERY');
 }
 
 // Attack packages: turn up in normal waves once their level comes, all from one bearing, escort jamming it.
 {
-  const g = newGame(3); g.phase = 'play'; g.stage = 4; g.nextRaid = g.nextElite = 1e9; g.st.maxHp = g.hp = 1e9; // stays on the level
+  const g = newGame(3); g.phase = 'play'; g.stage = SEAD; g.nextRaid = g.nextElite = 1e9; g.st.maxHp = g.hp = 1e9; // stays on the level
   const seen = new Set<string>();
   run(g, 600, () => { for (const e of g.events) if (e.k === 'package') seen.add(e.name); });
   ok(seen.size >= 2, `packages spawn in normal waves (${[...seen]})`);
@@ -587,13 +631,14 @@ ok(raidRun(0).includes('raidLeak'), 'leaked raid does not');
 // Difficulty curve: each level introduces its problem; nothing turns up before its level.
 {
   const first = (k: string) => LEVELS.findIndex(p => (p.w as Record<string, number>)[k]);
-  ok(first('decoy') === 2 && first('ew') === 2 && first('elite') === 3 && first('arm') === 3 && first('tbm') === 4 && first('cruise') === 4, 'level order: EW screen, then SEAD, then coordinated');
+  ok(first('swarm') === 1 && first('tank') === 2 && first('decoy') === 2 && first('cruise') === 4 && first('ew') === 4
+    && first('elite') === SEAD && first('arm') === SEAD && first('tbm') === SEAD && LEVELS[SEAD].name === 'SEAD', 'level order: FPVs, helicopters, flanks, cruise and EW, then SEAD');
   for (const p of PACKAGES) ok(p.from >= 2, `${p.name} waits for the EW screen`);
   const g = newGame(); g.stage = LEVELS.length + 3;
   ok(phase(g).pk! > LEVELS[LEVELS.length - 1].pk!, 'packages get likelier past the scripted levels');
   const h = newGame(2); h.phase = 'play'; h.st.maxHp = h.hp = 1e9; let early = false;
-  for (let i = 0; i < 600 * 20 && h.stage < 3; i++) { update(h, 1 / 20); h.events.length = 0; early ||= h.stage < 3 && h.enemies.some(e => e.kind === 'elite' || e.kind === 'arm' || e.kind === 'tbm'); }
-  ok(h.stage === 3 && !early, 'no Su-34s, ARMs or Iskanders before the SEAD level');
+  for (let i = 0; i < 900 * 20 && h.stage < SEAD; i++) { update(h, 1 / 20); h.events.length = 0; early ||= h.stage < SEAD && h.enemies.some(e => e.kind === 'elite' || e.kind === 'arm' || e.kind === 'tbm'); }
+  ok(h.stage === SEAD && !early, 'no Su-34s, ARMs or Iskanders before the SEAD level');
 }
 
 // Conditions: after the scripted levels, MODS loop.
@@ -715,7 +760,7 @@ ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies stan
   const stars: boolean[] = [];
   for (let i = 0; i < MILESTONE; i++) { buy(g, 'hp'); for (const e of g.events) if (e.k === 'upgrade') stars.push(e.star); g.events.length = 0; if ((g.phase as string) === 'perk') pickPerk(g, 0); }
   ok(stars.length === MILESTONE && stars.lastIndexOf(true) === MILESTONE - 1 && stars.indexOf(true) === MILESTONE - 1, 'the rank-up buy is flagged');
-  ok(g.st.maxHp >= (100 + 40 * (MILESTONE + 1)) * 0.6 && toRank(g, 'hp') === MILESTONE, 'rank counts in the stats, next rank 5 buys away');
+  ok(g.st.maxHp >= (100 + 40 * (MILESTONE + 1)) * Math.min(...PERKS.map(p => p.fx.hp ?? 1)) && toRank(g, 'hp') === MILESTONE, 'rank counts in the stats, next rank 5 buys away');
 }
 
 // Salvage: rare drops on kills, clicked to recover, lost if left.

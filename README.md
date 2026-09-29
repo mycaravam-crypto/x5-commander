@@ -38,6 +38,7 @@ The game runs entirely in the browser, with no backend and no asset files. `dist
 | Left click             | Build a bought unit on open ground; pick one of your units; otherwise mark a contact as the priority target (needs the radar) |
 | U / Delete             | Upgrade / sell the unit you picked         |
 | B, or right-click ground | Move the unit you picked               |
+| N                      | Start the next level now (in the build window; or tap START NOW on the level card) |
 | WASD / arrows / middle-drag | Pan the camera                       |
 | Mouse wheel            | Zoom                                      |
 | Right-drag / Q / E     | Rotate camera                             |
@@ -64,7 +65,7 @@ The first time you meet each threat or mechanic, a short tip explains it. Tips d
 ## Gameplay
 
 ### The battlefield
-The base sits on a low plateau in farmland. Ahead, toward the front, a cleared field of fire runs down to a river; woods, ponds, rock outcrops, fields and farmsteads lie round it, with hills beyond. Aircraft fly at their own heights over the ground (FPVs and cruise missiles low, Su-34s high, ballistic missiles diving in steeply), each with a faint line dropped to a ring on the ground so you can see where it is. They fly like aircraft: jets and drones bank round in arcs, helicopters slow into a hover and keep their nose on the battery, Shaheds and Lancets come down in a dive, and heading home is a wide turn, not a U-turn on the spot. Missiles and Su-34s leave smoke and contrails, a badly hit aircraft trails smoke (then fire), and a shot-down one falls burning and leaves a fire where it hits the ground. It's scenery for the aircraft, but it decides where you can build (see *Building the line*). NIGHT RAID turns the day to moonlight.
+The base sits on a low plateau in farmland. Ahead, toward the front, a cleared field of fire runs down to a river; woods, ponds, rock outcrops, fields and farmsteads lie round it, with hills beyond. Aircraft fly at their own heights over the ground (FPVs and cruise missiles low, Su-34s high, ballistic missiles diving in steeply), each with a faint line dropped to a ring on the ground so you can see where it is. They fly like aircraft: jets and drones bank round in arcs, helicopters slow into a hover and keep their nose on the battery, Shaheds and Lancets come down in a dive, and heading home is a wide turn, not a U-turn on the spot. Missiles and Su-34s leave smoke and contrails, a badly hit aircraft trails smoke (then fire), and a shot-down one falls burning and leaves a fire where it hits the ground. It's scenery for the aircraft, but it decides where you can build, and the ground a unit stands on changes what it can do (see *Building the line*). NIGHT RAID turns the day to moonlight.
 
 **Every run gets its own map**, generated from the run's seed: the river's course, woods, fields, roads, farmsteads, and the ponds and rock outcrops inside the build zone all change. Every map keeps the same rules: the plateau and the field of fire toward the front stay clear, the river stays beyond the build zone, the starting MG's spot is open, and at least 55% of the build zone is buildable. The start screen names the map (a grid reference); `N` rolls another. Picking a doctrine keeps the map. The daily op's map comes from its seed, so everyone flies over the same ground that day.
 
@@ -140,6 +141,14 @@ Where a unit stands decides its **belt**:
 | Main line    | 14–24 m  | balanced                                                                                    |
 | Inner ring   | inside 14 m, all round | safe, covers the flanks, engages late                                         |
 
+**Terrain.** Some ground gives a unit a character. The unit card names it:
+
+| Ground      | Where                                         | Effect |
+|-------------|-----------------------------------------------|--------|
+| High ground | within 2.5 m of a rock outcrop's edge         | +20% range and eyesight, but on the skyline: FPVs and Lancets dive on it from twice as far, and a cruise missile picks it first |
+| Treeline    | open ground within 2.5 m of the woods         | hidden: never dived on and never a cruise missile's target; −15% range |
+| Road        | on the supply road or the track to the front  | MG belts reload twice as fast, as with an ammo point |
+
 **Fields of fire.** A gun covers a fan pointing away from the base, drawn on the ground: MGs 120°, Stingers 180°, MANTIS all round. It can't shoot what has flown past it. A target inside two guns' fields of fire takes **+20% crossfire damage** from both. Amber ticks on the minimap rim mark bearings in the threat arc that no working gun covers. Press `O` (or the half-circle button on phones) for the coverage map: amber ground in the threat arc that nothing covers, dim green where one gun does, bright green where guns cross their fire.
 
 **Placing.** After buying a unit, a ghost of it follows the pointer with the ground it would cover filled in: green where it can be built, red where it can't. **Click open ground** to build it there (a click on blocked ground snaps to the nearest open spot within 4 m). The pulsing ring marks the spot that covers the most open sky (or, for support units, serves the most guns); if you don't click within 8 seconds, the unit goes there.
@@ -173,25 +182,26 @@ Kills sometimes drop **salvage**: a spinning crate with a light over it. **Click
 Drops use their own random rolls, so they never change the daily op's enemy schedule.
 
 ### The front
-Enemies attack from one direction: the **front**, a 50° sector at the top of the default view, marked on the ground (red dashes at the rim) and on the minimap. Aircraft and short-range drones (Lancet, FPV, Mi-28, Su-34, Mi-8 and their ARMs) always come from the front. Long-range threats (Shaheds, the decoys that fly with them, and Iskanders) come from the front too at first. From the SEAD level they can come from up to 60° either side of it, from COORDINATED RAID up to 120°, and after that from any direction. The minimap and the ground show the arc they can currently come from in amber. A raid or package comes off the front only when everything in it is a long-range threat.
+Enemies attack from one direction: the **front**, a 50° sector at the top of the default view, marked on the ground (red dashes at the rim) and on the minimap. Aircraft and short-range drones (Lancet, FPV, Mi-28, Su-34, Mi-8 and their ARMs) always come from the front. Long-range threats (Shaheds, the decoys that fly with them, and Iskanders) come from the front too at first. From level 4 (FLANKS) they can come from up to 60° either side of it, from level 5 up to 120°, and after the scripted levels from any direction. The minimap and the ground show the arc they can currently come from in amber, and the minimap flashes an amber tick at the bearing of every missile launch. A raid or package comes off the front only when everything in it is a long-range threat.
 
 ### Levels
-A run is a string of **levels**. Each one is 60 s of waves, then the level's **raid**, then a **build window** with no new contacts, before the next level starts. The build window is 20 s if you held the raid's objective and 8 s if you lost it. Contacts already in the air keep coming, so it isn't a pause, but it's the time to buy and place pads. Each level adds a new kind of problem, rather than just more HP:
-1. **PROBING:** Lancets and Shaheds. Learn the systems.
-2. **MIXED THREATS:** FPV swarms and the first Mi-28s.
-3. **EW SCREEN:** decoys and jammer helicopters, and the first attack packages.
-4. **SEAD:** Su-34s and anti-radiation missiles. From here, every level has a Su-34 strike package halfway through its waves.
-5. **COORDINATED RAID:** heavy mixed raids, Iskanders and cruise missiles.
+A run is a string of **levels**. Each one is 60 s of waves, then the level's **raid**, then a **build window** with no new contacts, before the next level starts. The build window is 20 s if you held the raid's objective and 8 s if you lost it, and the clock runs at 60% during it. A **level card** says how the level went, what the next one brings and whether threats will come from wider angles; the shop opens by itself and the build zone lights up. Contacts already in the air keep coming, so it isn't a pause. Press `N` (or START NOW on the card) to start the next level early. Each level adds a new kind of problem, in step with what the battery can build by then:
+1. **PROBING:** Lancets and Shaheds, straight in from the front. Learn the guns.
+2. **FPV SWARMS:** FPV swarms join them.
+3. **HELICOPTERS:** Mi-28 attack helicopters and decoys.
+4. **FLANKS:** Shaheds from up to 60° either side of the front, and the first attack packages. About when the radar comes.
+5. **EW AND CRUISE:** cruise missiles going for your units, and jammer helicopters. Up to 120° either side.
+6. **SEAD:** Su-34s, anti-radiation missiles and Iskanders: the Patriot's job. From here, every level has a Su-34 strike package halfway through its waves.
 
-After COORDINATED RAID, every level adds a **condition** on top of that mix, and attack packages get more likely each time. The conditions loop in this order: **NIGHT RAID** (contacts fade twice as fast), **GROUND CLUTTER** (−30% detection), **LULL** (a breather to rebuild), **JAMMING STORM** (more jammer helicopters), **SWARM TIDE** (many more, weaker enemies) and **SEAD WAVE** (strike aircraft, ARMs and cruise missiles). Each strike package is announced with a *STRIKE AIRCRAFT* warning.
+After SEAD, every level adds a **condition** on top of that mix, missiles and drones can come from any direction, and attack packages get more likely. The conditions loop in this order: **NIGHT RAID** (contacts fade twice as fast), **GROUND CLUTTER** (−30% detection), **LULL** (a breather to rebuild), **JAMMING STORM** (more jammer helicopters), **SWARM TIDE** (many more, weaker enemies) and **SEAD WAVE** (strike aircraft, ARMs and cruise missiles). Each strike package is announced with a *STRIKE AIRCRAFT* warning.
 
-**Attack packages:** from the EW SCREEN level on, some spawns are a package instead of a single pack: several types flying in together from one bearing, each covering another's weakness. The log names the element to kill first.
+**Attack packages:** from the FLANKS level on, some spawns are a package instead of a single pack: several types flying in together from one bearing, each covering another's weakness. The log names the element to kill first.
 
 | Package      | From | Composition                              | Kill first | Because                                             |
 |--------------|------|------------------------------------------|------------|-----------------------------------------------------|
-| JAMMED SWARM | L3   | Mi-8 escort, 12 FPV, 2 Shahed            | Mi-8       | the swarm flies inside the jammer's sector          |
-| SEAD PACKAGE | L4   | Su-34, 2 Kh-31P, 3 decoys, Shahed        | Su-34      | decoys soak locks while the Su-34 keeps firing ARMs |
-| SATURATION   | L5   | 6 decoys, Mi-8 escort, 3 Lancets, Mi-28  | Mi-28      | the heavy hides among decoys and fast Lancets       |
+| JAMMED SWARM | L5   | Mi-8 escort, 12 FPV, 2 Shahed            | Mi-8       | the swarm flies inside the jammer's sector          |
+| SEAD PACKAGE | L6   | Su-34, 2 Kh-31P, 3 decoys, Shahed        | Su-34      | decoys soak locks while the Su-34 keeps firing ARMs |
+| SATURATION   | L6   | 6 decoys, Mi-8 escort, 3 Lancets, Mi-28  | Mi-28      | the heavy hides among decoys and fast Lancets       |
 
 An EW helicopter in a package is an **escort**: it goes in first and holds station on the package's bearing, so its jammed sector stays over the package.
 
@@ -262,15 +272,17 @@ This section replaces the old `plan-mvp.md`, `plan.md` and `plan-frontline.md`; 
 - **Front line, steps 1–5:** the front and widening flank arcs, levels with raids and build windows, the AA MG start with the radar and Patriot as milestones, belt slots with fields of fire, crossfire, support units and unit HP, the coverage overlay (`O`), and Kh-101 cruise missiles with the IRIS-T SLM to stop them.
 
 ### Next: finish the front line (step 6)
-- [ ] **Level card** at the end of each level: held or lost, what unlocks next, new directions (e.g. "MISSILES MAY NOW COME FROM ±60°"). Today there's only a banner and a log line.
-- [ ] **Build window as its own state:** slow motion, shop open, the build zone highlighted.
+- [x] **Level card** at the end of each level: held or lost, what the next level brings, wider flank arcs.
+- [x] **Build window as its own state:** 60% speed, shop open, the build zone highlighted, `N` to skip it. Missile launches flash at their bearing on the minimap.
 - [ ] **Map polish:** draw the belts as dim dashed arcs and shade enemy territory beyond the front.
+- [x] **Rebalance:** levels follow the threat sequence (FPVs, helicopters, flanks, cruise and EW, then SEAD; the Su-34 at level 4 was a wall about 60 s after the Patriot came online).
 - [ ] **Rebalance perks** with `npm run balance`: with the late-game surge the bots' runs end between about 30 and 50 minutes, so perks can be compared again.
 
 ### Placement extras
 - [ ] **Tier-3 branch** for guns: at the ZU-23 (the MG's top tier; MANTIS is its own unit), pick *AP rounds* against Mi-28s or *high rate* against swarms.
 - [ ] **Power node** (with the energy weapons, level 7+): laser and HPM draw power only within its reach, so it decides where they can go.
-- [ ] **Terrain that fights:** the map exists now, so ground can matter: *hilltop* (+20% range, drones go for it first), *treeline* edge (never targeted, −15% range), *road* (half build cost, fast resupply), and woods or ridges that block eyesight. Adds a lot of balance surface.
+- [x] **Terrain that fights:** *high ground* by rock outcrops (+20% range and eyes, drones and cruise missiles go for it), *treeline* edge (never targeted, −15% range), *road* (fast MG reloads). Half build cost on the road was dropped: roads run through the build zone and out toward the front, so it would have halved the price of much of the gun line.
+- [ ] **Terrain that blocks:** woods or ridges that block eyesight.
 - [ ] **Base buildings as units:** build the generator, ammo bunker, radar and launchers on their own spots instead of in a fixed compound.
 
 ### Later ideas

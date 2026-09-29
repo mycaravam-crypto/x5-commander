@@ -9,7 +9,7 @@ export const COMBO_CAP = 50;
 // A run is a string of levels: LEVEL_LEN s of waves, then the level's raid, then a build window with no spawns
 // (BUILD_TIME if the raid's objective held, BUILD_LOST if not) before the next level starts.
 export const LEVEL_LEN = 60, BUILD_TIME = 20, BUILD_LOST = 8; // s
-export const ELITE_FROM = 3; // level index (SEAD) from which every level has a Su-34 strike package halfway through
+export const ELITE_FROM = 5; // level index (SEAD) from which every level has a Su-34 strike package halfway through
 
 // Green phosphor HUD palette, shared by the overlays in the 3D scene and the CSS (hud.ts copies it into CSS variables).
 // Hierarchy: dim/mid for frames and labels, bright for text and what's active, hot for what's yours, locked or
@@ -111,18 +111,20 @@ export const AGILITY: Record<EnemyKind, { turn: number; acc: number; hover?: boo
 };
 export const HOMING_BOOST = 3, HOMING_SNAP = 2;
 
-// Each level adds a kind of problem rather than just more HP:
-// 1 learn the systems · 2 mixed threats · 3 jammers + decoys · 4 SEAD · 5 heavy coordinated raids ·
-// 6+ conditions on top, with attack packages ever more likely (PK_GROW per loop, up to PK_MAX).
+// Each level adds a kind of problem rather than just more HP, in step with what the battery can build by then:
+// 1 learn the guns · 2 FPV swarms · 3 helicopters and decoys · 4 Shaheds round the flanks (the radar's moment) ·
+// 5 cruise missiles and jammers · 6 SEAD: Su-34s, ARMs and Iskanders (the Patriot's job) ·
+// 7+ conditions on top, with attack packages ever more likely (PK_GROW per loop, up to PK_MAX).
 // Spawn weights per level; the last entry repeats. pk: chance a spawn event is an attack package instead.
 // rate: spawn rate x, so the opening levels can be held by guns alone (default 1).
 // arc: half-width around FRONT that flank threats can come from (default FRONT_ARC; every direction after the last level).
-export const LEVELS: { name: string; w: Partial<Record<EnemyKind, number>>; pk?: number; arc?: number; rate?: number }[] = [
-  { name: 'PROBING', w: { scout: 3, drone: 2 }, rate: 0.45 },
-  { name: 'MIXED THREATS', w: { scout: 2, drone: 3, swarm: 1, tank: 0.5 }, rate: 0.6 },
-  { name: 'EW SCREEN', w: { scout: 2, drone: 3, swarm: 1, tank: 0.7, decoy: 1.5, ew: 0.15 }, pk: 0.05, rate: 0.8 },
-  { name: 'SEAD', w: { scout: 1, drone: 3, swarm: 1, tank: 1, decoy: 2, elite: 0.15, arm: 0.3, ew: 0.15 }, pk: 0.07, arc: 60 * DEG },
-  { name: 'COORDINATED RAID', w: { scout: 2, drone: 3, swarm: 2, tank: 1.5, elite: 0.3, decoy: 1.5, arm: 0.2, ew: 0.1, tbm: 0.15, cruise: 0.3 }, pk: 0.1, arc: 120 * DEG },
+export const LEVELS: { name: string; desc: string; w: Partial<Record<EnemyKind, number>>; pk?: number; arc?: number; rate?: number }[] = [
+  { name: 'PROBING', desc: 'Lancets and Shaheds, straight in from the front', w: { scout: 3, drone: 2 }, rate: 0.45 },
+  { name: 'FPV SWARMS', desc: 'FPV swarms join the Lancets and Shaheds', w: { scout: 2, drone: 3, swarm: 1 }, rate: 0.6 },
+  { name: 'HELICOPTERS', desc: 'Mi-28 attack helicopters and decoys', w: { scout: 2, drone: 3, swarm: 1, tank: 0.6, decoy: 1.2 }, rate: 0.8 },
+  { name: 'FLANKS', desc: 'Shaheds from the flanks, and the first attack packages', w: { scout: 1.5, drone: 4, swarm: 1, tank: 0.8, decoy: 1.5 }, pk: 0.05, arc: 60 * DEG },
+  { name: 'EW AND CRUISE', desc: 'cruise missiles going for your units, jammer helicopters', w: { scout: 2, drone: 3, swarm: 1.5, tank: 1, decoy: 1.5, ew: 0.15, cruise: 0.3 }, pk: 0.07, arc: 120 * DEG },
+  { name: 'SEAD', desc: 'Su-34s, anti-radiation missiles and Iskanders', w: { scout: 2, drone: 3, swarm: 2, tank: 1.5, elite: 0.25, decoy: 1.5, arm: 0.3, ew: 0.1, tbm: 0.15, cruise: 0.3 }, pk: 0.1, arc: 120 * DEG },
 ];
 export const PK_GROW = 0.02, PK_MAX = 0.25;
 
@@ -132,15 +134,15 @@ export const PK_GROW = 0.02, PK_MAX = 0.25;
 // `first` is the element to dismantle first; `why` says what happens if you don't.
 export interface Package { name: string; from: number; g: Partial<Record<EnemyKind, number>>; first: EnemyKind; why: string }
 export const PACKAGES: Package[] = [
-  { name: 'SEAD PACKAGE', from: 3, g: { elite: 1, arm: 1, decoy: 1, drone: 1 }, first: 'elite',
+  { name: 'SEAD PACKAGE', from: 5, g: { elite: 1, arm: 1, decoy: 1, drone: 1 }, first: 'elite',
     why: 'decoys soak locks while the Su-34 keeps launching ARMs' },
-  { name: 'JAMMED SWARM', from: 2, g: { ew: 1, swarm: 2, drone: 2 }, first: 'ew',
+  { name: 'JAMMED SWARM', from: 4, g: { ew: 1, swarm: 2, drone: 2 }, first: 'ew',
     why: 'the swarm hides in the jammer\'s sector' },
-  { name: 'SATURATION', from: 4, g: { decoy: 2, ew: 1, scout: 3, tank: 1 }, first: 'tank',
+  { name: 'SATURATION', from: 5, g: { decoy: 2, ew: 1, scout: 3, tank: 1 }, first: 'tank',
     why: 'the Mi-28 hides among decoys and fast Lancets under jamming' },
 ];
 
-// After the last scripted level, each level brings a new condition on top of COORDINATED RAID's mix, looping in order.
+// After the last scripted level, each level brings a new condition on top of SEAD's mix, looping in order.
 // sig/persist: detection chance / contact memory multipliers; spawn/hp: on top of difficulty(); w: extra spawn weights.
 export interface Mod { name: string; desc: string; sig?: number; persist?: number; spawn?: number; hp?: number; dark?: boolean; w?: Partial<Record<EnemyKind, number>> }
 export const MODS: Mod[] = [
@@ -169,10 +171,10 @@ export const RAIDS: { name: string; from: number; g: Partial<Record<EnemyKind, n
   { name: 'FPV SWARM', from: 1, g: { swarm: 3 } },
   { name: 'DECOY SCREEN', from: 2, g: { decoy: 2, drone: 4 } },
   { name: 'HELO ASSAULT', from: 2, g: { tank: 3, scout: 3 } },
-  { name: 'SEAD STRIKE', from: 3, g: { elite: 1, arm: 2, decoy: 2, drone: 2 }, obj: 'radar' },
-  { name: 'SWARM ASSAULT', from: 2, g: { ew: 1, swarm: 3, drone: 4 } },
-  { name: 'SATURATION STRIKE', from: 4, g: { decoy: 2, ew: 1, scout: 5, tank: 2 } },
-  { name: 'ISKANDER SALVO', from: 4, g: { tbm: 3 } },
+  { name: 'SEAD STRIKE', from: 5, g: { elite: 1, arm: 2, decoy: 2, drone: 2 }, obj: 'radar' },
+  { name: 'SWARM ASSAULT', from: 4, g: { ew: 1, swarm: 3, drone: 4 } },
+  { name: 'SATURATION STRIKE', from: 5, g: { decoy: 2, ew: 1, scout: 5, tank: 2 } },
+  { name: 'ISKANDER SALVO', from: 5, g: { tbm: 3 } },
   { name: 'CRUISE SALVO', from: 4, g: { cruise: 3 } },
 ];
 
@@ -306,6 +308,7 @@ export const GUNS: PerimKind[] = ['mg', 'mantis', 'stinger', 'iris']; // units t
 export const VISUAL_R = 18, PAD_EYES = 15, VISUAL_DARK = 0.6; // m (an emplacement sees as far as the MG reaches)
 export const MG_BELT = { rounds: 40, reload: 3 }; // the MG feeds from its own belt, not the interceptor pool; s to reload
 export const PLACE_TIME = 8; // s to click a spot before the pad places itself on the best slot
+export const BUILD_SLOW = 0.6; // game speed during the build window (the clock runs slower, so there's time to place)
 
 // Building: units go anywhere on open ground inside the build zone, which grows with the base level, at least
 // PAD_GAP from each other and clear of the base compound, water, rock and woods (see terrain.ts). How many units
@@ -320,6 +323,11 @@ const BUILD_R = [20, 31, 34, 34, 36]; // m, by base level (the last entry repeat
 export const buildR = (level: number) => BUILD_R[Math.min(level, BUILD_R.length) - 1];
 const PAD_CAP = [2, 5, 7, 11, 12, 13, 14, 15, 16];
 export const perimSlots = (level: number) => PAD_CAP[Math.min(level, PAD_CAP.length) - 1];
+// Terrain (terrain.ts `site`): where a unit stands gives it a character, as well as a belt.
+// high: up against a rock outcrop, +20% range and eyes, but on the skyline: FPVs and Lancets dive on it from twice as
+//   far, and a cruise missile rates it higher. treeline: at the edge of the woods, never dived on or found by a cruise
+//   missile, but -15% range. road: MG belts reload as fast as with an ammo point in reach.
+export const TERRAIN = { high: { range: 1.2, dive: 2, value: 100 }, treeline: { range: 0.85 } };
 export const START_PAD = { x: 0, z: -17 }; // the starting MG: main line, on the front axis
 
 // Field of fire: half-width around the unit's facing (away from the base). Math.PI = all round.

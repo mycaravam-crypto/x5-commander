@@ -6,7 +6,7 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ARENA_R, BASE_R, BUILD_MIN, DROP_MAX, ENEMIES, MUNITIONS, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, FANS, GUNS, MG_TIERS, PERIM, PAD_HP, altitude, flightAlt, buildR, type EnemyKind, type PerimKind } from './config.ts';
-import { emitting, focusBearing, flankArc, radarRange, radarSector, bestSpot, spotNear, selectedPad, coverage, padStats, phase, shownKind, visible, type Enemy, type Shot, type State } from './sim.ts';
+import { building as inBuildWindow, emitting, focusBearing, flankArc, radarRange, radarSector, bestSpot, spotNear, selectedPad, coverage, padStats, phase, shownKind, visible, type Enemy, type Shot, type State } from './sim.ts';
 import { heightSampler, treeList, ROCKS, FARMS, WATER_Y, mapSeed } from './terrain.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import { enemyGeos, ROTORS } from './models.ts';
@@ -824,8 +824,8 @@ export function createRenderer() {
     const fog = scene.fog as THREE.Fog;
     fog.color.copy(sky); fog.near = d + 30; fog.far = d + 170;
 
-    // map overlays: build zone (bright while building), the flank arc, eyesight / radar range
-    const building = !!s.placing || s.relocating;
+    // map overlays: build zone (bright while placing, moving or in the build window), the flank arc, eyesight / radar range
+    const building = !!s.placing || s.relocating || inBuildWindow(s);
     const bz = buildR(s.level);
     if (bz !== zoneKey) {
       zoneKey = bz; if (zoneLine) { scene.remove(zoneLine); zoneLine.geometry.dispose(); }
