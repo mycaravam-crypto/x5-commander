@@ -41,6 +41,14 @@ export function enemyGeos(): Record<EnemyKind, THREE.BufferGeometry> {
     ...[-0.78, 0.78].map(z => fin([[-0.62, -0.1], [-0.62, 0.22], [-0.52, 0.22], [-0.4, -0.1]], 0.03, z)),
     prop(-0.64, 0.24),
   );
+  // Kh-101: faceted body, long straight wings, turbofan pod under the tail. Drawn low: it hugs the ground.
+  const kh101 = () => merge(
+    tube(0.09, 0.09, 1.2, -0.05, 0, 0, 4).rotateX(Math.PI / 4), new THREE.ConeGeometry(0.09, 0.35, 4).rotateY(Math.PI / 4).rotateZ(-Math.PI / 2).translate(0.72, 0, 0),
+    wing([[0.15, 0.05], [0.07, 0.78], [-0.03, 0.78], [0.02, 0.05]], 0.02, -0.05),
+    tube(0.06, 0.06, 0.3, -0.5, -0.14), box(0.12, 0.08, 0.02, -0.5, -0.08),
+    wing([[-0.48, 0.05], [-0.64, 0.28], [-0.72, 0.28], [-0.7, 0.05]], 0.02),
+    fin([[-0.5, 0], [-0.68, 0.25], [-0.76, 0.25], [-0.72, 0]], 0.02),
+  ).translate(0, -0.35, 0);
   return {
     // Lancet-3: slim body with two X wings in tandem.
     scout: merge(
@@ -97,14 +105,8 @@ export function enemyGeos(): Record<EnemyKind, THREE.BufferGeometry> {
       tube(0.2, 0.2, 1.3, -0.3), nose(0.2, 0.8, 0.35, 0, 8), tube(0.2, 0.25, 0.2, -1.05, 0, 0, 8),
       ...[Math.PI / 4, -Math.PI / 4].map(a => wing([[-0.8, 0.18], [-0.95, 0.38], [-1.12, 0.38], [-1.12, 0.18]], 0.02).rotateX(a)),
     ).rotateZ(-0.35),
-    // Kh-101: faceted body, long straight wings, turbofan pod under the tail. Drawn low: it hugs the ground.
-    cruise: merge(
-      tube(0.09, 0.09, 1.2, -0.05, 0, 0, 4).rotateX(Math.PI / 4), new THREE.ConeGeometry(0.09, 0.35, 4).rotateY(Math.PI / 4).rotateZ(-Math.PI / 2).translate(0.72, 0, 0),
-      wing([[0.15, 0.05], [0.07, 0.78], [-0.03, 0.78], [0.02, 0.05]], 0.02, -0.05),
-      tube(0.06, 0.06, 0.3, -0.5, -0.14), box(0.12, 0.08, 0.02, -0.5, -0.08),
-      wing([[-0.48, 0.05], [-0.64, 0.28], [-0.72, 0.28], [-0.7, 0.05]], 0.02),
-      fin([[-0.5, 0], [-0.68, 0.25], [-0.76, 0.25], [-0.72, 0]], 0.02),
-    ).translate(0, -0.35, 0),
+    cruise: kh101(),
+    mald: kh101(), // Kh-55 decoy: passes for a Kh-101 until classified
     // Mi-8MTPR-1: bulky transport cabin with the big box jamming containers on both sides.
     ew: merge(
       box(0.9, 0.42, 0.42), new THREE.CylinderGeometry(0.15, 0.21, 0.22, 6).rotateZ(-Math.PI / 2).translate(0.56, -0.02, 0),
@@ -129,11 +131,33 @@ export function enemyGeos(): Record<EnemyKind, THREE.BufferGeometry> {
       box(0.3, 0.06, 0.12, 0, 0.18), wing([[0.08, 0], [0.04, 0.8], [-0.08, 0.8], [-0.08, 0]], 0.02, 0.22),
       ...[Math.PI / 4, -Math.PI / 4].map(a => wing([[-0.55, 0], [-0.72, 0.36], [-0.8, 0.36], [-0.8, 0]], 0.02).rotateX(a)),
     ),
+    // Orlan-10: slim pod, long straight high wing, tractor prop, a boom to a V-tail. Drawn high and slow.
+    recon: merge(
+      tube(0.08, 0.06, 0.9, 0), nose(0.08, 0.15, 0.45), prop(0.62, 0.2),
+      wing([[0.12, 0.05], [0.1, 0.85], [-0.06, 0.85], [-0.08, 0.05]], 0.02, 0.07),
+      tube(0.025, 0.025, 0.6, -0.72),
+      ...[-1, 1].map(s => wing([[-0.95, 0], [-1.05, 0.26], [-1.12, 0.26], [-1.1, 0]], 0.015).rotateX(s * 0.6)),
+    ),
+    // Ka-52: side-by-side cockpit (a wide nose), stub wings with pods, coaxial hub (the upper disc is ROTORS), twin fins.
+    ka52: merge(
+      box(0.8, 0.34, 0.38, 0, 0), box(0.28, 0.2, 0.36, 0.38, 0.12), nose(0.17, 0.22, 0.52, -0.02),
+      new THREE.CylinderGeometry(0.04, 0.05, 0.3, 5).translate(0, 0.33, 0),
+      new THREE.CylinderGeometry(0.75, 0.75, 0.01, 12).translate(0, 0.3, 0), // lower rotor disc, coaxial
+      tube(0.1, 0.05, 0.75, -0.75, 0.05), box(0.08, 0.02, 0.5, -1.08, 0.08),
+      ...[-0.25, 0.25].map(z => fin([[-1.02, 0.02], [-1.12, 0.3], [-1.05, 0.3], [-0.95, 0.02]], 0.03, z)),
+      box(0.22, 0.03, 1.0, -0.02, -0.08),
+      ...[-0.46, 0.46].map(z => tube(0.06, 0.06, 0.34, -0.02, -0.16, z)),
+    ),
+    // Kinzhal: long slender cone, four small tail fins, diving steeply.
+    hyper: merge(
+      tube(0.14, 0.17, 1.2, -0.35, 0, 0, 8), nose(0.14, 0.75, 0.25, 0, 8),
+      ...[0, Math.PI / 2].map(a => wing([[-0.75, 0.14], [-0.85, 0.3], [-0.95, 0.3], [-0.95, 0.14]], 0.02).rotateX(a)),
+    ).rotateZ(-0.45),
   };
 }
 
 // Main rotors: hub height and blade radius in model units, for the kinds that have one.
-export const ROTORS: Partial<Record<EnemyKind, { y: number; r: number }>> = { tank: { y: 0.43, r: 0.85 }, ew: { y: 0.5, r: 0.95 } };
+export const ROTORS: Partial<Record<EnemyKind, { y: number; r: number }>> = { tank: { y: 0.43, r: 0.85 }, ew: { y: 0.5, r: 0.95 }, ka52: { y: 0.5, r: 0.8 } };
 // Five blades as outlines (xyz segment pairs, radius 1), for an instanced line pool.
 export function rotorPts() {
   const p: number[] = [];

@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, stageInfo, spawnGroupAt, seedCode, parseCode, parseResult, buy, skipBuild, cruiseTarget, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive, noAmmo } from './sim.ts';
-import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, TERRAIN, AMMO_RELOAD, GUNS, HELO, LANCET, MILESTONE, DROP_LIFE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE, VETERANCY, TRAINING, TRAINING_BUILD, DOCTRINES, RAIDS, EW_MAX } from './config.ts';
+import { newGame, update, stageInfo, spawnGroupAt, seedCode, parseCode, parseResult, buy, skipBuild, cruiseTarget, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive, noAmmo, spotted, irHit, shownKind, horizonMask } from './sim.ts';
+import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, TERRAIN, AMMO_RELOAD, GUNS, HELO, LANCET, MILESTONE, DROP_LIFE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE, VETERANCY, TRAINING, TRAINING_BUILD, DOCTRINES, RAIDS, EW_MAX, RECON, KA52, MASK, horizon, flightAlt, KINDS } from './config.ts';
 import { site, PONDS, ROCKS, FARMS, mapSeed, openShare, OPEN_MIN, ground, riverZ, RIVER_W } from './terrain.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
@@ -531,6 +531,110 @@ ok(armSeen, 'Su-34 fires ARMs');
   const c = quiet(); const cm = spawnEnemy(c, 'cruise', 0, 40); cm.hp = 1e9; let off = 0;
   run(c, 3, () => { off = Math.max(off, Math.abs(Math.atan2(cm.z, cm.x))); });
   ok(off > 0.3, 'a cruise missile flies a dogleg');
+}
+
+// New threats and the realism pass.
+{
+  // Orlan-10: circles on station, spots for its sector (hits there land harder), and goes home after a while.
+  const g = quiet(); g.st.slots = 0; g.st.maxHp = g.hp = 1e9;
+  const o = spawnEnemy(g, 'recon', FRONT, 50); o.hp = 1e9;
+  let spotEv = false;
+  run(g, 10, () => { spotEv ||= g.events.some(v => v.k === 'spot'); });
+  ok(o.orbit && spotEv && Math.abs(Math.hypot(o.x, o.z) - RECON.orbit) < 3, 'an Orlan-10 goes on station and says so');
+  const a = Math.atan2(o.z, o.x);
+  ok(spotted(g, { x: Math.cos(a) * 20, z: Math.sin(a) * 20 }) && !spotted(g, { x: -Math.cos(a) * 20, z: -Math.sin(a) * 20 }) && !spotted(g, o), 'it spots for its own sector only');
+  const hit = (b: number) => { const e = spawnEnemy(g, 'drone', b, 6); e.hp = 1e9; const t = g.stats.taken.drone ?? 0; run(g, 2); return ((g.stats.taken.drone ?? 0) - t) / e.dmg; }; // per point of its damage (difficulty grows meanwhile)
+  const inside = hit(Math.atan2(o.z, o.x)), outside = hit(Math.atan2(o.z, o.x) + Math.PI);
+  ok(Math.abs(inside / outside - RECON.dmg) < 1e-6, `hits in its sector land harder (${(inside / outside).toFixed(2)})`);
+  run(g, RECON.time + 20);
+  ok(!g.enemies.includes(o), 'and it goes home once its time on station is up');
+}
+{
+  // Ka-52: settles at standoff (exposed), masks in the trees, pops up to fire ATGM pairs at your nearest unit, then leaves.
+  const g = quiet(); g.level = 9; g.st.slots = 0; g.st.maxHp = g.hp = 1e9;
+  const obs = addPad(g, 'observer', 5);
+  const h = spawnEnemy(g, 'ka52', FRONT, 45); h.hp = 1e9;
+  let settle = false, atUnit = 0, masked = false, exposedSettling = false, closest = 99;
+  run(g, 20, () => {
+    settle ||= g.events.some(v => v.k === 'settle');
+    atUnit += g.events.filter(v => v.k === 'release' && v.n === obs.slot).length;
+    if (!g.enemies.includes(h)) return;
+    closest = Math.min(closest, Math.hypot(h.x, h.z));
+    if (h.act === 'hover' && h.ammo === KA52.ammo && h.cd > 0.5) exposedSettling ||= flightAlt(h) >= MASK.alt;
+    if (h.act === 'hover' && h.pop <= 0) masked ||= flightAlt(h) < MASK.alt && horizon(flightAlt(h)) < 1;
+  });
+  ok(settle && exposedSettling && masked, 'a Ka-52 settles in the open, then masks');
+  ok(atUnit >= KA52.salvo && obs.down, `its ATGMs go for the nearest unit and knock it out (${atUnit})`);
+  ok(closest > KA52.standoff - 3, `it holds its standoff (${closest.toFixed(1)}m)`);
+  run(g, 60);
+  ok(!g.enemies.includes(h), 'out of ATGMs, it goes home');
+  // No unit in reach: the battery.
+  const b = quiet(); b.st.slots = 0; b.st.maxHp = b.hp = 1e9;
+  spawnEnemy(b, 'ka52', FRONT, 40).hp = 1e9; run(b, 30);
+  ok(b.hp < b.st.maxHp, 'no unit in reach: a Ka-52 fires on the battery');
+}
+{
+  // Kinzhal: announced as a ballistic launch, only PAC-3 touches it, and it speeds up in the dive.
+  const g = quiet(); g.lv.pulse = g.lv.rail = g.lv.missile = 1; g.st = deriveStats(g.lv, []); g.st.weapons.cannon = null;
+  const k = spawnEnemy(g, 'hyper', 0, 50); const v0 = k.speed; let vmax = 0;
+  ok(g.events.some(v => v.k === 'tbm' && v.kind === 'hyper'), 'a Kinzhal launch sounds the ballistic warning');
+  run(g, 6, () => { if (g.enemies.includes(k)) vmax = Math.max(vmax, Math.hypot(k.vx, k.vz)); });
+  ok(!g.stats.dmg.HEL && !g.stats.dmg.HPM && !g.stats.dmg['IRIS-T'] && g.hp < g.st.maxHp && vmax > v0 * 1.25, `Kinzhal: PAC-3 only, faster in the dive (${(vmax / v0).toFixed(2)}x)`);
+  const p = quiet(); spawnEnemy(p, 'hyper', 0, 50).hp = 1; run(p, 6);
+  ok(p.stats.kills.hyper === 1, 'PAC-3 kills a Kinzhal');
+}
+{
+  // Kh-55 decoy: passes for a Kh-101 (announced as one, going for a unit), classified under lock, and does nothing.
+  const g = quiet(); g.level = 9; g.st.slots = 0; g.st.maxHp = g.hp = 1e9;
+  const u = addPad(g, 'observer', 8);
+  const m = spawnEnemy(g, 'mald', FRONT + Math.PI, 40); m.hp = 1e9;
+  ok(shownKind(m) === 'cruise' && g.events.some(v => v.k === 'cruise' && 'n' in v && v.n === u.slot), 'a Kh-55 decoy shows and is announced as a Kh-101');
+  let dud = false;
+  run(g, 12, () => { dud ||= g.events.some(v => v.k === 'dud'); });
+  ok(!g.enemies.includes(m) && !u.down && dud && g.hp === g.st.maxHp, 'it dives on its unit and does nothing');
+  const c = quiet(); const d = spawnEnemy(c, 'mald', FRONT, 20); d.hp = 1e9; d.speed = d.vx = d.vz = 0; // inside its radar horizon, over the cleared field of fire
+  let ided = false; run(c, 15, () => { ided ||= d.ided; });
+  ok(ided && shownKind(d) === 'mald', 'fire control classifies it under lock');
+}
+{
+  // FPVs hunt the most isolated unit near them; units covering each other are left alone.
+  const one = quiet(); one.level = 9; one.st.slots = 0; one.st.maxHp = one.hp = 1e9;
+  const lone = addPad(one, 'mg', 0); lone.k = 'observer'; // doesn't shoot back, so the swarm gets there
+  const f = spawnEnemy(one, 'swarm', FRONT, Math.hypot(lone.x, lone.z) + 5); f.hp = 1e9;
+  const hp0 = lone.hp; run(one, 4);
+  ok(lone.hp < hp0 && one.hp === one.st.maxHp, 'an FPV dives on an isolated unit');
+  const many = quiet(); many.level = 9; many.st.slots = 0; many.st.maxHp = many.hp = 1e9;
+  const c = [0, 2, 3].map(i => addPad(many, 'mantis', i));
+  for (const p of c) p.cd = 1e9; // hold fire: only where the FPV goes matters
+  const f2 = spawnEnemy(many, 'swarm', FRONT, Math.hypot(c[0].x, c[0].z) + 5); f2.hp = 1e9;
+  run(many, 8);
+  ok(c.every(p => p.hp === PAD_HP) && many.hp < many.st.maxHp, 'units covering each other are left alone: the FPV goes for the base');
+  // Normal spawns bring 4 to 8 FPVs.
+  const g = newGame(4242); g.phase = 'play'; g.stage = 1; g.nextRaid = g.nextElite = 1e9;
+  const packs = new Map<number, number>(), seen = new Set<number>();
+  run(g, 240, () => { for (const e of g.enemies) if (e.kind === 'swarm' && !e.pkg && !seen.has(e.id)) { seen.add(e.id); packs.set(e.born, (packs.get(e.born) ?? 0) + 1); } });
+  const sizes = [...packs.values()].filter(n => n > 0);
+  ok(sizes.length > 2 && sizes.every(n => n >= 4 && n <= 8) && new Set(sizes).size > 1, `FPV packs of 4-8 (${sizes.join(',')})`);
+}
+{
+  // Radar horizon by height, and clutter over woods and rock for low flyers; IR signature for IR seekers.
+  const g = quiet(); g.st.slots = 0; g.st.persist = 0.5;
+  const fpv = spawnEnemy(g, 'swarm', FRONT, radarRange(g) * 0.8), orlan = spawnEnemy(g, 'recon', FRONT + 1, radarRange(g) * 0.9);
+  for (const e of [fpv, orlan]) { e.speed = e.vx = e.vz = 0; e.hp = 1e9; }
+  let seenFpv = false, seenOrlan = false;
+  run(g, 15, () => { seenFpv ||= visible(g, fpv); seenOrlan ||= visible(g, orlan); });
+  ok(!seenFpv && seenOrlan, 'an FPV at 80% of radar range is under the horizon; an Orlan-10 high up at 90% is not');
+  let wood: { x: number; z: number } | undefined;
+  for (let r = 20; r < 45 && !wood; r += 1) for (let a = 0; a < 64 && !wood; a++) { const x = Math.cos(a / 64 * 6.283) * r, z = Math.sin(a / 64 * 6.283) * r; if (['forest', 'rock'].includes(ground(x, z))) wood = { x, z }; }
+  ok(wood, 'a map with woods or rock in radar range');
+  const lo = spawnEnemy(g, 'swarm', Math.atan2(wood!.z, wood!.x), Math.hypot(wood!.x, wood!.z)), hi = spawnEnemy(g, 'drone', Math.atan2(wood!.z, wood!.x), Math.hypot(wood!.x, wood!.z));
+  Object.assign(lo, wood); Object.assign(hi, wood);
+  ok(horizonMask(lo, 1e6) === MASK.sig && horizonMask(hi, 1e6) === 1, 'low over woods or rock: masked; higher: not');
+  const irOf = (k: 'swarm' | 'drone' | 'elite' | 'ka52') => irHit(spawnEnemy(g, k, 0, 50));
+  ok(irOf('swarm') < irOf('drone') && irOf('drone') < 1 && irOf('ka52') > 1 && irOf('elite') > irOf('ka52'), 'IR seekers: cold FPVs are hard, jets and helicopters easy');
+  // The new threats wait for level 5, so the first four levels play (and seed) as before.
+  const late = ['recon', 'ka52', 'hyper', 'mald'];
+  ok(LEVELS.slice(0, 4).every(l => late.every(k => !(l.w as Record<string, number>)[k])) && late.every(k => KINDS.includes(k as never)), 'new threats from level 5 on');
 }
 
 // Decoy: locked, classified, released, never locked again, harmless on arrival.
