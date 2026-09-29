@@ -173,6 +173,13 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #overlay.on { display: grid; }
 .card { text-align: center; max-width: 760px; padding: 20px; }
 .card h1 { font-size: 54px; letter-spacing: 0.25em; margin: 0 0 4px; color: var(--hot); text-shadow: 0 0 24px var(--bright); }
+.card h1.logo { font-size: 76px; letter-spacing: 0.18em; margin: 0; line-height: 1; white-space: nowrap;
+  text-shadow: 0 0 28px var(--bright), 0 0 4px var(--hot), 0 2px 4px #000; }
+.logo b { font-size: 1.3em; font-weight: 800; }
+/* Sub headline: small, spaced, between two faint rules. */
+.card .byline { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 10px auto 4px; max-width: 420px;
+  color: var(--mid); font-size: 12px; letter-spacing: 0.5em; }
+.byline::before, .byline::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 .card h2 { letter-spacing: 0.3em; color: var(--hot); margin: 0 0 18px; }
 .card p { margin: 6px 0; }
 .card .dim { color: var(--mid); }
@@ -281,6 +288,8 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   #banner { font-size: 18px; white-space: normal; width: 90%; }
   .perks { flex-wrap: wrap; }
   .card h1 { font-size: 32px; }
+  .card h1.logo { font-size: clamp(28px, 9vw, 48px); letter-spacing: 0.1em; }
+  .card .byline { font-size: 10px; letter-spacing: 0.4em; }
 }
 /* Phone portrait: stats and vitals are two thin strips across the top, the shop is a sheet over the bottom third,
    and the view centres the base in the space between (hud.ts insets(), same media query). */
