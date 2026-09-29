@@ -222,25 +222,62 @@ export const UPGRADES: Upgrade[] = [
   U('PERIMETER', 'mantis', 'MANTIS 35mm C-RAM', 150, 1.35, Infinity, 'fast gun, short range · +1 emplacement', 2),
   U('PERIMETER', 'stinger', 'Stinger Team', 220, 1.35, Infinity, 'MANPADS, mid range homing · +1 emplacement', 3),
   U('PERIMETER', 'jammer', 'EW Jammer', 300, 1.4, Infinity, 'slows contacts nearby, drains power · +1 emplacement', 4),
+  U('PERIMETER', 'observer', 'Observer Post', 100, 1.4, Infinity, 'sees 28m round itself, for every gun · +1 emplacement', 2),
+  U('PERIMETER', 'ammo', 'Ammo Point', 120, 1.4, Infinity, 'guns within 10m: +25% fire rate, belts reload twice as fast · +1 emplacement', 2),
 ];
 
-// Perimeter emplacements sit on a ring around the battery and engage any contact in their own range that
-// can be seen (by eye or radar), without using a lock slot. Each base level opens 2 more pads.
-export type PerimKind = 'mg' | 'mantis' | 'stinger' | 'jammer';
-export const PERIM_KINDS: PerimKind[] = ['mg', 'mantis', 'stinger', 'jammer'];
+// Perimeter emplacements (pads) sit on fixed slots and engage any contact that can be seen (by eye or radar)
+// inside their range and field of fire, without using a lock slot. Support units don't shoot: they boost the
+// units round them. Where a unit goes decides what it covers, what it risks and what it boosts.
+export type PerimKind = 'mg' | 'mantis' | 'stinger' | 'jammer' | 'observer' | 'ammo';
+export const PERIM_KINDS: PerimKind[] = ['mg', 'mantis', 'stinger', 'jammer', 'observer', 'ammo'];
+export const GUNS: PerimKind[] = ['mg', 'mantis', 'stinger']; // units that shoot: fields of fire, crossfire
 // Visual spotting, radar or not: anything this close to the base, or to an emplacement, is seen. NIGHT RAID x VISUAL_DARK.
 export const VISUAL_R = 18, PAD_EYES = 15, VISUAL_DARK = 0.6; // m (an emplacement sees as far as the MG reaches)
 export const MG_BELT = { rounds: 40, reload: 3 }; // the MG feeds from its own belt, not the interceptor pool; s to reload
-export const PERIM_R = 13;
-export const PAD_SLOTS = 8; // fixed spots round the ring, between the M903s
-export const PLACE_TIME = 8; // s to click a spot before the pad places itself toward the nearest threat
-export const perimSlots = (level: number) => Math.min(PAD_SLOTS, 2 * level);
+export const PLACE_TIME = 8; // s to click a spot before the pad places itself on the best slot
+
+// Slots: three belts facing the front, plus an inner ring for all-round cover. Each opens at a base level.
+// Forward: engages first, but slow to resupply and in the path of FPVs and Lancets. Main: balanced.
+// Inner: safe and all round, but engages late.
+export type Belt = 'fwd' | 'main' | 'inner';
+export const BELT_R: Record<Belt, number> = { fwd: 30, main: 17, inner: 11 };
+const S = (belt: Belt, off: number, lv: number) => ({ belt, a: FRONT + off * DEG, lv }); // off: degrees from the front
+export const SLOTS = [
+  S('main', 0, 1), S('inner', 0, 1), // level 1: a line in depth on the front axis, the two fields of fire overlapping
+  S('main', -25, 2), S('main', 25, 2), S('fwd', 0, 2),
+  S('fwd', -15, 3), S('fwd', 15, 3),
+  S('inner', -90, 4), S('inner', 90, 4), S('inner', -150, 4), S('inner', 150, 4),
+  S('main', -50, 5), S('inner', 180, 6), S('fwd', -30, 7), S('fwd', 30, 8), S('main', 50, 9),
+];
+export const slotXZ = (i: number) => ({ x: Math.cos(SLOTS[i].a) * BELT_R[SLOTS[i].belt], z: Math.sin(SLOTS[i].a) * BELT_R[SLOTS[i].belt] });
+export const perimSlots = (level: number) => SLOTS.filter(s => s.lv <= level).length;
+
+// Field of fire: half-width around the unit's facing (away from the base). Math.PI = all round.
+export const FANS: Record<PerimKind, number> = { mg: 60 * DEG, mantis: Math.PI, stinger: 90 * DEG, jammer: Math.PI, observer: Math.PI, ammo: Math.PI };
+export const CROSSFIRE = 0.2; // +damage on a target inside another gun's field of fire too
 export const PERIM = {
   mg: { dmg: 1.5, rate: 6, range: 15, ammo: 0, power: 0 },
   mantis: { dmg: 1.2, rate: 10, range: 16, ammo: 0.15, power: 0 },
   stinger: { dmg: 7, rate: 0.8, range: 26, ammo: 1, power: 0 },
   jammer: { dmg: 0, rate: 0, range: 18, ammo: 0, power: 1.2 }, // power/s while anything is in range
+  observer: { dmg: 0, rate: 0, range: 0, ammo: 0, power: 0 },
+  ammo: { dmg: 0, rate: 0, range: 0, ammo: 0, power: 0 },
 };
+// Upgrades in place: a unit gets better in its slot instead of taking another one (tall or wide).
+export const MG_TIERS = [
+  { name: '12.7mm AA MG', cost: 0, ...PERIM.mg },
+  { name: 'TWIN 12.7mm', cost: 110, ...PERIM.mg, rate: 11 },
+  { name: 'ZU-23-2', cost: 240, ...PERIM.mg, dmg: 3, rate: 8, range: 20 },
+];
+// Support units.
+export const OBSERVER_EYES = 28; // m an observer post sees round itself
+export const AMMO_R = 10, AMMO_RATE = 1.25, AMMO_RELOAD = 0.5; // ammo point: reach, fire rate x, belt reload x for guns in reach
+export const FWD_RELOAD = 1.5; // belt reload x on the forward line without an ammo point
+// Unit HP: FPVs and Lancets passing within DIVE_R of a unit on the forward line dive on it. At 0 HP it's down (no fire, no eyes, no
+// support) until repaired to half; repairs run all the time and finish at once in the build window.
+export const PAD_HP = 30, PAD_REPAIR = 0.5, DIVE_R = 3; // HP, HP/s, m
+export const SELL_REFUND = 0.5, MOVE_TIME = 5; // in combat: share refunded, s offline while relocating (free in the build window)
 export const JAM_SLOW = 0.55; // speed multiplier inside a jammer bubble (elites ignore it)
 
 // Multipliers (`add*` fields are additive). Every perk trades something.
@@ -334,7 +371,6 @@ export function deriveStats(lv: Record<string, number>, perks: string[], level =
     return owned ? { ...w, dmg: w.dmg * (1 + 0.25 * L('dmg')) * extra * p.dmg, rate: w.rate * (1 + 0.15 * L('rate')) * p.rate } : null;
   };
   const wlv = (k: string) => 1 + 0.4 * Math.max(0, L(k) - 1);
-  const pad = <T extends { dmg: number; rate: number }>(w: T) => ({ ...w, dmg: w.dmg * (1 + 0.25 * L('dmg')) * p.dmg, rate: w.rate * (1 + 0.15 * L('rate')) * p.rate });
   return {
     radar: L('radar') > 0, // search radar + fire control; without it: eyes only, no locks
     maxHp: (100 + 40 * L('hp')) * p.hp * (level >= 7 ? 1.25 : 1),
@@ -361,12 +397,8 @@ export function deriveStats(lv: Record<string, number>, perks: string[], level =
     chain: p.addChain,
     fusion: p.addFusion > 0, lpi: p.addLpi > 0, arc: p.addArc, scav: p.addScav, frag: p.addFrag, markDmg: p.markDmg,
     blackout: p.addBlackout > 0, counterSead: p.addCounterSead > 0, killChain: p.addKillChain > 0, overkill: p.addOverkill > 0, lastStand: p.addLastStand > 0,
-    perim: {
-      mg: pad(PERIM.mg),
-      mantis: pad(PERIM.mantis),
-      stinger: pad(PERIM.stinger),
-      jammer: PERIM.jammer,
-    },
+    padDmg: (1 + 0.25 * L('dmg')) * p.dmg, // x on every pad gun (per-unit stats in sim.padStats)
+    padRate: (1 + 0.15 * L('rate')) * p.rate,
     weapons: {
       cannon: weapon('cannon', L('pac3') > 0, 1),
       pulse: weapon('pulse', L('pulse') > 0, wlv('pulse')),

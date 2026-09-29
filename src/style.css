@@ -113,6 +113,11 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #bottom { bottom: 34px; left: 12px; width: 280px; display: flex; flex-direction: column; gap: 8px; }
 #target, #log { padding: 6px 10px; font-size: 11px; }
 #target:empty, #log:empty { display: none; }
+#padcard { padding: 6px 10px; font-size: 11px; pointer-events: auto; --c: var(--hot); }
+#padcard:empty { display: none; }
+#padcard b { color: var(--hot); }
+#padcard button { font: inherit; font-size: 10px; color: var(--hot); background: transparent; border: 1px solid var(--mid); padding: 2px 5px; margin: 5px 3px 2px 0; cursor: pointer; letter-spacing: 0; }
+#padcard button:disabled { color: var(--mid); opacity: 0.6; cursor: default; }
 #target { --c: var(--hot); }
 #target b { color: var(--hot); }
 #log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.55; }

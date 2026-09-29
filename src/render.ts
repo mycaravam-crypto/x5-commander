@@ -4,8 +4,8 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { ARENA_R, ENEMIES, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, PAD_SLOTS, PERIM_R, type EnemyKind } from './config.ts';
-import { emitting, focusBearing, radarRange, radarSector, freeSlots, padAngle, phase, shownKind, visible, type Shot, type State } from './sim.ts';
+import { ARENA_R, ENEMIES, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, SLOTS, slotXZ, FANS, GUNS, type EnemyKind } from './config.ts';
+import { emitting, focusBearing, radarRange, radarSector, freeSlots, bestSlot, padStats, phase, shownKind, visible, type Shot, type State } from './sim.ts';
 
 const MAX_ENEMIES = 2000, MAX_LOCKS = 64, MAX_SHOTS = 600, MAX_SHARDS = 2500, MAX_WAVES = 64, MAX_BEAMS = 3000, MAX_FRONTS = 48, MAX_BLIPS = 1024;
 const VIS = 1.6; // enemies drawn bigger than their hitbox so they read at a glance
@@ -296,26 +296,48 @@ export function createRenderer() {
       aimers.push([canisters(g, 2, 4, 2.2, 0.32, 1.05, 0.2), ry, 'pac']);
       irisPts.push([Math.cos(a) * R3, 2.7, Math.sin(a) * R3]);
     }
-    // Perimeter pads: 12.7mm MG in a sandbag ring, MANTIS gun turret, Stinger team, EW jammer mast.
+    // Perimeter pads: 12.7mm MG in a sandbag ring (twin MG, ZU-23 as it's upgraded), MANTIS gun turret, Stinger team,
+    // EW jammer mast, observer tower, ammo point crates. A unit that's down shows only its wrecked plate.
+    // Guns draw their field of fire on the ground: dim, bright for the one you picked.
+    const fan: number[] = [], picked: number[] = [];
     for (const p of s.perim) {
-      const a = Math.atan2(p.z, p.x), ry = radial(a), g = group(base, p.x, 0, p.z, ry);
-      solid(box(1.6, 0.3, 1.6), MID, 0, 0.15, 0, g);
+      const ry = radial(p.a), g = group(base, p.x, 0, p.z, ry);
+      solid(box(1.6, 0.3, 1.6), p.down ? DIM : MID, 0, 0.15, 0, g);
+      if (p.down) { solid(box(0.8, 0.25, 0.6).rotateZ(0.5), DIM, 0.2, 0.4, 0, g); continue; }
       if (p.k === 'mg') {
         solid(new THREE.CylinderGeometry(0.75, 0.8, 0.35, 8), MID, 0, 0.45, 0, g); // sandbags
         const t = group(g, 0, 0.6, 0); aimers.push([t, ry, `pad${p.slot}`]);
-        solid(box(0.35, 0.3, 0.3), BRIGHT, 0, 0.2, 0, t);
-        solid(new THREE.CylinderGeometry(0.035, 0.035, 1.1, 4).rotateZ(Math.PI / 2), HOT, 0.6, 0.25, 0, t);
+        const big = p.tier === 2, len = big ? 1.6 : 1.1;
+        solid(box(big ? 0.6 : 0.35, 0.3, big ? 0.6 : 0.3), BRIGHT, 0, 0.2, 0, t);
+        for (const z of p.tier ? [-0.1, 0.1] : [0]) solid(new THREE.CylinderGeometry(0.035, 0.035, len, 4).rotateZ(Math.PI / 2), HOT, len / 2 + 0.05, 0.25, z, t);
       } else if (p.k === 'mantis') {
         const t = group(g, 0, 0.3, 0); aimers.push([t, ry, `pad${p.slot}`]);
         solid(box(0.9, 0.7, 0.9), BRIGHT, 0, 0.35, 0, t);
         solid(new THREE.CylinderGeometry(0.06, 0.06, 1.6, 5).rotateZ(Math.PI / 2), HOT, 1.1, 0.5, 0, t);
       } else if (p.k === 'stinger') {
         canisters(g, 1, 2, 1.4, 0.25, 0.5, -0.3);
+      } else if (p.k === 'observer') {
+        for (const [x, z] of [[-0.4, -0.4], [0.4, -0.4], [-0.4, 0.4], [0.4, 0.4]]) solid(box(0.08, 2.4, 0.08), MID, x, 1.5, z, g);
+        solid(box(1.1, 0.5, 1.1), BRIGHT, 0, 2.9, 0, g);
+        solid(box(0.15, 0.15, 0.5), HOT, 0.6, 3, 0, g); // binoculars facing out
+      } else if (p.k === 'ammo') {
+        for (const [x, z, y] of [[-0.35, -0.3, 0.5], [0.35, -0.3, 0.5], [0, 0.35, 0.5], [0, -0.3, 0.95]]) solid(box(0.6, 0.4, 0.5), BRIGHT, x, y, z, g);
       } else {
         solid(new THREE.CylinderGeometry(0.05, 0.07, 2.4, 5), MID, 0, 1.4, 0, g);
         const head = group(g, 0, 2.6, 0); sweepers.push([head, ry]);
         solid(new THREE.ConeGeometry(0.45, 0.3, 8, 1, true).rotateZ(Math.PI / 2), HOT, 0.2, 0, 0, head);
       }
+      if (!GUNS.includes(p.k)) continue;
+      const out = p.slot === s.selected ? picked : fan, r = padStats(s, p).range, w = FANS[p.k], n = Math.ceil(w * 12);
+      for (let i = 0; i < n; i++) {
+        const a0 = p.a - w + 2 * w * i / n, a1 = p.a - w + 2 * w * (i + 1) / n;
+        out.push(p.x + Math.cos(a0) * r, 0.1, p.z + Math.sin(a0) * r, p.x + Math.cos(a1) * r, 0.1, p.z + Math.sin(a1) * r);
+      }
+      if (w < Math.PI) for (const a of [p.a - w, p.a + w]) out.push(p.x, 0.1, p.z, p.x + Math.cos(a) * r, 0.1, p.z + Math.sin(a) * r);
+    }
+    for (const [pts, color, opacity] of [[fan, MID, 0.35], [picked, HOT, 0.8]] as const) if (pts.length) {
+      base.add(new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)),
+        new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthWrite: false })));
     }
     scene.add(base);
   }
@@ -378,8 +400,8 @@ export function createRenderer() {
   for (let i = 0; i < 3; i++) chevPts.push(0.6 - i, 0, -0.8, -i, 0, 0, -i, 0, 0, 0.6 - i, 0, 0.8);
   const raidMark = new THREE.Mesh(segs(chevPts), additive(ALERT, true));
   raidMark.visible = false; scene.add(raidMark);
-  // Free pad spots, shown while a bought pad waits to be placed.
-  const padMarks = instanced(segs(ringPts(16, 2)), additive(0xffffff, true), PAD_SLOTS);
+  // Free slots, shown while a bought pad waits to be placed (the best one pulses) or a picked unit could move.
+  const padMarks = instanced(segs(ringPts(16, 2)), additive(0xffffff, true), SLOTS.length);
   scene.add(padMarks);
 
   // Particle pools: flat arrays, ring-buffer allocation, no per-frame garbage.
@@ -451,7 +473,7 @@ export function createRenderer() {
         case 'gun': { // MG / MANTIS: the pad's turret swings onto the target, muzzle flash at the barrel tip
           const a = Math.atan2(e.z2 - e.z, e.x2 - e.x), p = s.perim.find(p => Math.abs(p.x - e.x) + Math.abs(p.z - e.z) < 0.01);
           if (p) aimT.set(`pad${p.slot}`, a);
-          const tip = p?.k === 'mg' ? 1.15 : 1.9;
+          const tip = p?.k === 'mg' ? (p.tier === 2 ? 1.65 : 1.15) : 1.9;
           shards(e.x + Math.cos(a) * tip, e.z + Math.sin(a) * tip, 2, 0xffffff, 3, 0.4, 0.8);
           break;
         }
@@ -500,7 +522,7 @@ export function createRenderer() {
   function render(s: State, dt: number) {
     clock += dt;
     consume(s);
-    const key = `${s.level}${s.st.radar}${!!s.st.weapons.cannon}${s.st.aesa}${!!s.st.weapons.pulse}${s.lv.missile ?? 0}${!!s.st.weapons.rail}${s.perim.length}`;
+    const key = `${s.level}${s.st.radar}${!!s.st.weapons.cannon}${s.st.aesa}${!!s.st.weapons.pulse}${s.lv.missile ?? 0}${!!s.st.weapons.rail}|${s.perim.map(p => `${p.slot}${p.k}${p.tier}${p.down ? 'd' : ''}`).join()}|${s.selected}`;
     if (key !== baseKey) { baseKey = key; buildBase(s); }
 
     // camera
@@ -528,11 +550,15 @@ export function createRenderer() {
     gridMat.color.setScalar((phase(s).mod.dark ? 0.45 : 1) + gridFlash * 4);
     raidMark.visible = !!s.raid || s.raidLeft > 0; // warning: pulsing in; attack: held steady on the raid's bearing
     padMarks.count = 0;
-    if (s.placing) for (const i of freeSlots(s)) {
-      dummy.position.set(Math.cos(padAngle(i)) * PERIM_R, 0.15, Math.sin(padAngle(i)) * PERIM_R);
-      dummy.rotation.set(0, clock, 0); dummy.scale.setScalar(1.6 + 0.3 * Math.sin(clock * 6));
-      dummy.updateMatrix(); padMarks.setMatrixAt(padMarks.count, dummy.matrix);
-      padMarks.setColorAt(padMarks.count++, tmpC.setHex(HOT));
+    if (s.placing || s.selected >= 0) {
+      const best = s.placing ? bestSlot(s, s.placing.k) : -1;
+      for (const i of freeSlots(s)) {
+        const q = slotXZ(i), hot = i === best;
+        dummy.position.set(q.x, 0.15, q.z);
+        dummy.rotation.set(0, clock, 0); dummy.scale.setScalar(hot ? 2 + 0.5 * Math.sin(clock * 8) : s.placing ? 1.4 : 1.1);
+        dummy.updateMatrix(); padMarks.setMatrixAt(padMarks.count, dummy.matrix);
+        padMarks.setColorAt(padMarks.count++, tmpC.setHex(hot ? HOT : s.placing ? BRIGHT : MID));
+      }
     }
     if (raidMark.visible) {
       const a = s.raid ? s.raid.a : s.raidA, pulse = s.raid ? (clock * 1.5) % 1 : 0.5 + 0.2 * Math.sin(clock * 3);

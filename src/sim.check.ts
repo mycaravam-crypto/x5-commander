@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, draft, placePad, rand, dailySeed, type State } from './sim.ts';
-import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC } from './config.ts';
+import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSlot, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State } from './sim.ts';
+import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, SLOTS, slotXZ, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC } from './config.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
 const rng = { seed: 12345 };
@@ -101,7 +101,7 @@ ok(b.level >= 3 && b.perks.length === b.level - 1, `base grows + perks (lv ${b.l
   // TRML-4D keeps contacts coming while an ARM has the MPQ-65 down; lv3 hears raids earlier.
   const seen = (level: number) => { const g = quiet(); g.level = level; g.st = deriveStats(g.lv, [], level); g.radarDownUntil = 1e9;
     const e = spawnEnemy(g, 'tank', 0, 20); e.hp = 1e9; e.speed = 0; let v = false, l = false; // past eyesight, inside the TRML's reach
-    run(g, 10, () => { v ||= visible(g, e); l ||= e.locked; }); return v && !l; };
+    run(g, 30, () => { v ||= visible(g, e); l ||= e.locked; }); return v && !l; }; // 30s: ~12 looks, so a miss is ~0.02% (10s was ~6%)
   ok(seen(4) && !seen(3), 'lv4: TRML-4D searches while the radar is down, without locks');
   const g = quiet(); g.level = 3; g.st = deriveStats(g.lv, [], 3); g.nextRaid = 20; run(g, 20 - RAID_WARN - 4.5);
   ok(g.raid, 'lv3: raids announced earlier');
@@ -109,20 +109,95 @@ ok(b.level >= 3 && b.perks.length === b.level - 1, `base grows + perks (lv ${b.l
   ok(b.level === 2 && b.st.gen === deriveStats(b.lv, [], 2).gen, 'level-up refreshes stats');
 }
 
-// Perimeter: gated by base level and pad count; a pad kills things on its own. The starting MG takes one of lv1's 2.
+// Perimeter: gated by base level and open slots; a pad kills things on its own. The starting MG takes one of lv1's 2.
 s = newGame(); s.phase = 'play'; s.credits = 1e6;
 ok(!buy(s, 'mantis'), 'mantis locked at lv1');
-ok(buy(s, 'mg') && placePad(s, 10, 0) && !buy(s, 'mg'), 'lv1 = 2 pads, the starting MG and one more');
+ok(buy(s, 'mg') && placePad(s, 0, 0) && s.perim[1].slot === 1 && !buy(s, 'mg'), 'lv1 = 2 slots, the starting MG and one more');
 s.level = 2;
 ok(buy(s, 'mantis') && !buy(s, 'mantis'), 'one pad placed at a time');
-ok(placePad(s, -10, 0) && s.perim[2].slot === 4, 'pad goes to the clicked side');
-ok(buy(s, 'mantis') && placePad(s, -10, 0) && s.perim[3].slot !== 4, 'taken slot skipped');
-ok(!buy(s, 'mantis'), 'lv2 = 4 pads');
-ok(s.perim.length === 4 && s.perim.every(p => Math.hypot(p.x, p.z) > 10), 'pads on the ring');
+{ const f = slotXZ(3);
+  ok(placePad(s, f.x + 1, f.z) && s.perim[2].slot === 3, 'pad goes to the slot nearest the click');
+  ok(buy(s, 'mantis') && placePad(s, f.x, f.z) && s.perim[3].slot !== 3, 'taken slot skipped'); }
+ok(buy(s, 'mg') && placePad(s, 0, 0) && !buy(s, 'mantis') && lockReason(s, 'mantis') === 'PADS FULL', 'lv2 = 5 slots');
+ok(s.perim.every(p => SLOTS[p.slot].lv <= 2), 'only open slots are used');
 { const g = quiet(); g.credits = 1e6; g.level = 2; buy(g, 'mantis'); run(g, 9); ok(g.perim.length === 1 && !g.placing, 'unplaced pad places itself'); }
 s.st.slots = 0; // no main-battery locks: only the pads can shoot
 run(s, 40);
 ok(s.kills > 0, `pads engage without locks (kills=${s.kills})`);
+
+// Slots and fields of fire. addPad: buy a unit and put it on a given slot.
+const addPad = (g: State, k: string, slot: number) => { g.credits += 1e6; ok(buy(g, k), `buy ${k}`); const q = slotXZ(slot); ok(placePad(g, q.x, q.z) && g.perim.some(p => p.slot === slot), `place ${k} on ${slot}`); return g.perim.find(p => p.slot === slot)!; };
+{
+  // A gun shoots inside its field of fire only: not at what's behind it.
+  const g = quiet(); g.level = 9; g.st.slots = 0;
+  const mg = addPad(g, 'mg', 0), behind = spawnEnemy(g, 'tank', FRONT, 8), ahead = spawnEnemy(g, 'tank', FRONT, 26);
+  for (const e of [behind, ahead]) { e.speed = e.vx = e.vz = 0; e.hp = 1e9; }
+  const hits = { b: 0, a: 0 };
+  run(g, 3, () => { for (const sh of g.shots) if (sh.src === 'MG') { if (sh.target === behind.id) hits.b++; if (sh.target === ahead.id) hits.a++; } });
+  ok(Math.hypot(behind.x - mg.x, behind.z - mg.z) < 15 && hits.b === 0 && hits.a > 0, `MG fires ahead, not behind (${hits.a}/${hits.b})`);
+  // Crossfire: the inner MG covers the same contact, so both hit harder.
+  addPad(g, 'mg', 1); g.shots.length = 0;
+  let dmg = 0;
+  run(g, 0.5, () => { for (const sh of g.shots) if (sh.src === 'MG' && sh.target === ahead.id) dmg = Math.max(dmg, sh.dmg); });
+  ok(Math.abs(dmg - MG_TIERS[0].dmg * g.st.padDmg * (1 + CROSSFIRE)) < 1e-9, `crossfire: +${CROSSFIRE * 100}% inside two fields of fire`);
+}
+{
+  // Auto-place goes where it adds the most: with the front covered and the flanks open, an inner flank slot.
+  const g = quiet(); g.level = 4; g.stage = 5;
+  addPad(g, 'mg', 0); addPad(g, 'mg', 1); addPad(g, 'mg', 4);
+  const best = bestSlot(g, 'mg')!;
+  ok(SLOTS[best].belt === 'inner' && Math.abs(Math.abs(SLOTS[best].a - FRONT) - Math.PI / 2) < 0.1 + Math.PI / 3, `best slot covers the open flank (${best}: ${SLOTS[best].belt})`);
+  ok(SLOTS[bestSlot(g, 'ammo')!].belt !== 'inner' || g.perim.some(p => Math.hypot(p.x - slotXZ(bestSlot(g, 'ammo')!).x, p.z - slotXZ(bestSlot(g, 'ammo')!).z) <= 10), 'an ammo point goes next to guns');
+}
+{
+  // Support: an observer sees far round itself; an ammo point speeds up the guns in reach.
+  const g = quiet(); g.level = 9;
+  addPad(g, 'observer', 4);
+  const o = slotXZ(4), e = spawnEnemy(g, 'tank', FRONT, Math.hypot(o.x, o.z) + OBSERVER_EYES - 3); e.speed = e.vx = e.vz = 0; e.hp = 1e9;
+  g.st.radarRange = 0; run(g, 0.5);
+  ok(visible(g, e), 'observer post sees far round itself');
+  const mg = addPad(g, 'mg', 2), before = padStats(g, mg).rate;
+  addPad(g, 'ammo', 0); // ~7m away
+  ok(Math.abs(padStats(g, mg).rate - before * AMMO_RATE) < 1e-9, 'ammo point: guns in reach fire faster');
+  // Belt reloads: slow on the forward line, fast next to an ammo point.
+  const fwd = addPad(g, 'mg', 5), t = spawnEnemy(g, 'tank', Math.atan2(fwd.z, fwd.x), Math.hypot(fwd.x, fwd.z) + 8); t.speed = t.vx = t.vz = 0; t.hp = 1e9;
+  fwd.belt = mg.belt = 1; run(g, 0.2);
+  ok(fwd.cd > MG_BELT.reload && fwd.cd <= MG_BELT.reload * 1.5, `forward line reloads slower (${fwd.cd.toFixed(2)}s)`);
+}
+{
+  // Forward line: FPVs and Lancets dive on it. Down at 0 HP (no fire), back at half, all fixed by the build window.
+  const g = quiet(); g.level = 9; g.st.maxHp = g.hp = 1e9; g.st.slots = 0;
+  const f = addPad(g, 'mg', 4), m = addPad(g, 'mg', 0);
+  f.hp = 2;
+  const e = spawnEnemy(g, 'scout', Math.atan2(f.z, f.x), Math.hypot(f.x, f.z) + 6); e.hp = 1e9;
+  let downEv = false;
+  run(g, 3, () => { downEv ||= g.events.some(v => v.k === 'padDown'); });
+  ok(!g.enemies.includes(e) && f.down && downEv && g.hp === g.st.maxHp, 'a Lancet dives on the forward MG and knocks it out');
+  const fired = g.stats.dmg.MG ?? 0, x = spawnEnemy(g, 'tank', Math.atan2(f.z, f.x), Math.hypot(f.x, f.z) + 8); x.speed = x.vx = x.vz = 0; x.hp = 1e9;
+  m.k = 'observer'; // only the downed forward gun could reach it
+  run(g, 2);
+  ok((g.stats.dmg.MG ?? 0) === fired, 'a unit that is down does not fire');
+  run(g, PAD_HP / 2 / 0.5 + 1);
+  ok(!f.down, 'repairs bring it back at half HP');
+  const e2 = spawnEnemy(g, 'swarm', FRONT + Math.PI, 30); e2.hp = 1e9; // far from any forward unit: goes for the base
+  run(g, 8); ok(!g.enemies.includes(e2) && g.hp < g.st.maxHp && f.hp > 0, 'no forward unit in the way: FPVs go for the base');
+}
+{
+  // Tall or wide: upgrade in place (counts as a purchase), sell, move.
+  const g = quiet(); g.level = 9; g.credits = 1e6;
+  const mg = addPad(g, 'mg', 0), bought = g.bought;
+  ok(selectPad(g, mg.x + 1, mg.z) && upgradePad(g) && mg.tier === 1 && g.bought === bought + 1, 'upgrade in place: twin MG');
+  ok(upgradePad(g) && mg.tier === 2 && padStats(g, mg).range === MG_TIERS[2].range && !upgradePad(g), 'then ZU-23, the top tier');
+  const q = slotXZ(3);
+  ok(movePad(g, q.x + 1, q.z) && mg.slot === 3 && mg.cd === MOVE_TIME, 'moving in combat takes it offline');
+  const paid = mg.paid, cr = g.credits;
+  ok(sellPad(g) && g.credits === cr + Math.round(paid * 0.5) && !g.perim.includes(mg) && g.selected === -1, 'selling in combat refunds half');
+  const b = addPad(g, 'mantis', 0); g.buildUntil = g.t + 10; selectPad(g, b.x, b.z);
+  const q2 = slotXZ(2);
+  ok(movePad(g, q2.x, q2.z) && b.cd === 0, 'moving in the build window is free');
+  const cr2 = g.credits; ok(sellPad(g) && g.credits === cr2 + b.paid, 'selling in the build window refunds it all');
+  ok(!selectPad(g, 40, 40) && g.selected === -1, 'clicking empty ground picks nothing');
+}
 
 // The starting kit: one AA machine gun facing the front, eyes, and no radar or Patriot.
 {
