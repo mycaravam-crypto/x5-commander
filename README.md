@@ -1,6 +1,6 @@
 # X5 Commander
 
-A minimal browser tower defense game made from simple 3D shapes. You start with a single anti-aircraft machine gun and build it up into a Patriot air-defense battery against an endless, escalating raid of drones, helicopters and strike jets. You can only engage what you can see: by eye at first, by radar once you've built one.
+A browser air-defense RTS made from simple 3D shapes. You start with a single anti-aircraft machine gun on a hill farm behind a river, and build it up into a Patriot air-defense battery against an endless, escalating raid of drones, helicopters and strike jets. You build your defenses anywhere on open ground round the base, among woods, ponds and rock outcrops. You can only engage what you can see: by eye at first, by radar once you've built one.
 
 System and threat names are real or announced systems, used for flavor only; the numbers are game balance, not real performance.
 
@@ -34,10 +34,13 @@ The game runs entirely in the browser, with no backend and no asset files. `dist
 | Space (in play)        | Emergency intercept                       |
 | G                      | Cycle fire discipline: CONSERVE / BALANCED / MAXIMUM |
 | D                      | Start today's daily op                    |
-| Left click             | Place a bought pad; pick one of your units (click a free slot to move it); otherwise mark a contact as the priority target (needs the radar) |
+| Left click             | Build a bought unit on open ground; pick one of your units; otherwise mark a contact as the priority target (needs the radar) |
 | U / Delete             | Upgrade / sell the unit you picked         |
+| B, or right-click ground | Move the unit you picked               |
+| WASD / arrows / middle-drag | Pan the camera                       |
 | Mouse wheel            | Zoom                                      |
 | Right-drag / Q / E     | Rotate camera                             |
+| Click the minimap      | Look there                                |
 | Tab                    | Show / hide the upgrade shop              |
 | T                      | Cycle the auto-targeting mode             |
 | V                      | Cycle radar mode: ACTIVE / FOCUSED / LPI  |
@@ -53,14 +56,18 @@ The game runs entirely in the browser, with no backend and no asset files. `dist
 
 The game pauses by itself when the window loses focus.
 
-**Touch screens:** tap marks a contact or places a pad, one-finger drag rotates, pinch zooms. Phones get a compact HUD: a thin HP / power / missile strip top-left with toggles for the mini radar and the details list (remembered between runs) plus 2× and pause, and an icon bar at the bottom for shop, intercept, fire discipline, scan mode, EMCON and targeting mode, each showing its current setting.
+**Touch screens:** tap marks a contact, builds or picks a unit (the MOVE button on the unit card moves it), one-finger drag pans, two fingers pinch to zoom and twist to rotate. Phones get a compact HUD: a thin HP / power / missile strip top-left with toggles for the minimap and the details list (remembered between runs) plus 2× and pause, and an icon bar at the bottom for shop, intercept, fire discipline, scan mode, EMCON and targeting mode, each showing its current setting.
 
 The first time you meet each threat or mechanic, a short tip explains it. Tips don't come back once you've seen them.
 
 ## Gameplay
 
+### The battlefield
+The base sits on a low plateau in farmland. Ahead, toward the front, a cleared field of fire runs down to a river; woods cover the flanks, with ponds, rock outcrops, fields and farmsteads in the rear and hills beyond. Aircraft fly at their own heights over the ground (FPVs and cruise missiles low, Su-34s high, ballistic missiles diving in steeply), each with a faint line dropped to a ring on the ground so you can see where it is. The terrain is the same every run. It's scenery for the aircraft, but it decides where you can build (see *Building the line*). NIGHT RAID turns the day to moonlight.
+
 ### Reading the HUD
 - **Left panel:** battery, power and interceptor bars (with net flow per second), then three groups: SENSORS (radar mode, radar state, range, tracks), FIRE CONTROL (locks in use with a bar, fire discipline, target mode, intercept readiness) and BATTERY (pads, raid state, build window). The top bar shows the level you're on.
+- **Minimap (under the left panel):** the terrain from above, turned with the camera: the build zone (dashed), your units (cyan), contacts (red, missiles amber), the front (red rim), the radar or eyesight range and the camera's view. Click it to look there.
 - **Threat board (top right):** what's on the scope by type, and the 4 most urgent contacts (damage they'd do over time to impact). Amber means dangerous now; ◆ means locked.
 - **Shop:** the row marked ◆ in amber is the suggested buy for the current bottleneck: interceptors when the magazine runs low, generator when power starves the radar, hull when HP is low, ECS channels when contacts wait for a lock.
 
@@ -80,7 +87,7 @@ A rotating radar can take at most 8 levels of *Scan Rate*. From base level 4 you
 
 ### Radar threats and EMCON
 The enemy fights your radar, not just your base.
-- **The HUD shows the radar's state.** Knocked out: the whole screen goes to static with rolling bars and drained colour, the frames turn red, the mini radar shows NO RADAR, and a red countdown reads RADAR DOWN, NO FIRE CONTROL. EMCON gets a quieter amber banner. Red is kept for the worst states only: radar knocked out and battery critical.
+- **The HUD shows the radar's state.** Knocked out: the view drains of colour under a light snow, the frames turn red, the minimap shows NO RADAR, and a red countdown reads RADAR DOWN, NO FIRE CONTROL. EMCON gets a quieter amber banner. Red is kept for the worst states only: radar knocked out and battery critical.
 - **Anti-radiation missiles (Kh-31P)** home on a radiating radar. Su-34s launch them once they're in range, and from the SEAD level they arrive in salvos. A hit takes the radar **offline for 6 s** (repeated hits stack up to 12 s). You get warning: every launch sounds the radar-warning tone and shows its bearing.
 - **EMCON (`F`)** stops the radar transmitting. Inbound ARMs lose the emitter and veer off, the radar stops draining power, but fire control drops every lock and contacts coast on track memory. Go silent early: an ARM that's already close still hits.
 - **Radar modes (`V`)**, each a trade-off. EMCON works on top of any of them.
@@ -112,22 +119,32 @@ Detected enemies are locked, up to your number of **lock slots**. A lock holds a
 ### Perimeter defenses: building the line
 Perimeter pads (units): **12.7 mm AA MGs** (from the start), **MANTIS 35mm C-RAM** (base level 2, fast gun, short range), **Stinger teams** (level 3, homing, mid range), **EW jammers** (level 4, slow nearby contacts, drain power), the **IRIS-T SLM** (level 5, needs the radar: a medium-range SAM, 30 m all round, that takes on missiles before anything else), and two support units from level 2: the **observer post** (sees 28 m round itself, for every gun) and the **ammo point** (guns within 10 m fire 25% faster and reload their belts twice as fast). Units engage any contact that can be seen, by eye or radar, inside their range and **field of fire**, without using a lock slot.
 
-**Slots.** Units go on fixed slots in three belts facing the front, plus an inner ring. Base level 1 opens 2 slots in depth on the front axis (one holds the starting MG); more open with each base level, up to 16:
+**Building.** Units go anywhere on open ground inside the **build zone**, the dashed ring round the base: at least 10.5 m out (clear of the base compound), at least 3.5 m from each other, and not on water, rock or woods. The zone and the number of units grow with the base level:
+
+| Base level | Build zone | Units |
+|------------|------------|-------|
+| 1          | 20 m       | 2 (one is the starting MG) |
+| 2          | 31 m       | 5     |
+| 3          | 34 m       | 7     |
+| 4          | 34 m       | 11    |
+| 5+         | 36 m       | 12, then +1 per level up to 16 |
+
+Where a unit stands decides its **belt**:
 
 | Belt         | Distance | Trade-off                                                                                   |
 |--------------|----------|---------------------------------------------------------------------------------------------|
-| Forward line | 30 m     | engages first; belts reload 50% slower without an ammo point; FPVs and Lancets that pass within 3 m dive on the unit |
-| Main line    | 17 m     | balanced                                                                                    |
-| Inner ring   | 11 m, all round | safe, covers the flanks, engages late                                                 |
+| Forward line | 24 m and out | engages first; belts reload 50% slower without an ammo point; FPVs and Lancets that pass within 3 m dive on the unit |
+| Main line    | 14–24 m  | balanced                                                                                    |
+| Inner ring   | inside 14 m, all round | safe, covers the flanks, engages late                                         |
 
-**Fields of fire.** A gun covers a fan pointing away from the base, drawn on the ground: MGs 120°, Stingers 180°, MANTIS all round. It can't shoot what has flown past it. A target inside two guns' fields of fire takes **+20% crossfire damage** from both. Amber ticks on the mini radar rim mark bearings in the threat arc that no working gun covers. Press `O` (or the half-circle button on phones) for the coverage map: amber ground in the threat arc that nothing covers, dim green where one gun does, bright green where guns cross their fire.
+**Fields of fire.** A gun covers a fan pointing away from the base, drawn on the ground: MGs 120°, Stingers 180°, MANTIS all round. It can't shoot what has flown past it. A target inside two guns' fields of fire takes **+20% crossfire damage** from both. Amber ticks on the minimap rim mark bearings in the threat arc that no working gun covers. Press `O` (or the half-circle button on phones) for the coverage map: amber ground in the threat arc that nothing covers, dim green where one gun does, bright green where guns cross their fire.
 
-**Placing.** After buying a unit, **click the map** to put it on the nearest free slot. The pulsing slot is the one that covers the most open sky (or, for support units, serves the most guns); if you don't click within 8 seconds, the unit goes there.
+**Placing.** After buying a unit, a ghost of it follows the pointer with the ground it would cover filled in: green where it can be built, red where it can't. **Click open ground** to build it there (a click on blocked ground snaps to the nearest open spot within 4 m). The pulsing ring marks the spot that covers the most open sky (or, for support units, serves the most guns); if you don't click within 8 seconds, the unit goes there.
 
 **Your units.** Click one to pick it: the card shows its range, damage, field of fire and HP.
 - **Upgrade in place (`U`):** 12.7 mm MG → twin 12.7 mm → ZU-23-2 (more range). An upgrade counts as a purchase toward the base level.
 - **Sell (`Delete`):** full refund in the build window, half in combat.
-- **Move:** click a free slot. Free in the build window, 5 s offline in combat.
+- **Move (`B`, or right-click the ground):** then click open ground. Free in the build window, 5 s offline in combat.
 
 **Unit HP.** A unit that runs out of HP is **down**: no fire, no eyes, no support, until repairs bring it back to half. Repairs run all the time, and the build window repairs every unit at once.
 
@@ -143,7 +160,7 @@ Laser and HPM shots cost power as well. The power and interceptor bars show the 
 Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits. There are 28 upgrades in 7 groups: BATTERY, POWER, SENSORS, FIRE CONTROL, WEAPONS, MAGAZINE and PERIMETER. Each upgrade costs more with every level. There is **no max level**, except for *Threat Evaluation*, the *radar*, the *PAC-3 battery* and *LTAMDS AESA*, which are on/off, and Scan Rate before the AESA. Earth Revetments have diminishing returns, up to 85% less damage taken. Buying upgrades raises your **base level**, which adds visible structures to the base and offers a **perk draft: pick 1 of 3**. Every perk has a tradeoff, for example *GLASS CANNON*: +100% damage, −40% max HP. From base level 3, every draft also offers one **rule perk** (marked ★ NEW RULE) that changes how the battery plays, until you've taken them all. From level 3: *BLACKOUT PROTOCOL* (tracks coast twice as long when the radar goes dark, −30% memory while radiating), *COUNTER-SEAD* (each ARM shot down restores 20% power), *KILL CHAIN* (every 5 kills: +1 lock slot for 8 s), *OVERKILL* (damage past a kill jumps to the nearest contact within 8 m) and *LAST STAND* (below 25% HP: +50% fire rate, −40% power gen). From level 5: *TRACK FUSION* (locks hold while the radar is dark), *LPI WAVEFORM* (LPI mode keeps full detection), *OVERWATCH* (your marked target takes double damage), *ARC LASER* (laser jumps to 2 more targets; needs the laser), *SCAVENGER* (kills refund interceptors) and *FRAG WARHEADS* (PAC-3 hits splash).
 
 ### The front
-Enemies attack from one direction: the **front**, a 50° sector at the top of the default view, marked on the ground and on the mini radar rim. Aircraft and short-range drones (Lancet, FPV, Mi-28, Su-34, Mi-8 and their ARMs) always come from the front. Long-range threats (Shaheds, the decoys that fly with them, and Iskanders) come from the front too at first. From the SEAD level they can come from up to 60° either side of it, from COORDINATED RAID up to 120°, and after that from any direction. The mini radar shades the arc they can currently come from. A raid or package comes off the front only when everything in it is a long-range threat.
+Enemies attack from one direction: the **front**, a 50° sector at the top of the default view, marked on the ground (red dashes at the rim) and on the minimap. Aircraft and short-range drones (Lancet, FPV, Mi-28, Su-34, Mi-8 and their ARMs) always come from the front. Long-range threats (Shaheds, the decoys that fly with them, and Iskanders) come from the front too at first. From the SEAD level they can come from up to 60° either side of it, from COORDINATED RAID up to 120°, and after that from any direction. The minimap and the ground show the arc they can currently come from in amber. A raid or package comes off the front only when everything in it is a long-range threat.
 
 ### Levels
 A run is a string of **levels**. Each one is 60 s of waves, then the level's **raid**, then a **build window** with no new contacts, before the next level starts. The build window is 20 s if you held the raid's objective and 8 s if you lost it. Contacts already in the air keep coming, so it isn't a pause, but it's the time to buy and place pads. Each level adds a new kind of problem, rather than just more HP:
@@ -224,20 +241,21 @@ This section replaces the old `plan-mvp.md`, `plan.md` and `plan-frontline.md`; 
 
 ### Shipped
 - **MVP:** the core loop (detect → lock → shoot → credits → upgrade → base level → perks → game over), the upgrade shop, juice and sound, 2,000 pooled enemy instances.
-- **Green radar look:** one green palette (`PAL` in `config.ts`) with amber for warnings and red for critical, wireframe models with bloom and a CRT pass, a polar grid, sweep afterglow and blip ghosts, segmented bars, the system log, the boot sequence and the sweep ping.
+- **Green radar look:** wireframe models over a polar grid with a CRT pass. Replaced by the terrain view (below); it's in git history.
+- **Terrain and free building:** a fixed map (`terrain.ts`: river, woods, ponds, rock outcrops, roads, fields, hills) drawn as a lit 3D scene with shadows, trees and a day / night grade; solid vehicle and aircraft models flying at their own heights; an RTS camera (pan, rotate, zoom, minimap to jump); units built anywhere on open ground in a build zone that grows with the base, with a ghost that previews coverage. The HUD moved from green phosphor to a neutral command-panel look.
 - **Front line, steps 1–5:** the front and widening flank arcs, levels with raids and build windows, the AA MG start with the radar and Patriot as milestones, belt slots with fields of fire, crossfire, support units and unit HP, the coverage overlay (`O`), and Kh-101 cruise missiles with the IRIS-T SLM to stop them.
 
 ### Next: finish the front line (step 6)
 - [ ] **Level card** at the end of each level: held or lost, what unlocks next, new directions (e.g. "MISSILES MAY NOW COME FROM ±60°"). Today there's only a banner and a log line.
-- [ ] **Build window as its own state:** slow motion, shop open, free slots highlighted.
+- [ ] **Build window as its own state:** slow motion, shop open, the build zone highlighted.
 - [ ] **Map polish:** draw the belts as dim dashed arcs and shade enemy territory beyond the front.
 - [ ] **Rebalance** with `npm run balance`. Known issues: FORTRESS (−15% fire rate) is weak with gun-heavy starts, and long runs now die to cruise missiles (LOGISTICS max run dropped from 15:00 to 6:56).
 
 ### Placement extras
 - [ ] **Tier-3 branch** for guns: at the ZU-23 (the MG's top tier; MANTIS is its own unit), pick *AP rounds* against Mi-28s or *high rate* against swarms.
-- [ ] **Slot preview while placing:** each free slot shows the field of fire it would add and how much open threat arc it closes.
 - [ ] **Power node** (with the energy weapons, level 7+): laser and HPM draw power only within its reach, so it decides where they can go.
-- [ ] **Terrain tags** (optional): *ridge* (+20% range, drones go for it first), *treeline* (never targeted, −15% range), *road* (half build cost, fast resupply). Waits until after step 6: it adds a lot of balance surface.
+- [ ] **Terrain that fights:** the map exists now, so ground can matter: *hilltop* (+20% range, drones go for it first), *treeline* edge (never targeted, −15% range), *road* (half build cost, fast resupply), and woods or ridges that block eyesight. Adds a lot of balance surface.
+- [ ] **Base buildings as units:** build the generator, ammo bunker, radar and launchers on their own spots instead of in a fixed compound.
 
 ### Later ideas
 - A front that moves back after a held level, giving more depth for the next one.
@@ -247,7 +265,7 @@ This section replaces the old `plan-mvp.md`, `plan.md` and `plan-frontline.md`; 
 - `sim.ts` never touches rendering; `render.ts` and `hud.ts` only read state. No per-frame allocation of meshes or DOM.
 - The daily op must stay deterministic: every spawn source draws from its own seeded stream.
 - Every off-axis attack is telegraphed with a warning and bearing. Players should lose to gaps in their cover, not to surprises.
-- Auto-place and the balance bots use the same `bestSlot()`, so the bots test real layouts.
+- Auto-place and the balance bots use the same `bestSpot()`, so the bots test real layouts. Where you can build comes from `terrain.ts`, which the sim reads too: it stays pure (no Three.js) and the same every run.
 - Keep the game runnable after every step. `npm test` and `npm run build` stay green, and new mechanics get cases in `sim.check.ts` and `balance.ts`.
 
 ## Project layout
@@ -255,8 +273,10 @@ This section replaces the old `plan-mvp.md`, `plan.md` and `plan-frontline.md`; 
 ```
 src/config.ts     every tunable number: enemies, weapons, upgrades, perks, difficulty
 src/sim.ts        pure game state + update(dt), no Three.js (testable in Node)
+src/terrain.ts    the map: ground types, heights, trees (pure, the sim uses it for building)
+src/terrainPaint.ts paints the map for the 3D ground and the minimap
 src/render.ts     Three.js scene, reads state only
-src/hud.ts        DOM HUD, mini-radar, shop, overlays
+src/hud.ts        DOM HUD, minimap, shop, overlays
 src/sfx.ts        WebAudio sound effects, no audio files
 src/main.ts       boot, input, main loop
 src/sim.check.ts  `npm test` self-check

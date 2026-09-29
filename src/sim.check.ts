@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSlot, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State } from './sim.ts';
-import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, SLOTS, slotXZ, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC } from './config.ts';
+import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State } from './sim.ts';
+import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC } from './config.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
 const rng = { seed: 12345 };
@@ -15,6 +15,11 @@ const run = (s: State, secs: number, each?: () => void) => {
 const armed = (g: State) => { g.lv.radar = g.lv.pac3 = 1; g.st = deriveStats(g.lv, g.perks, g.level); return g; };
 // One thing at a time: no random spawns, strike packages or raids. Armed, and without the starting MG.
 const quiet = () => { const g = armed(newGame()); g.phase = 'play'; g.spawnAcc = -1e9; g.nextElite = 1e9; g.nextRaid = 1e9; g.perim.length = 0; return g; };
+
+// Reference spots on open ground, by belt and degrees off the front (the old fixed slots, still used by the checks).
+const SPOT: [number, number][] = [[17, 0], [11, 0], [17, -25], [17, 25], [30, 0], [30, -15], [30, 15], [11, -90], [11, 90], [11, -150], [11, 150], [17, -50], [11, 180], [30, -30], [30, 30], [17, 50]];
+const slotXZ = (i: number) => { const [r, o] = SPOT[i], a = FRONT + o * Math.PI / 180; return { x: Math.cos(a) * r, z: Math.sin(a) * r }; };
+const near = (p: { x: number; z: number }, q: { x: number; z: number }) => Math.hypot(p.x - q.x, p.z - q.z) < 0.8;
 
 // Level thresholds
 ok([0, 2, 3, 8, 9, 18].map(baseLevel).join() === '1,1,2,2,3,4', 'baseLevel thresholds');
@@ -112,21 +117,25 @@ ok(b.level >= 3 && b.perks.length === b.level - 1, `base grows + perks (lv ${b.l
 // Perimeter: gated by base level and open slots; a pad kills things on its own. The starting MG takes one of lv1's 2.
 s = newGame(); s.phase = 'play'; s.credits = 1e6;
 ok(!buy(s, 'mantis'), 'mantis locked at lv1');
-ok(buy(s, 'mg') && placePad(s, 0, 0) && s.perim[1].slot === 1 && !buy(s, 'mg'), 'lv1 = 2 slots, the starting MG and one more');
+ok(buy(s, 'mg') && !placePad(s, 0, 0) && s.placing, 'no building inside the base compound');
+{ const q = slotXZ(1); ok(placePad(s, q.x, q.z) && near(s.perim[1], q) && !buy(s, 'mg'), 'lv1 = 2 units, the starting MG and one more'); }
 s.level = 2;
 ok(buy(s, 'mantis') && !buy(s, 'mantis'), 'one pad placed at a time');
 { const f = slotXZ(3);
-  ok(placePad(s, f.x + 1, f.z) && s.perim[2].slot === 3, 'pad goes to the slot nearest the click');
-  ok(buy(s, 'mantis') && placePad(s, f.x, f.z) && s.perim[3].slot !== 3, 'taken slot skipped'); }
-ok(buy(s, 'mg') && placePad(s, 0, 0) && !buy(s, 'mantis') && lockReason(s, 'mantis') === 'PADS FULL', 'lv2 = 5 slots');
-ok(s.perim.every(p => SLOTS[p.slot].lv <= 2), 'only open slots are used');
+  ok(!placePad(s, 0, -buildR(2) - 8), 'nothing outside the build zone');
+  ok(placePad(s, f.x + 0.2, f.z) && near(s.perim[2], f), 'a unit goes where you click');
+  ok(buy(s, 'mantis') && placePad(s, f.x, f.z) && Math.hypot(s.perim[3].x - f.x, s.perim[3].z - f.z) >= PAD_GAP - 1e-9, 'a taken spot: the nearest open one'); }
+ok(!!buildBlock(s, -22, 21) && !!buildBlock(s, 17, -6), 'no building on water or rock');
+{ const q = slotXZ(4); ok(buy(s, 'mg') && placePad(s, q.x, q.z) && !buy(s, 'mantis') && lockReason(s, 'mantis') === 'PADS FULL', 'lv2 = 5 units'); }
+ok(s.perim.every(p => Math.hypot(p.x, p.z) >= BUILD_MIN && Math.hypot(p.x, p.z) <= buildR(2)), 'units stay inside the build zone');
+ok(perimSlots(1) === 2 && perimSlots(9) === 16 && buildR(1) < buildR(3), 'the unit cap and the build zone grow with the base level');
 { const g = quiet(); g.credits = 1e6; g.level = 2; buy(g, 'mantis'); run(g, 9); ok(g.perim.length === 1 && !g.placing, 'unplaced pad places itself'); }
 s.st.slots = 0; // no main-battery locks: only the pads can shoot
 run(s, 40);
 ok(s.kills > 0, `pads engage without locks (kills=${s.kills})`);
 
 // Slots and fields of fire. addPad: buy a unit and put it on a given slot.
-const addPad = (g: State, k: string, slot: number) => { g.credits += 1e6; ok(buy(g, k), `buy ${k}`); const q = slotXZ(slot); ok(placePad(g, q.x, q.z) && g.perim.some(p => p.slot === slot), `place ${k} on ${slot}`); return g.perim.find(p => p.slot === slot)!; };
+const addPad = (g: State, k: string, slot: number) => { g.credits += 1e6; ok(buy(g, k), `buy ${k}`); const q = slotXZ(slot); ok(placePad(g, q.x, q.z) && g.perim.some(p => near(p, q)), `place ${k} on ${slot}`); return g.perim.find(p => near(p, q))!; };
 {
   // A gun shoots inside its field of fire only: not at what's behind it.
   const g = quiet(); g.level = 9; g.st.slots = 0;
@@ -149,9 +158,11 @@ const addPad = (g: State, k: string, slot: number) => { g.credits += 1e6; ok(buy
   // Auto-place goes where it adds the most: with the front covered and the flanks open, an inner flank slot.
   const g = quiet(); g.level = 4; g.stage = 5;
   addPad(g, 'mg', 0); addPad(g, 'mg', 1); addPad(g, 'mg', 4);
-  const best = bestSlot(g, 'mg')!;
-  ok(SLOTS[best].belt === 'inner' && Math.abs(Math.abs(SLOTS[best].a - FRONT) - Math.PI / 2) < 0.1 + Math.PI / 3, `best slot covers the open flank (${best}: ${SLOTS[best].belt})`);
-  ok(SLOTS[bestSlot(g, 'ammo')!].belt !== 'inner' || g.perim.some(p => Math.hypot(p.x - slotXZ(bestSlot(g, 'ammo')!).x, p.z - slotXZ(bestSlot(g, 'ammo')!).z) <= 10), 'an ammo point goes next to guns');
+  const best = bestSpot(g, 'mg')!, off = Math.abs(Math.atan2(Math.sin(Math.atan2(best.z, best.x) - FRONT), Math.cos(Math.atan2(best.z, best.x) - FRONT)));
+  ok(off > Math.PI / 6 && !buildBlock(g, best.x, best.z), `best spot covers the open flank (${(off * 180 / Math.PI).toFixed(0)}° off the front)`);
+  const am = bestSpot(g, 'ammo')!;
+  ok(g.perim.some(p => Math.hypot(p.x - am.x, p.z - am.z) <= 10), 'an ammo point goes next to guns');
+  ok(freeSpots(g).every(q => !buildBlock(g, q.x, q.z)) && beltOf(slotXZ(4)) === 'fwd' && beltOf(slotXZ(0)) === 'main' && beltOf(slotXZ(1)) === 'inner', 'open spots are open; belts go by distance');
 }
 {
   // Support: an observer sees far round itself; an ammo point speeds up the guns in reach.
@@ -193,11 +204,13 @@ const addPad = (g: State, k: string, slot: number) => { g.credits += 1e6; ok(buy
   ok(selectPad(g, mg.x + 1, mg.z) && upgradePad(g) && mg.tier === 1 && g.bought === bought + 1, 'upgrade in place: twin MG');
   ok(upgradePad(g) && mg.tier === 2 && padStats(g, mg).range === MG_TIERS[2].range && !upgradePad(g), 'then ZU-23, the top tier');
   const q = slotXZ(3);
-  ok(movePad(g, q.x + 1, q.z) && mg.slot === 3 && mg.cd === MOVE_TIME, 'moving in combat takes it offline');
+  toggleRelocate(g); ok(g.relocating, 'move order armed for the picked unit');
+  ok(movePad(g, q.x + 0.2, q.z) && near(mg, q) && mg.cd === MOVE_TIME && !g.relocating, 'moving in combat takes it offline');
   const paid = mg.paid, cr = g.credits;
   ok(sellPad(g) && g.credits === cr + Math.round(paid * 0.5) && !g.perim.includes(mg) && g.selected === -1, 'selling in combat refunds half');
   const b = addPad(g, 'mantis', 0); g.buildUntil = g.t + 10; selectPad(g, b.x, b.z);
   const q2 = slotXZ(2);
+  ok(!movePad(g, 0, 0) && near(b, slotXZ(0)), 'no moving into the base compound');
   ok(movePad(g, q2.x, q2.z) && b.cd === 0, 'moving in the build window is free');
   const cr2 = g.credits; ok(sellPad(g) && g.credits === cr2 + b.paid, 'selling in the build window refunds it all');
   ok(!selectPad(g, 40, 40) && g.selected === -1, 'clicking empty ground picks nothing');

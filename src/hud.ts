@@ -1,6 +1,7 @@
-import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, SLOTS, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
+import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, altitude, buildR } from './config.ts';
+import { paintTerrain } from './terrainPaint.ts';
 import type { Records } from './config.ts';
-import { cost, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
+import { beltOf, cost, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const $ = (id: string) => document.getElementById(id)!;
 const fmt = (n: number) => Math.floor(n).toLocaleString('en-US');
@@ -39,7 +40,7 @@ const TIPS: Record<string, string> = {
   jam: 'Jammer on station: detection drops in the amber sector. The Mi-8 itself shows clearly, so click it and kill it.',
   ident: 'Decoy classified and released. Decoys look like Shaheds until locked for a moment. GaN T/R Modules classify faster.',
   package: 'Attack package: several types covering each other. The log says which element to kill first; mark it.',
-  placing: 'Click a slot to place it: the pulsing one covers the most open sky. Guns shoot inside their field of fire (drawn on the ground), and a target inside two of them takes +20% crossfire damage. Click your units to upgrade, sell or move them. O maps what your guns cover.',
+  placing: 'Click open ground inside the dashed build zone to build it (not on water, rock or woods): the green ghost shows its field of fire, the pulsing ring covers the most open sky. Guns shoot inside their field of fire (drawn on the ground), and a target inside two of them takes +20% crossfire damage. Click your units to upgrade, sell or move them [B]. O maps what your guns cover. WASD / arrows or middle-drag pan the camera.',
   padDown: 'FPVs and Lancets dive on units they fly close to, the forward line most of all. A unit that is down repairs to half before it fights again; the build window repairs everything.',
   level: 'Base level up: every level builds something that changes what the battery can do, plus a launcher and 2 perimeter pads. Pads fire on their own, without lock slots.',
 };
@@ -63,7 +64,7 @@ function debrief(s: State) {
     <div><small>OPS</small><dl><dt>RAIDS CLEAN</dt><dd>${S.clean} / ${S.raids}</dd><dt>ARMS EVADED</dt><dd>${S.armsEvaded}</dd><dt>RADAR HITS</dt><dd>${S.radarHits}</dd></dl></div></div>`;
 }
 
-export function createHud(actions: { buy(id: string): void; perk(i: number): void; pad(act: string): void; start(daily?: boolean): void; restart(): void; doctrine(i: number): void }) {
+export function createHud(actions: { buy(id: string): void; perk(i: number): void; pad(act: string): void; start(daily?: boolean): void; restart(): void; doctrine(i: number): void; look(x: number, z: number): void }) {
   for (const [k, v] of Object.entries(PAL)) document.documentElement.style.setProperty(`--${k}`, rgba(v));
 
   // ---- shop (built once) ----
@@ -174,77 +175,92 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     el.className = cls; void el.offsetWidth; el.classList.add('go');
   };
 
-  // ---- mini radar: same look as the main view. Afterglow comes from fading the last frame instead of clearing it. ----
+  // ---- minimap: the terrain from above, turned with the camera: build zone, your units, contacts, the radar.
+  // Click it to look there. ----
   const cv = $('radar') as HTMLCanvasElement, g = cv.getContext('2d')!;
-  const C = cv.width / 2, K = (C - 6) / (ARENA_R + 4);
-  g.beginPath(); g.arc(C, C, C - 2, 0, 7); g.clip();
-  let lastSweep = 0;
-  function drawRadar(s: State, yaw: number, dt: number) {
-    const sy = Math.sin(yaw), cy = Math.cos(yaw);
+  const MAP_R = ARENA_R + 6, C = cv.width / 2, K = C / MAP_R, IMG_R = MAP_R * 1.45, map = paintTerrain(320, IMG_R);
+  let lastSweep = 0, mapYaw = Math.PI / 2;
+  cv.addEventListener('pointerdown', e => {
+    const r = cv.getBoundingClientRect(), dx = ((e.clientX - r.left) / r.width * cv.width - C) / K, dy = ((e.clientY - r.top) / r.height * cv.height - C) / K;
+    const sy = Math.sin(mapYaw), cy = Math.cos(mapYaw);
+    actions.look(dx * sy + dy * cy, -dx * cy + dy * sy);
+    e.stopPropagation();
+  });
+  function drawRadar(s: State, yaw: number, look: { x: number; z: number }) {
+    mapYaw = yaw;
+    const sy = Math.sin(yaw), cy = Math.cos(yaw), TAU = Math.PI * 2;
     const px = (x: number, z: number) => C + (x * sy - z * cy) * K, py = (x: number, z: number) => C + (x * cy + z * sy) * K;
-    g.fillStyle = `rgba(0,4,1,${s.phase === 'play' ? 1 - Math.exp(-dt * 1.8) : 0})`; g.fillRect(0, 0, cv.width, cv.height);
-    g.strokeStyle = rgba(PAL.dim); g.lineWidth = 1;
-    for (const r of [0.33, 0.66, 1]) { g.beginPath(); g.arc(C, C, (C - 6) * r, 0, 7); g.stroke(); }
-    // The front on the rim, and the wider arc long-range drones and missiles can come from right now.
-    const rim = (w: number, col: number, lw: number) => {
-      const m = Math.atan2(py(Math.cos(FRONT), Math.sin(FRONT)) - C, px(Math.cos(FRONT), Math.sin(FRONT)) - C);
-      g.strokeStyle = rgba(col); g.lineWidth = lw; g.beginPath(); g.arc(C, C, C - 4, m - w, m + w); g.stroke(); g.lineWidth = 1;
+    const ring = (x: number, z: number, r: number, col: string, lw = 1, dash: number[] = []) => {
+      g.strokeStyle = col; g.lineWidth = lw; g.setLineDash(dash); g.beginPath(); g.arc(px(x, z), py(x, z), r * K, 0, TAU); g.stroke(); g.setLineDash([]); g.lineWidth = 1;
     };
-    if (flankArc(s.stage) > FRONT_ARC) rim(Math.min(Math.PI, flankArc(s.stage)), PAL.dim, 3);
-    rim(FRONT_ARC, PAL.mid, 3);
+    const rimArc = (w: number, col: string, lw: number) => {
+      const m = Math.atan2(py(Math.cos(FRONT), Math.sin(FRONT)) - C, px(Math.cos(FRONT), Math.sin(FRONT)) - C);
+      g.strokeStyle = col; g.lineWidth = lw; g.beginPath(); g.arc(C, C, ARENA_R * K, m - w, m + w); g.stroke(); g.lineWidth = 1;
+    };
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.fillStyle = '#10140e'; g.fillRect(0, 0, cv.width, cv.height);
+    g.setTransform(sy * K, cy * K, -cy * K, sy * K, C, C);
+    g.globalAlpha = 0.85; g.drawImage(map, -IMG_R, -IMG_R, 2 * IMG_R, 2 * IMG_R); g.globalAlpha = 1;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    const play = s.phase === 'play' || s.phase === 'pause';
+    // The front, and the wider arc long-range drones and missiles can come from right now.
+    if (flankArc(s.stage) > FRONT_ARC) rimArc(Math.min(Math.PI, flankArc(s.stage)), rgba(PAL.alert, 0.6), 2);
+    rimArc(FRONT_ARC, 'rgba(255,90,68,0.95)', 3);
+    ring(0, 0, buildR(s.level), s.placing || s.relocating ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.35)', 1, [3, 3]);
     // Gaps: bearings in the threat arc that no working gun covers, 22m out, as amber ticks on the rim.
-    if (s.phase === 'play' || s.phase === 'pause') {
+    if (play) {
       const guns = s.perim.filter(p => GUNS.includes(p.k) && !p.down).map(p => ({ p, r: padStats(s, p).range }));
-      const arc = Math.min(Math.PI, Math.max(FRONT_ARC, flankArc(s.stage))), R = ARENA_R + 3;
-      g.strokeStyle = rgba(PAL.alert, 0.9); g.lineWidth = 2; g.beginPath();
+      const arc = Math.min(Math.PI, Math.max(FRONT_ARC, flankArc(s.stage))), R = ARENA_R + 1;
+      g.strokeStyle = rgba(PAL.alert, 0.95); g.lineWidth = 2; g.beginPath();
       for (let i = 0; i <= 36; i++) {
         const a = FRONT + (i / 18 - 1) * arc, c = Math.cos(a), sn = Math.sin(a);
         if (guns.some(({ p, r }) => covers(p, c * 22, sn * 22, r))) continue;
-        g.moveTo(px(c * R, sn * R), py(c * R, sn * R)); g.lineTo(px(c * (R + 3), sn * (R + 3)), py(c * (R + 3), sn * (R + 3)));
+        g.moveTo(px(c * R, sn * R), py(c * R, sn * R)); g.lineTo(px(c * (R + 4), sn * (R + 4)), py(c * (R + 4), sn * (R + 4)));
       }
       g.stroke(); g.lineWidth = 1;
     }
-    const rr = (s.st.radar ? radarRange(s) : VISUAL_R) * K, a = s.sweepA + Math.PI / 2 - yaw, sector = radarSector(s);
-    g.strokeStyle = rgba(PAL.mid, 0.8); g.beginPath(); g.arc(C, C, rr, 0, 7); g.stroke();
-    // Unlocked contacts are painted only as the sweep passes them, so they jump like real radar returns.
-    const TAU = Math.PI * 2, a0 = lastSweep, swept = ((s.sweepA - a0) % TAU + TAU) % TAU;
+    const rr = s.st.radar ? radarRange(s) : VISUAL_R, a = s.sweepA + Math.PI / 2 - yaw, sector = radarSector(s), on = emitting(s);
+    ring(0, 0, rr, s.st.radar ? rgba(PAL.hot, on ? 0.8 : 0.3) : 'rgba(255,255,255,0.5)');
     lastSweep = s.sweepA;
-    const on = emitting(s);
-    const aesa = s.st.aesa || sector > 0; // no sweep line to wait for: paint contacts as they are
     if (on && sector) { // FOCUSED: the searched arc
       const f = focusBearing(s), sa = Math.atan2(py(Math.cos(f), Math.sin(f)) - C, px(Math.cos(f), Math.sin(f)) - C);
-      g.fillStyle = rgba(PAL.bright, 0.004 + 0.004 * Math.random()); g.strokeStyle = rgba(PAL.mid, 0.8); // the afterglow adds these up
-      g.beginPath(); g.moveTo(C, C); g.arc(C, C, rr, sa - sector / 2, sa + sector / 2); g.closePath(); g.fill(); g.stroke();
+      g.fillStyle = rgba(PAL.hot, 0.15); g.beginPath(); g.moveTo(C, C); g.arc(C, C, rr * K, sa - sector / 2, sa + sector / 2); g.closePath(); g.fill();
     }
-    if (on && !aesa && swept < 1) { g.fillStyle = rgba(PAL.bright, 0.35); g.beginPath(); g.moveTo(C, C); g.arc(C, C, rr, a - swept, a); g.fill(); }
-    if (on && !aesa) { g.strokeStyle = rgba(PAL.hot); g.beginPath(); g.moveTo(C, C); g.lineTo(C + Math.cos(a) * rr, C + Math.sin(a) * rr); g.stroke(); }
+    if (on && !s.st.aesa && !sector) { g.strokeStyle = rgba(PAL.hot, 0.9); g.beginPath(); g.moveTo(C, C); g.lineTo(C + Math.cos(a) * rr * K, C + Math.sin(a) * rr * K); g.stroke(); }
     for (const e of s.enemies) if (e.kind === 'ew' && e.orbit) { // jam strobe: bearing only, no range
       const d = Math.hypot(e.x, e.z) || 1, R = ARENA_R + 4;
       g.strokeStyle = rgba(PAL.alert, 0.2 + Math.random() * 0.4); g.lineWidth = 2;
       g.beginPath(); g.moveTo(C, C); g.lineTo(px(e.x / d * R, e.z / d * R), py(e.x / d * R, e.z / d * R)); g.stroke(); g.lineWidth = 1;
     }
+    // Yours: the battery and every unit (grey while down, outlined when picked).
+    g.fillStyle = rgba(PAL.hot); g.fillRect(C - 4, C - 4, 8, 8);
+    for (const p of s.perim) {
+      const x = px(p.x, p.z), y = py(p.x, p.z);
+      g.fillStyle = p.down ? '#888' : rgba(PAL.hot); g.fillRect(x - 2.5, y - 2.5, 5, 5);
+      if (p.slot === s.selected) { g.strokeStyle = '#fff'; g.strokeRect(x - 4.5, y - 4.5, 9, 9); }
+    }
+    // Contacts: red, missiles amber, a classified decoy grey; locked ones boxed.
     for (const e of s.enemies) {
       if (!visible(s, e)) continue;
-      const rel = ((Math.atan2(e.z, e.x) - a0) % TAU + TAU) % TAU;
-      if (!e.locked && !aesa && !(swept < 1 && rel <= swept)) continue;
-      const x = px(e.x, e.z), y = py(e.x, e.z), r = 1.5 + e.size;
-      g.fillStyle = e.kind === 'arm' || e.kind === 'tbm' || e.kind === 'cruise' ? rgba(PAL.alert) : rgba(e.locked ? PAL.hot : PAL.bright, Math.min(1, ENEMIES[shownKind(e)].glow) * (e.ided ? 0.35 : 1));
-      g.fillRect(x - r / 2, y - r / 2, r, r);
-      if (e.locked) { g.strokeStyle = rgba(e.id === s.marked ? PAL.hot : PAL.mid); g.strokeRect(x - r, y - r, r * 2, r * 2); }
+      const x = px(e.x, e.z), y = py(e.x, e.z), r = 2 + e.size;
+      g.fillStyle = e.ided ? '#999' : e.kind === 'arm' || e.kind === 'tbm' || e.kind === 'cruise' ? rgba(PAL.alert) : '#ff4d3a';
+      g.beginPath(); g.arc(x, y, r / 2, 0, TAU); g.fill();
+      if (e.locked) { g.strokeStyle = e.id === s.marked ? '#fff' : rgba(PAL.hot); g.strokeRect(x - r, y - r, r * 2, r * 2); }
     }
     if (s.raid && Math.sin(s.t * 12) > 0) { // incoming raid: blinking chevron at the rim
-      const R = ARENA_R + 2, c = Math.cos(s.raid.a), sn = Math.sin(s.raid.a), tx = -sn * 4, tz = c * 4;
+      const R = ARENA_R - 2, c = Math.cos(s.raid.a), sn = Math.sin(s.raid.a), tx = -sn * 4, tz = c * 4;
       g.strokeStyle = rgba(PAL.alert); g.lineWidth = 2; g.beginPath();
       g.moveTo(px(c * (R + 4) + tx, sn * (R + 4) + tz), py(c * (R + 4) + tx, sn * (R + 4) + tz));
       g.lineTo(px(c * R, sn * R), py(c * R, sn * R));
       g.lineTo(px(c * (R + 4) - tx, sn * (R + 4) - tz), py(c * (R + 4) - tx, sn * (R + 4) - tz));
       g.stroke(); g.lineWidth = 1;
     }
+    // Where the camera looks.
+    { const x = px(look.x, look.z), y = py(look.x, look.z); g.strokeStyle = 'rgba(255,255,255,0.8)'; g.strokeRect(x - 7, y - 5, 14, 10); }
     if (s.t < s.radarDownUntil && s.phase === 'play') { // knocked out: static, and say so
       for (let i = 0; i < 60; i++) { g.fillStyle = rgba(PAL.crit, Math.random() * 0.5); g.fillRect(Math.random() * cv.width, Math.random() * cv.height, 2, 1 + Math.random() * 2); }
-      g.fillStyle = rgba(PAL.crit); g.font = 'bold 16px monospace'; g.textAlign = 'center'; g.fillText('NO RADAR', C, C - 12);
+      g.fillStyle = rgba(PAL.crit); g.font = 'bold 16px sans-serif'; g.textAlign = 'center'; g.fillText('NO RADAR', C, C - 12);
     }
-    g.fillStyle = rgba(on || !s.st.radar ? PAL.hot : s.t < s.radarDownUntil ? PAL.crit : PAL.alert); // amber only for a radar you silenced g.fillRect(C - 3, C - 3, 6, 6);
   }
 
   // ---- system log + lock labels ----
@@ -269,7 +285,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     let n = 0;
     for (const e of s.enemies) {
       if (!e.locked || n >= labels.length) continue;
-      const el = labels[n++], [x, y] = project(e.x, e.z, e.size * 1.6 * 1.2);
+      const el = labels[n++], [x, y] = project(e.x, e.z, altitude(e.kind, e.x, e.z) + e.size * 1.6 * 0.6);
       const t = `${tag(e)} · ${pad3(Math.hypot(e.x, e.z))}m`;
       if (el.textContent !== t) el.textContent = t;
       el.style.transform = `translate(${Math.round(x + 12 + e.size * 10)}px, ${Math.round(y - 14)}px)`;
@@ -372,7 +388,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       ['// BATTERY', ''],
       ['PERIMETER', `${s.perim.length} / ${perimSlots(s.level)} pads`],
       ...ffSpeed > 1 ? [['SPEED <kbd>[X]</kbd>', `<span class="hot">${ffSpeed}×</span>`]] : [],
-      ...s.placing ? [['PAD', `<span class="hot">CLICK MAP · ${Math.max(0, PLACE_TIME - (s.t - s.placing.since)).toFixed(0)}s</span>`]] : [],
+      ...s.placing ? [['PAD', `<span class="hot">CLICK GROUND · ${Math.max(0, PLACE_TIME - (s.t - s.placing.since)).toFixed(0)}s</span>`]] : [],
       ...s.raid ? [['RAID', `<span class="alert">${pad3(bearing(Math.cos(s.raid.a), Math.sin(s.raid.a)))}° T-${Math.max(0, s.raid.at - s.t).toFixed(0)}s</span>`]]
         : s.raidLeft ? [['RAID', `<span class="alert">${s.raidLeft}</span> · ${s.raidClean ? 'HELD' : '<span class="alert">LOST</span>'}`]]
         : building(s) ? [['BUILD', `<span class="hot">${Math.ceil(s.buildUntil - s.t)}s</span>`]] : [],
@@ -442,11 +458,12 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     let h = '';
     if (p && (s.phase === 'play' || s.phase === 'pause')) {
       const w = padStats(s, p), up = padUpgradeCost(p), fan = FANS[p.k] >= Math.PI ? 360 : Math.round(FANS[p.k] * 360 / Math.PI);
-      h = `<b>${padName(p)}</b> · ${BELTS[SLOTS[p.slot].belt]}<br>`
+      h = `<b>${padName(p)}</b> · ${BELTS[beltOf(p)]}<br>`
         + (GUNS.includes(p.k) ? `${Math.round(w.range)}m · ${(w.dmg * w.rate).toFixed(1)} DMG/s · ${fan}° FIELD OF FIRE<br>` : `${SUPPORT[p.k]}<br>`)
         + `HP ${Math.ceil(p.hp)} / ${PAD_HP}${p.down ? ' <span class="alert">DOWN</span>' : ''}<b class="seg" style="--r:${p.hp / PAD_HP}"></b>`
         + (up < Infinity ? `<button data-act="upgrade"${s.credits < up ? ' disabled' : ''}>[U] ${MG_TIERS[p.tier + 1].name} ${up}CR</button>` : '')
-        + `<button data-act="sell">[DEL] SELL +${fmt(sellValue(s, p))}</button><br><small class="dim">FREE SLOT: MOVE${building(s) ? '' : ` (${MOVE_TIME}s OFFLINE)`}</small>`;
+        + `<button data-act="move"${s.relocating ? ' class="on"' : ''}>[B] MOVE</button><button data-act="sell">[DEL] SELL +${fmt(sellValue(s, p))}</button><br>`
+        + `<small class="dim">${s.relocating ? 'CLICK OPEN GROUND TO MOVE IT' : 'B OR RIGHT-CLICK GROUND: MOVE'}${building(s) ? ' · FREE NOW' : ` · ${MOVE_TIME}s OFFLINE`}</small>`;
     }
     if (h !== pcHtml) { pcHtml = h; pc.innerHTML = h; }
   }
@@ -472,7 +489,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   }
 
   return {
-    update(s: State, dt: number, yaw: number, project: Project, speed = 1) {
+    update(s: State, dt: number, yaw: number, project: Project, speed = 1, look = { x: 0, z: 0 }) {
       lastState = s; ffSpeed = speed;
       if (s.phase === 'play' && s.t > 2) tip('startMg', s.t);
       for (const e of s.events) tip(e.k, s.t);
@@ -505,7 +522,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         else if (e.k === 'emcon') log(s.emcon ? 'EMCON · RADAR SILENT' : 'RADIATING', s.emcon ? 'alert' : '');
         else if (e.k === 'jam') log(`JAMMING BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
         else if (e.k === 'ident') log('DECOY CLASSIFIED · TRACK RELEASED');
-        else if (e.k === 'placing') say(`CLICK THE MAP TO PLACE ${s.placing!.k.toUpperCase()}`, 'info');
+        else if (e.k === 'placing') { if (s.placing) say(`BUILD ${s.placing.k.toUpperCase()}: CLICK OPEN GROUND`, 'info'); }
         else if (e.k === 'raid') { say(`⚠ ${e.name} · BRG ${pad3(bearing(e.x, e.z))}`, 'warn'); log(`${e.name} · BRG ${pad3(bearing(e.x, e.z))}`, 'alert'); }
         else if (e.k === 'package') {
           const p = PACKAGES.find(p => p.name === e.name)!;
@@ -538,7 +555,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         lastPhase = pn;
       }
       if (s.phase === 'start') { lastPhase = ''; armSaid = tbmSaid = cruiseSaid = -99; }
-      drawRadar(s, yaw, dt);
+      drawRadar(s, yaw, look);
       placeLabels(s, project);
       raidArrow(s, project);
       if (s.phase === 'play' && (logAcc += dt) >= 0.3) { logAcc = 0; scanLog(s); }
