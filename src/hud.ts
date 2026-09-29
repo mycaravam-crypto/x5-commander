@@ -1,6 +1,6 @@
-import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
+import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, SLOTS, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots } from './config.ts';
 import type { Records } from './config.ts';
-import { cost, emitting, flankArc, building, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
+import { cost, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const $ = (id: string) => document.getElementById(id)!;
 const fmt = (n: number) => Math.floor(n).toLocaleString('en-US');
@@ -38,6 +38,8 @@ const TIPS: Record<string, string> = {
   jam: 'Jammer on station: detection drops in the amber sector. The Mi-8 itself shows clearly, so click it and kill it.',
   ident: 'Decoy classified and released. Decoys look like Shaheds until locked for a moment. GaN T/R Modules classify faster.',
   package: 'Attack package: several types covering each other. The log says which element to kill first; mark it.',
+  placing: 'Click a slot to place it: the pulsing one covers the most open sky. Guns shoot inside their field of fire (drawn on the ground), and a target inside two of them takes +20% crossfire damage. Click your units to upgrade, sell or move them.',
+  padDown: 'FPVs and Lancets dive on units they fly close to, the forward line most of all. A unit that is down repairs to half before it fights again; the build window repairs everything.',
   level: 'Base level up: every level builds something that changes what the battery can do, plus a launcher and 2 perimeter pads. Pads fire on their own, without lock slots.',
 };
 const seenTips = (() => { try { return new Set<string>(JSON.parse(localStorage.getItem('x5-tips') ?? '[]')); } catch { return new Set<string>(); } })();
@@ -60,7 +62,7 @@ function debrief(s: State) {
     <div><small>OPS</small><dl><dt>RAIDS CLEAN</dt><dd>${S.clean} / ${S.raids}</dd><dt>ARMS EVADED</dt><dd>${S.armsEvaded}</dd><dt>RADAR HITS</dt><dd>${S.radarHits}</dd></dl></div></div>`;
 }
 
-export function createHud(actions: { buy(id: string): void; perk(i: number): void; start(daily?: boolean): void; restart(): void; doctrine(i: number): void }) {
+export function createHud(actions: { buy(id: string): void; perk(i: number): void; pad(act: string): void; start(daily?: boolean): void; restart(): void; doctrine(i: number): void }) {
   for (const [k, v] of Object.entries(PAL)) document.documentElement.style.setProperty(`--${k}`, rgba(v));
 
   // ---- shop (built once) ----
@@ -187,6 +189,18 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     };
     if (flankArc(s.stage) > FRONT_ARC) rim(Math.min(Math.PI, flankArc(s.stage)), PAL.dim, 3);
     rim(FRONT_ARC, PAL.mid, 3);
+    // Gaps: bearings in the threat arc that no working gun covers, 22m out, as amber ticks on the rim.
+    if (s.phase === 'play' || s.phase === 'pause') {
+      const guns = s.perim.filter(p => GUNS.includes(p.k) && !p.down).map(p => ({ p, r: padStats(s, p).range }));
+      const arc = Math.min(Math.PI, Math.max(FRONT_ARC, flankArc(s.stage))), R = ARENA_R + 3;
+      g.strokeStyle = rgba(PAL.alert, 0.9); g.lineWidth = 2; g.beginPath();
+      for (let i = 0; i <= 36; i++) {
+        const a = FRONT + (i / 18 - 1) * arc, c = Math.cos(a), sn = Math.sin(a);
+        if (guns.some(({ p, r }) => covers(p, c * 22, sn * 22, r))) continue;
+        g.moveTo(px(c * R, sn * R), py(c * R, sn * R)); g.lineTo(px(c * (R + 3), sn * (R + 3)), py(c * (R + 3), sn * (R + 3)));
+      }
+      g.stroke(); g.lineWidth = 1;
+    }
     const rr = (s.st.radar ? radarRange(s) : VISUAL_R) * K, a = s.sweepA + Math.PI / 2 - yaw, sector = radarSector(s);
     g.strokeStyle = rgba(PAL.mid, 0.8); g.beginPath(); g.arc(C, C, rr, 0, 7); g.stroke();
     // Unlocked contacts are painted only as the sweep passes them, so they jump like real radar returns.
@@ -371,6 +385,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     touch('Tab', 'SHOP', !shop.classList.contains('hidden'));
     touch('KeyX', '', ffSpeed > 1); touch('KeyP', '', s.phase === 'pause');
     raidCard(s);
+    padCard(s);
     const live = s.phase === 'play' || s.phase === 'pause', down = live && s.t < s.radarDownUntil, silent = live && !down && s.emcon;
     document.body.classList.toggle('blind', down);
     document.body.classList.toggle('silent', silent);
@@ -405,6 +420,26 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const dx = x - cx, dy = y - cy, k = Math.min(Math.abs((W / 2 - m) / (dx || 1e-6)), Math.abs((H / 2 - m) / (dy || 1e-6)));
     arrow.className = 'on';
     arrow.style.transform = `translate(${W / 2 + dx * k - 11}px, ${H / 2 + dy * k - 12}px) rotate(${Math.atan2(dy, dx)}rad)`;
+  }
+
+  // ---- the unit you picked: what it does, upgrade / sell buttons, how to move it ----
+  const pc = $('padcard');
+  let pcHtml = '';
+  pc.addEventListener('click', e => { const b = (e.target as HTMLElement).closest('button'); if (b?.dataset.act) actions.pad(b.dataset.act); });
+  const BELTS = { fwd: 'FORWARD LINE', main: 'MAIN LINE', inner: 'INNER RING' };
+  const SUPPORT: Record<string, string> = { observer: `SEES ${OBSERVER_EYES}m ROUND ITSELF`, ammo: `GUNS WITHIN ${AMMO_R}m: +25% RATE, 2× RELOAD`, jammer: `SLOWS CONTACTS WITHIN ${PERIM.jammer.range}m` };
+  function padCard(s: State) {
+    const p = selectedPad(s);
+    let h = '';
+    if (p && (s.phase === 'play' || s.phase === 'pause')) {
+      const w = padStats(s, p), up = padUpgradeCost(p), fan = FANS[p.k] >= Math.PI ? 360 : Math.round(FANS[p.k] * 360 / Math.PI);
+      h = `<b>${padName(p)}</b> · ${BELTS[SLOTS[p.slot].belt]}<br>`
+        + (GUNS.includes(p.k) ? `${Math.round(w.range)}m · ${(w.dmg * w.rate).toFixed(1)} DMG/s · ${fan}° FIELD OF FIRE<br>` : `${SUPPORT[p.k]}<br>`)
+        + `HP ${Math.ceil(p.hp)} / ${PAD_HP}${p.down ? ' <span class="alert">DOWN</span>' : ''}<b class="seg" style="--r:${p.hp / PAD_HP}"></b>`
+        + (up < Infinity ? `<button data-act="upgrade"${s.credits < up ? ' disabled' : ''}>[U] ${MG_TIERS[p.tier + 1].name} ${up}CR</button>` : '')
+        + `<button data-act="sell">[DEL] SELL +${fmt(sellValue(s, p))}</button><br><small class="dim">FREE SLOT: MOVE${building(s) ? '' : ` (${MOVE_TIME}s OFFLINE)`}</small>`;
+    }
+    if (h !== pcHtml) { pcHtml = h; pc.innerHTML = h; }
   }
 
   // ---- raid card: full briefing during the preparation window, a status line during the attack ----
@@ -469,6 +504,10 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         else if (e.k === 'raidLeak') { say('OBJECTIVE LOST', 'warn'); log(`OBJECTIVE LOST · BUILD WINDOW CUT TO ${BUILD_LOST}s`, 'alert'); }
         else if (e.k === 'raidEnd') log('RAID OVER · NO BONUS', 'alert');
         else if (e.k === 'build') { say(`LEVEL ${s.stage + 1} COMPLETE · BUILD ${e.n}s`, 'info'); log(`LEVEL ${s.stage + 1} COMPLETE · BUILD WINDOW ${e.n}s · NO NEW CONTACTS`); }
+        else if (e.k === 'padDown') { say('⚠ EMPLACEMENT DOWN', 'warn'); log(`${e.kind.toUpperCase()} DOWN BRG ${pad3(bearing(e.x, e.z))} · REPAIRING`, 'alert'); }
+        else if (e.k === 'padUp') { if (e.n) { const n = MG_TIERS[e.n].name; say(n, 'info'); log(`UPGRADED · ${n}`); } else log(`${e.kind.toUpperCase()} BACK IN ACTION BRG ${pad3(bearing(e.x, e.z))}`); }
+        else if (e.k === 'padSold') log(`${e.kind.toUpperCase()} SOLD · +${fmt(e.n)} CR`);
+        else if (e.k === 'padMoved') log(`${e.kind.toUpperCase()} MOVED${e.n ? ` · OFFLINE ${e.n}s` : ''}`);
         else if (e.k === 'radarOnline') { say('RADAR ONLINE', 'info'); log('AN/MPQ-65 ONLINE · SEARCH + FIRE CONTROL'); }
         else if (e.k === 'pac3') { say('PATRIOT ONLINE', 'info'); log('PAC-3 MSE ONLINE · ENGAGING LOCKS'); }
         else if (e.k === 'aesa') { say('LTAMDS ONLINE · 360° STARE', 'info'); log('AESA ONLINE · SWEEP RETIRED'); }

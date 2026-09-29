@@ -35,7 +35,8 @@ The game runs entirely in the browser, with no backend and no asset files. `dist
 | Space (in play)        | Emergency intercept                       |
 | G                      | Cycle fire discipline: CONSERVE / BALANCED / MAXIMUM |
 | D                      | Start today's daily op                    |
-| Left click             | Mark a contact as the priority target (needs the radar), or place a bought pad |
+| Left click             | Place a bought pad; pick one of your units (click a free slot to move it); otherwise mark a contact as the priority target (needs the radar) |
+| U / Delete             | Upgrade / sell the unit you picked         |
 | Mouse wheel            | Zoom                                      |
 | Right-drag / Q / E     | Rotate camera                             |
 | Tab                    | Show / hide the upgrade shop              |
@@ -108,8 +109,27 @@ Detected enemies are locked, up to your number of **lock slots**. A lock holds a
 | IRIS-T SLX               | Interceptors | Homing, blast-frag splash; one extra launcher per level |
 | Leonidas HPM (microwave) | Power        | Huge hit, affects everything along the line             |
 
-### Perimeter defenses
-Perimeter pads: **12.7 mm AA MGs** (from the start), **MANTIS 35mm C-RAM** (base level 2, fast gun, short range), **Stinger teams** (level 3, homing, mid range) and **EW jammers** (level 4, slow nearby contacts, drain power). Base level 1 has 2 pads, one of them the starting MG, and each level opens 2 more, up to 8. Pads engage any contact in their own range that can be seen, by eye or radar, without using a lock slot. After buying a pad, **click the map** to put it on the nearest free spot on the ring. If you don't click within 8 seconds, it places itself toward the nearest contact, or the front if there is none.
+### Perimeter defenses: building the line
+Perimeter pads (units): **12.7 mm AA MGs** (from the start), **MANTIS 35mm C-RAM** (base level 2, fast gun, short range), **Stinger teams** (level 3, homing, mid range), **EW jammers** (level 4, slow nearby contacts, drain power), and two support units from level 2: the **observer post** (sees 28 m round itself, for every gun) and the **ammo point** (guns within 10 m fire 25% faster and reload their belts twice as fast). Units engage any contact that can be seen, by eye or radar, inside their range and **field of fire**, without using a lock slot.
+
+**Slots.** Units go on fixed slots in three belts facing the front, plus an inner ring. Base level 1 opens 2 slots in depth on the front axis (one holds the starting MG); more open with each base level, up to 16:
+
+| Belt         | Distance | Trade-off                                                                                   |
+|--------------|----------|---------------------------------------------------------------------------------------------|
+| Forward line | 30 m     | engages first; belts reload 50% slower without an ammo point; FPVs and Lancets that pass within 3 m dive on the unit |
+| Main line    | 17 m     | balanced                                                                                    |
+| Inner ring   | 11 m, all round | safe, covers the flanks, engages late                                                 |
+
+**Fields of fire.** A gun covers a fan pointing away from the base, drawn on the ground: MGs 120°, Stingers 180°, MANTIS all round. It can't shoot what has flown past it. A target inside two guns' fields of fire takes **+20% crossfire damage** from both. Amber ticks on the mini radar rim mark bearings in the threat arc that no working gun covers.
+
+**Placing.** After buying a unit, **click the map** to put it on the nearest free slot. The pulsing slot is the one that covers the most open sky (or, for support units, serves the most guns); if you don't click within 8 seconds, the unit goes there.
+
+**Your units.** Click one to pick it: the card shows its range, damage, field of fire and HP.
+- **Upgrade in place (`U`):** 12.7 mm MG → twin 12.7 mm → ZU-23-2 (more range). An upgrade counts as a purchase toward the base level.
+- **Sell (`Delete`):** full refund in the build window, half in combat.
+- **Move:** click a free slot. Free in the build window, 5 s offline in combat.
+
+**Unit HP.** A unit that runs out of HP is **down**: no fire, no eyes, no support, until repairs bring it back to half. Repairs run all the time, and the build window repairs every unit at once.
 
 ### Power and ammo
 Your generator fills a power pool, and everything draws on it in this order:
@@ -120,7 +140,7 @@ Your generator fills a power pool, and everything draws on it in this order:
 Laser and HPM shots cost power as well. The power and interceptor bars show the net flow per second, so you can see which way the budget is going. Balancing seeing, shooting and building is the core tension of the game.
 
 ### Credits, upgrades and base levels
-Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits. There are 26 upgrades in 7 groups: BATTERY, POWER, SENSORS, FIRE CONTROL, WEAPONS, MAGAZINE and PERIMETER. Each upgrade costs more with every level. There is **no max level**, except for *Threat Evaluation*, the *radar*, the *PAC-3 battery* and *LTAMDS AESA*, which are on/off, and Scan Rate before the AESA. Earth Revetments have diminishing returns, up to 85% less damage taken. Buying upgrades raises your **base level**, which adds visible structures to the base and offers a **perk draft: pick 1 of 3**. Every perk has a tradeoff, for example *GLASS CANNON*: +100% damage, −40% max HP. From base level 3, every draft also offers one **rule perk** (marked ★ NEW RULE) that changes how the battery plays, until you've taken them all. From level 3: *BLACKOUT PROTOCOL* (tracks coast twice as long when the radar goes dark, −30% memory while radiating), *COUNTER-SEAD* (each ARM shot down restores 20% power), *KILL CHAIN* (every 5 kills: +1 lock slot for 8 s), *OVERKILL* (damage past a kill jumps to the nearest contact within 8 m) and *LAST STAND* (below 25% HP: +50% fire rate, −40% power gen). From level 5: *TRACK FUSION* (locks hold while the radar is dark), *LPI WAVEFORM* (LPI mode keeps full detection), *OVERWATCH* (your marked target takes double damage), *ARC LASER* (laser jumps to 2 more targets; needs the laser), *SCAVENGER* (kills refund interceptors) and *FRAG WARHEADS* (PAC-3 hits splash).
+Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits. There are 28 upgrades in 7 groups: BATTERY, POWER, SENSORS, FIRE CONTROL, WEAPONS, MAGAZINE and PERIMETER. Each upgrade costs more with every level. There is **no max level**, except for *Threat Evaluation*, the *radar*, the *PAC-3 battery* and *LTAMDS AESA*, which are on/off, and Scan Rate before the AESA. Earth Revetments have diminishing returns, up to 85% less damage taken. Buying upgrades raises your **base level**, which adds visible structures to the base and offers a **perk draft: pick 1 of 3**. Every perk has a tradeoff, for example *GLASS CANNON*: +100% damage, −40% max HP. From base level 3, every draft also offers one **rule perk** (marked ★ NEW RULE) that changes how the battery plays, until you've taken them all. From level 3: *BLACKOUT PROTOCOL* (tracks coast twice as long when the radar goes dark, −30% memory while radiating), *COUNTER-SEAD* (each ARM shot down restores 20% power), *KILL CHAIN* (every 5 kills: +1 lock slot for 8 s), *OVERKILL* (damage past a kill jumps to the nearest contact within 8 m) and *LAST STAND* (below 25% HP: +50% fire rate, −40% power gen). From level 5: *TRACK FUSION* (locks hold while the radar is dark), *LPI WAVEFORM* (LPI mode keeps full detection), *OVERWATCH* (your marked target takes double damage), *ARC LASER* (laser jumps to 2 more targets; needs the laser), *SCAVENGER* (kills refund interceptors) and *FRAG WARHEADS* (PAC-3 hits splash).
 
 ### The front
 Enemies attack from one direction: the **front**, a 50° sector at the top of the default view, marked on the ground and on the mini radar rim. Aircraft and short-range drones (Lancet, FPV, Mi-28, Su-34, Mi-8 and their ARMs) always come from the front. Long-range threats (Shaheds, the decoys that fly with them, and Iskanders) come from the front too at first. From the SEAD level they can come from up to 60° either side of it, from COORDINATED RAID up to 120°, and after that from any direction. The mini radar shades the arc they can currently come from. A raid or package comes off the front only when everything in it is a long-range threat.

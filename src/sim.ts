@@ -1,6 +1,6 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, LEVEL_LEN, BUILD_TIME, BUILD_LOST, ELITE_FROM, PK_GROW, PK_MAX,
-  ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM_R, SWEEP_CAP, grow, PAD_SLOTS, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty, BACKUP_RADAR,
+  ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, SLOTS, slotXZ, FANS, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty, BACKUP_RADAR,
   RADAR_MODES, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   type EnemyKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
 } from './config.ts';
@@ -31,9 +31,11 @@ export type Ev =
   | { k: 'raidClear' | 'raidLeak' | 'raidEnd' | 'build'; n: number }
   | { k: 'stage'; name: string }
   | { k: 'intercept'; x: number; z: number }
+  | { k: 'padHit' | 'padDown' | 'padUp' | 'padSold' | 'padMoved'; x: number; z: number; n: number; kind: PerimKind }
   | { k: 'level' | 'warning' | 'buy' | 'placing' | 'lock' | 'over' | 'emcon' | 'radarDown' | 'aesa' | 'radarOnline' | 'pac3' | 'discipline' | 'radarMode' | 'killChain' | 'counterSead' | 'lastStand' };
 
 export type Phase = 'start' | 'play' | 'pause' | 'perk' | 'over';
+export interface Pad { k: PerimKind; x: number; z: number; a: number; slot: number; cd: number; belt: number; hp: number; tier: number; paid: number; down: boolean }
 
 // mulberry32: tiny seeded PRNG, so a seed replays the same schedule (daily op, tests).
 export function rand(r: { seed: number }) {
@@ -79,8 +81,11 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     sweepSpeed: 0, // effective, after power throttling
     enemies: [] as Enemy[],
     shots: [] as Shot[],
-    perim: [] as { k: PerimKind; x: number; z: number; cd: number; slot: number; belt: number }[], // belt: MG rounds left
-    placing: null as null | { k: PerimKind; since: number }, // bought, waiting for a click on the map
+    // Emplacements. a: facing (away from the base); belt: MG rounds left; tier: upgrades in place; paid: credits
+    // sunk into it (for a sale); down: knocked out until repaired to half.
+    perim: [] as Pad[],
+    placing: null as null | { k: PerimKind; since: number; paid: number }, // bought, waiting for a click on the map
+    selected: -1, // slot of the emplacement the player picked (upgrade / sell / move), -1 = none
     jamming: false,
     emcon: false,
     radarMode: 0, // index into RADAR_MODES
@@ -113,8 +118,8 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     shake: 0,
   };
   s.sweepSpeed = s.st.sweep;
-  // The starting kit: one AA machine gun on the slot facing the front.
-  putPad(s, 'mg', nearestSlot(s, FRONT)!);
+  // The starting kit: one AA machine gun on the main line, facing the front.
+  putPad(s, 'mg', 0, 0);
   s.hp = s.st.maxHp; s.power = s.st.powerCap; s.ammo = s.st.ammoCap;
   return s;
 }
@@ -198,10 +203,15 @@ export function buy(s: State, id: string) {
   if (id === 'radar') s.events.push({ k: 'radarOnline' });
   if (id === 'pac3') s.events.push({ k: 'pac3' });
   if (PERIM_KINDS.includes(id as PerimKind)) {
-    s.placing = { k: id as PerimKind, since: s.t };
+    s.placing = { k: id as PerimKind, since: s.t, paid: c };
     s.events.push({ k: 'placing' });
   }
   s.events.push({ k: 'buy' });
+  purchased(s);
+  return true;
+}
+// Every purchase counts toward the base level (upgrades in place too).
+function purchased(s: State) {
   const lvl = baseLevel(s.bought), up = lvl > s.level;
   if (up) s.level = lvl;
   refreshStats(s); // after the level: base levels carry stats of their own
@@ -210,7 +220,6 @@ export function buy(s: State, id: string) {
     s.phase = 'perk';
     s.events.push({ k: 'level' });
   }
-  return true;
 }
 
 // 3 distinct perks the battery qualifies for; once rule perks are in reach, one of them changes the rules (while any are left).
@@ -223,21 +232,100 @@ export function draft(s: State) {
   return out;
 }
 
-export const padAngle = (slot: number) => slot / PAD_SLOTS * TAU;
-export const freeSlots = (s: State) => [...Array(PAD_SLOTS).keys()].filter(i => !s.perim.some(p => p.slot === i));
+// ---------- emplacements ----------
 
-const nearestSlot = (s: State, a: number) => freeSlots(s).sort((i, j) => Math.abs(angDiff(a, padAngle(i))) - Math.abs(angDiff(a, padAngle(j))))[0];
-const putPad = (s: State, k: PerimKind, slot: number) =>
-  s.perim.push({ k, x: Math.cos(padAngle(slot)) * PERIM_R, z: Math.sin(padAngle(slot)) * PERIM_R, cd: 0, slot, belt: MG_BELT.rounds });
+export const freeSlots = (s: State) => SLOTS.map((_, i) => i).filter(i => SLOTS[i].lv <= s.level && !s.perim.some(p => p.slot === i));
+function putPad(s: State, k: PerimKind, slot: number, paid: number) {
+  const { x, z } = slotXZ(slot);
+  s.perim.push({ k, x, z, a: Math.atan2(z, x), slot, cd: 0, belt: MG_BELT.rounds, hp: PAD_HP, tier: 0, paid, down: false });
+}
+const up = (p: Pad) => !p.down;
+// Inside the unit's range and field of fire.
+export const covers = (p: { x: number; z: number; a: number; k: PerimKind }, x: number, z: number, range: number) =>
+  (x - p.x) ** 2 + (z - p.z) ** 2 <= range * range && Math.abs(angDiff(Math.atan2(z - p.z, x - p.x), p.a)) <= FANS[p.k];
+const nearAmmo = (s: State, p: Pad) => s.perim.some(q => q.k === 'ammo' && up(q) && (q.x - p.x) ** 2 + (q.z - p.z) ** 2 <= AMMO_R ** 2);
+// What a unit fires with right now: its tier, the battery's weapon upgrades and perks, an ammo point in reach.
+export function padStats(s: State, p: Pad) {
+  const w = p.k === 'mg' ? MG_TIERS[p.tier] : PERIM[p.k];
+  return { ...w, dmg: w.dmg * s.st.padDmg, rate: w.rate * s.st.padRate * (nearAmmo(s, p) ? AMMO_RATE : 1) };
+}
+export const padName = (p: Pad) => p.k === 'mg' ? MG_TIERS[p.tier].name : UPGRADES.find(u => u.id === p.k)!.name;
+export const padUpgradeCost = (p: Pad) => p.k === 'mg' && p.tier + 1 < MG_TIERS.length ? MG_TIERS[p.tier + 1].cost : Infinity;
+export const sellValue = (s: State, p: Pad) => Math.round(p.paid * (building(s) ? 1 : SELL_REFUND));
 
-// Put the pending pad on the free slot closest in bearing to (x, z).
+// How much a unit of `k` on `slot` would add: the bearings of the threat arc it covers that nothing covers yet
+// (crossfire where something does), or for support units, the guns it would serve. Auto-place and the bots use it.
+export function slotScore(s: State, k: PerimKind, slot: number) {
+  const { x, z } = slotXZ(slot), p = { k, x, z, a: Math.atan2(z, x) };
+  const guns = s.perim.filter(q => GUNS.includes(q.k) && up(q));
+  if (k === 'ammo') return guns.filter(q => (q.x - x) ** 2 + (q.z - z) ** 2 <= AMMO_R ** 2).length + 0.01 * Math.hypot(x, z);
+  if (k === 'observer') return guns.filter(q => (q.x - x) ** 2 + (q.z - z) ** 2 <= OBSERVER_EYES ** 2).length + 0.05 * Math.hypot(x, z);
+  // Bearings across the threat arc: one it covers that nothing covers yet is worth 1, crossfire on a covered one 0.3.
+  const range = k === 'mg' ? MG_TIERS[0].range : PERIM[k].range, arc = Math.min(Math.PI, Math.max(FRONT_ARC, flankArc(s.stage)) + 0.2);
+  const gr = guns.map(q => padStats(s, q).range);
+  let score = 0;
+  for (let i = 0; i <= 24; i++) {
+    const a = FRONT + (i / 12 - 1) * arc, c = Math.cos(a), sn = Math.sin(a);
+    let mine = 0, theirs = false;
+    for (const r of [14, 22, 30]) {
+      if (covers(p, c * r, sn * r, range)) mine++;
+      theirs ||= guns.some((q, qi) => covers(q, c * r, sn * r, gr[qi]));
+    }
+    if (mine) score += (theirs ? 0.3 : 1) + 0.02 * mine;
+  }
+  return score;
+}
+export const bestSlot = (s: State, k: PerimKind) =>
+  freeSlots(s).reduce<number | undefined>((b, i) => b === undefined || slotScore(s, k, i) > slotScore(s, k, b) ? i : b, undefined);
+
+// Put the pending pad on the free slot nearest the click.
 export function placePad(s: State, x: number, z: number) {
   if (!s.placing) return false;
-  const slot = nearestSlot(s, Math.atan2(z, x));
+  const slot = nearestFree(s, x, z, Infinity);
   if (slot === undefined) return false;
-  putPad(s, s.placing.k, slot);
+  putPad(s, s.placing.k, slot, s.placing.paid);
   s.placing = null;
   s.events.push({ k: 'buy' });
+  return true;
+}
+function nearestFree(s: State, x: number, z: number, within: number) {
+  let best: number | undefined, bd = within * within;
+  for (const i of freeSlots(s)) { const q = slotXZ(i), d = (q.x - x) ** 2 + (q.z - z) ** 2; if (d < bd) { bd = d; best = i; } }
+  return best;
+}
+export const selectedPad = (s: State) => s.perim.find(p => p.slot === s.selected);
+// Click on one of your units: pick it (to upgrade, sell or move).
+export function selectPad(s: State, x: number, z: number) {
+  const p = s.perim.find(p => (p.x - x) ** 2 + (p.z - z) ** 2 < 2.5 * 2.5);
+  s.selected = p ? p.slot : -1;
+  return !!p;
+}
+// With a unit picked, click a free slot to move it there: free in the build window, 5 s offline otherwise.
+export function movePad(s: State, x: number, z: number) {
+  const p = selectedPad(s), slot = p && nearestFree(s, x, z, 4);
+  if (!p || slot === undefined) return false;
+  const q = slotXZ(slot);
+  Object.assign(p, { x: q.x, z: q.z, a: Math.atan2(q.z, q.x), slot, cd: building(s) ? 0 : MOVE_TIME });
+  s.selected = slot;
+  s.events.push({ k: 'padMoved', x: p.x, z: p.z, n: building(s) ? 0 : MOVE_TIME, kind: p.k });
+  return true;
+}
+export function upgradePad(s: State) {
+  const p = selectedPad(s), c = p ? padUpgradeCost(p) : Infinity;
+  if (!p || s.credits < c || s.phase !== 'play') return false;
+  s.credits -= c; p.paid += c; p.tier++; s.bought++;
+  s.events.push({ k: 'padUp', x: p.x, z: p.z, n: p.tier, kind: p.k });
+  purchased(s);
+  return true;
+}
+export function sellPad(s: State) {
+  const p = selectedPad(s);
+  if (!p || s.phase !== 'play') return false;
+  const n = sellValue(s, p);
+  s.credits += n;
+  s.perim.splice(s.perim.indexOf(p), 1);
+  s.selected = -1;
+  s.events.push({ k: 'padSold', x: p.x, z: p.z, n, kind: p.k });
   return true;
 }
 
@@ -341,10 +429,9 @@ export function update(s: State, dt: number) {
   fire(s, dt);
   perimeter(s, dt);
   if (s.placing && s.t - s.placing.since > PLACE_TIME) {
-    // Nobody picked a spot: face the nearest contact, or the front.
-    let best = s.enemies[0], bd = Infinity;
-    for (const e of s.enemies) { const d = e.x * e.x + e.z * e.z; if (visible(s, e) && d < bd) { bd = d; best = e; } }
-    placePad(s, best?.x ?? Math.cos(FRONT), best?.z ?? Math.sin(FRONT));
+    // Nobody picked a spot: the slot where it adds the most.
+    const slot = bestSlot(s, s.placing.k);
+    if (slot !== undefined) { const q = slotXZ(slot); placePad(s, q.x, q.z); }
   }
   moveShots(s, dt);
   const ls = lastStand(s);
@@ -389,6 +476,7 @@ function spawnGroup(s: State, g: Partial<Record<EnemyKind, number>>, a: number, 
 function endStage(s: State, held: boolean) {
   const n = held ? BUILD_TIME : BUILD_LOST;
   s.buildUntil = s.t + n;
+  for (const p of s.perim) { p.hp = PAD_HP; p.down = false; } // the build window puts every unit back up
   s.events.push({ k: 'build', n });
 }
 function nextStage(s: State) {
@@ -485,6 +573,18 @@ function moveEnemies(s: State, dt: number) {
       const arm = spawnEnemy(s, 'arm', Math.atan2(e.z, e.x), d - 1);
       if (e.raid && e.raid === s.raidId) { arm.raid = e.raid; s.raidLeft++; } // part of the raid
     }
+    // FPVs and Lancets that pass close to a unit on the forward line dive on it instead of the base.
+    if (e.kind === 'scout' || e.kind === 'swarm') {
+      let tgt: Pad | undefined, bd = DIVE_R * DIVE_R;
+      for (const p of s.perim) { const dd = (p.x - e.x) ** 2 + (p.z - e.z) ** 2; if (!p.down && SLOTS[p.slot].belt === 'fwd' && dd < bd) { bd = dd; tgt = p; } }
+      if (tgt && bd < 1) {
+        tgt.hp -= e.dmg;
+        s.events.push({ k: 'padHit', x: tgt.x, z: tgt.z, n: e.dmg, kind: tgt.k });
+        if (tgt.hp <= 0) { tgt.hp = 0; tgt.down = true; s.events.push({ k: 'padDown', x: tgt.x, z: tgt.z, n: 0, kind: tgt.k }); }
+        removeAt(s, i); continue;
+      }
+      if (tgt) { const dd = Math.sqrt(bd); e.vx = (tgt.x - e.x) / dd * e.speed; e.vz = (tgt.z - e.z) / dd * e.speed; }
+    }
     e.x += e.vx * dt; e.z += e.vz * dt;
     if (d < BASE_R + e.size * 0.5) {
       // Objective lost: PROTECT BATTERY by anything of the raid landing, PROTECT RADAR by any ARM hit while it's on.
@@ -517,48 +617,59 @@ function steerArm(s: State, e: Enemy, dt: number) {
 
 function jammed(s: State, e: Enemy) {
   if (!s.jamming) return false;
-  const r2 = s.st.perim.jammer.range ** 2;
-  return s.perim.some(p => p.k === 'jammer' && (e.x - p.x) ** 2 + (e.z - p.z) ** 2 < r2);
+  const r2 = PERIM.jammer.range ** 2;
+  return s.perim.some(p => p.k === 'jammer' && up(p) && (e.x - p.x) ** 2 + (e.z - p.z) ** 2 < r2);
 }
 
-// Pads engage the closest radar contact in their own range; no lock slot needed.
+// Pads engage the closest visible contact in their range and field of fire; no lock slot needed. Repairs run here too.
 function perimeter(s: State, dt: number) {
-  const P = s.st.perim;
-  const r2 = P.jammer.range ** 2;
-  const jammers = s.perim.filter(p => p.k === 'jammer' && s.enemies.some(e => (e.x - p.x) ** 2 + (e.z - p.z) ** 2 < r2)).length;
-  const need = jammers * P.jammer.power * dt;
+  const r2 = PERIM.jammer.range ** 2;
+  const jammers = s.perim.filter(p => p.k === 'jammer' && up(p) && s.enemies.some(e => (e.x - p.x) ** 2 + (e.z - p.z) ** 2 < r2)).length;
+  const need = jammers * PERIM.jammer.power * dt;
   s.jamming = jammers > 0 && s.power >= need;
   if (s.jamming) s.power -= need;
   for (const p of s.perim) {
-    if (p.k === 'jammer') continue;
-    const w = P[p.k];
+    p.hp = Math.min(PAD_HP, p.hp + PAD_REPAIR * dt);
+    if (p.down && p.hp >= PAD_HP / 2) { p.down = false; s.events.push({ k: 'padUp', x: p.x, z: p.z, n: 0, kind: p.k }); }
+  }
+  const guns = s.perim.filter(p => GUNS.includes(p.k) && up(p));
+  const stats = guns.map(p => padStats(s, p));
+  guns.forEach((p, gi) => {
+    const w = stats[gi];
     p.cd = Math.max(0, p.cd - dt);
-    if (p.cd > 0 || s.ammo < w.ammo) continue;
+    if (p.cd > 0 || s.ammo < w.ammo) return;
     let best: Enemy | null = null, bd = w.range ** 2;
     const ic = interceptActive(s) ? s.enemies.find(e => e.id === s.intercept.target) : undefined;
     for (const e of s.enemies) {
       if (!visible(s, e) || e.ided || e.incoming >= e.hp && e !== ic || ENEMIES[e.kind].pacOnly) continue;
       if (ic && e !== ic && (ic.x - p.x) ** 2 + (ic.z - p.z) ** 2 < bd) continue; // intercept target in reach: only it
       const d = (e.x - p.x) ** 2 + (e.z - p.z) ** 2;
-      if (d < bd) { bd = d; best = e; }
+      if (d < bd && covers(p, e.x, e.z, w.range)) { bd = d; best = e; }
     }
-    if (!best) continue;
+    if (!best) return;
+    const t = best;
     s.ammo -= w.ammo; p.cd = 1 / w.rate;
-    if (p.k === 'mg' && --p.belt <= 0) { p.belt = MG_BELT.rounds; p.cd = MG_BELT.reload; } // belt empty: reload
+    // Belt empty: reload. Slower out on the forward line, twice as fast with an ammo point in reach.
+    if (p.k === 'mg' && --p.belt <= 0) {
+      p.belt = MG_BELT.rounds;
+      p.cd = MG_BELT.reload * (nearAmmo(s, p) ? AMMO_RELOAD : SLOTS[p.slot].belt === 'fwd' ? FWD_RELOAD : 1);
+    }
+    // Crossfire: the target is inside another gun's field of fire as well.
+    const dmg = w.dmg * (guns.some((q, qi) => q !== p && covers(q, t.x, t.z, stats[qi].range)) ? 1 + CROSSFIRE : 1);
     if (p.k === 'mg' || p.k === 'mantis') {
       // 12.7mm / 35mm tracer round, led like the PAC-3 so it actually connects
       const sp = 70, tt = Math.sqrt(bd) / sp;
       const dx = best.x + best.vx * tt - p.x, dz = best.z + best.vz * tt - p.z, d = Math.hypot(dx, dz) || 1;
-      s.shots.push({ kind: 'tracer', x: p.x, z: p.z, vx: dx / d * sp, vz: dz / d * sp, dmg: w.dmg, splash: 0, life: w.range / sp + 0.15, target: best.id, src: p.k === 'mg' ? 'MG' : 'MANTIS' });
-      best.incoming += w.dmg;
+      s.shots.push({ kind: 'tracer', x: p.x, z: p.z, vx: dx / d * sp, vz: dz / d * sp, dmg, splash: 0, life: w.range / sp + 0.15, target: best.id, src: p.k === 'mg' ? 'MG' : 'MANTIS' });
+      best.incoming += dmg;
       s.events.push({ k: 'gun', x: p.x, z: p.z, x2: best.x, z2: best.z });
     } else {
       const d = Math.sqrt(bd) || 1;
-      s.shots.push({ kind: 'missile', x: p.x, z: p.z, vx: (best.x - p.x) / d * 15, vz: (best.z - p.z) / d * 15, dmg: w.dmg, splash: 0, life: 3, target: best.id, src: 'STINGER' });
-      best.incoming += w.dmg;
+      s.shots.push({ kind: 'missile', x: p.x, z: p.z, vx: (best.x - p.x) / d * 15, vz: (best.z - p.z) / d * 15, dmg, splash: 0, life: 3, target: best.id, src: 'STINGER' });
+      best.incoming += dmg;
       s.events.push({ k: 'missile', x: p.x, z: p.z });
     }
-  }
+  });
 }
 
 // The enemy presses the advantage: no bonus, and a short build window before the next level.
@@ -617,10 +728,11 @@ function backupRadar(s: State, dt: number) {
 
 // Eyes: anything close to the base or to an emplacement is seen, radar or not (NIGHT RAID shortens it).
 function spot(s: State) {
-  const k = phase(s).mod.dark ? VISUAL_DARK : 1, b2 = (VISUAL_R * k) ** 2, p2 = (PAD_EYES * k) ** 2;
+  const k = phase(s).mod.dark ? VISUAL_DARK : 1, b2 = (VISUAL_R * k) ** 2;
+  const eyes = s.perim.filter(up).map(p => ({ x: p.x, z: p.z, r2: ((p.k === 'observer' ? OBSERVER_EYES : PAD_EYES) * k) ** 2 }));
   let newly = 0;
   for (const e of s.enemies) {
-    if (e.x * e.x + e.z * e.z > b2 && !s.perim.some(p => (e.x - p.x) ** 2 + (e.z - p.z) ** 2 < p2)) continue;
+    if (e.x * e.x + e.z * e.z > b2 && !eyes.some(p => (e.x - p.x) ** 2 + (e.z - p.z) ** 2 < p.r2)) continue;
     if (e.seenUntil < s.t) newly++;
     e.seenUntil = Math.max(e.seenUntil, s.t + 0.25);
   }

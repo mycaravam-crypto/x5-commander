@@ -1,4 +1,4 @@
-import { newGame, dailySeed, update, buy, pickPerk, markAt, placePad, cycleMode, cycleDiscipline, cycleRadarMode, aimFocus, emergencyIntercept, toggleEmcon, type State } from './sim.ts';
+import { newGame, dailySeed, update, buy, pickPerk, markAt, placePad, movePad, selectPad, upgradePad, sellPad, cycleMode, cycleDiscipline, cycleRadarMode, aimFocus, emergencyIntercept, toggleEmcon, type State } from './sim.ts';
 import { createRenderer } from './render.ts';
 import { createHud, loadBest } from './hud.ts';
 import { DOCTRINES } from './config.ts';
@@ -27,6 +27,7 @@ const doctrine = (i: number) => {
 const hud = createHud({
   buy: id => { if (buy(s, id)) hud.flash(id); },
   perk: i => pickPerk(s, i),
+  pad: act => { if (act === 'upgrade') upgradePad(s); else sellPad(s); },
   start, restart, doctrine,
 });
 
@@ -35,7 +36,9 @@ const canvas = document.querySelector('canvas')!;
 let dragX: number | null = null;
 const tap = (cx: number, cy: number) => {
   const p = view.pick(cx, cy);
-  if (p && s.phase === 'play' && !placePad(s, p.x, p.z)) { markAt(s, p.x, p.z); aimFocus(s, p.x, p.z); }
+  // Place a bought pad, else move the picked unit to a free slot, else pick a unit, else mark a contact.
+  if (!p || s.phase !== 'play' || placePad(s, p.x, p.z) || movePad(s, p.x, p.z) || selectPad(s, p.x, p.z)) return;
+  markAt(s, p.x, p.z); aimFocus(s, p.x, p.z);
 };
 canvas.addEventListener('mousedown', e => { if (e.button === 2) dragX = e.clientX; else tap(e.clientX, e.clientY); });
 
@@ -85,6 +88,8 @@ function key(code: string) {
     case 'Space': if (s.phase === 'start') start(); else emergencyIntercept(s); break;
     case 'Enter': start(); break;
     case 'KeyG': cycleDiscipline(s); break;
+    case 'KeyU': upgradePad(s); break;
+    case 'Delete': case 'Backspace': sellPad(s); break;
     case 'KeyD': start(true); break;
     case 'KeyP': case 'Escape': if (s.phase === 'play') s.phase = 'pause'; else if (s.phase === 'pause') s.phase = 'play'; break;
     case 'KeyT': cycleMode(s); break;

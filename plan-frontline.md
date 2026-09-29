@@ -66,6 +66,10 @@ Every slot is fixed, so placement stays a click and it's still deterministic for
 - The ECS/lock and power systems only switch on once the radar is built. Before that, the HUD shows just what's relevant (HP, ammo, visual contacts), which also makes onboarding easier.
 
 ## 3b. Placement: making the slots a base-building decision
+*Mostly done (step 4).* In: belts and slots (`SLOTS`), fields of fire (`FANS`), crossfire, `bestSlot()` for auto-place and the bots, gap ticks on the mini radar, the observer post and ammo point, unit HP with forward-line dives and repairs, MG → twin MG → ZU-23 in place, and selling and moving. Not yet: the tier-3 branch choice, terrain tags, the coverage overlay key, and the power node. Changes from the text below:
+- **Level 1's two slots** are a main-line and an inner slot on the front axis. With both on the main line, a front-facing MG only engages from 32 m to 17 m out (it can't shoot what has flown past), and the bots died before they could afford the radar. In depth, the two fields of fire overlap, so level 1 teaches crossfire.
+- **Dives only hit the forward line.** Lancets are most of level 1, and diving on the starting MG knocked out the whole defense.
+- **`bestSlot()` scores bearings, not area:** a bearing of the threat arc it newly covers is worth 1, crossfire on a covered one 0.3. Area scoring picked slots next to the existing guns instead of the open flank.
 Placement has to be a real choice with a cost: where you put a unit decides what it covers, what it risks and what it boosts. It must also stay readable and deterministic.
 
 **Fields of fire.** Each unit covers a fan from its slot, not a circle. A gun fan is 120°, MANPADS 180°, and C-RAM and SAMs cover all round. It points away from the base by default. Placement is about **overlap**:
@@ -153,7 +157,7 @@ Keep the game runnable after each step.
 1. ~~`FRONT` + `flank` + `spawnBearing()`, with the flank arc widening by phase.~~ **Done.** Also: jammers hold the front, the front is drawn on the ground and the mini radar rim, and there's a front/flank spawn check in `npm test`.
 2. ~~The `LEVELS` table replacing `PHASES`, with widening exposure arcs.~~ **Done.** Each level is `LEVEL_LEN` (60 s) of waves, then its raid, then a build window with no spawns (20 s held / 8 s lost, which replaces the old recovery lull and "next raid sooner"). Strike packages come once per level from SEAD on. Packages and raids unlock by level, and raid size goes by level (`raidScale`). The wave stream is reseeded per level, so each level of a daily op sends the same things however long earlier levels took. The balance script reports the level reached. Still to do in step 6: the level card and the slow-motion build state.
 3. ~~The AA MG and visual spotting, with the radar and Patriot moved to the unlock ladder.~~ **Done.** See sections 2 and 3. Balance (`npm run balance -- 12 900`): STANDARD median 5:02, reaching level 4 (it was 4:06 / L3 after step 2); FORTRESS (−15% fire rate) comes out weak with gun-heavy starts.
-4. Belt slots replacing the ring (section 3b), in this order: slots + fans + crossfire + `bestSlot()`, then support units, then unit HP, then tier upgrades in place. After that, the new emplacements (ZU-23, IRIS-T SLM).
+4. ~~Belt slots replacing the ring (section 3b), in this order: slots + fans + crossfire + `bestSlot()`, then support units, then unit HP, then tier upgrades in place. After that, the new emplacements (ZU-23, IRIS-T SLM).~~ **Done**, except the IRIS-T SLM (moved to step 5, with the cruise missile it answers) and the 3b extras listed there. The ZU-23 is the MG's top tier. Balance: STANDARD median 4:52, reaching level 4 (5:02 before).
 5. The cruise missile and missiles that target emplacements.
 6. Map, mini radar, level card and build window. Then rebalance with `npm run balance`.
 
