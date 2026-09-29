@@ -202,6 +202,11 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   // Click it to look there. ----
   const cv = $('radar') as HTMLCanvasElement, g = cv.getContext('2d')!;
   const MAP_R = ARENA_R + 6, C = cv.width / 2, K = C / MAP_R, IMG_R = MAP_R * 1.45, map = paintTerrain(320, IMG_R);
+  { // phosphor tint: the terrain keeps its light and shade, in scope green
+    const t = map.getContext('2d')!;
+    t.globalCompositeOperation = 'color'; t.fillStyle = rgba(PAL.mid); t.fillRect(0, 0, map.width, map.height);
+    t.globalCompositeOperation = 'source-over';
+  }
   let lastSweep = 0, mapYaw = Math.PI / 2;
   cv.addEventListener('pointerdown', e => {
     const r = cv.getBoundingClientRect(), dx = ((e.clientX - r.left) / r.width * cv.width - C) / K, dy = ((e.clientY - r.top) / r.height * cv.height - C) / K;
@@ -221,10 +226,11 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       g.strokeStyle = col; g.lineWidth = lw; g.beginPath(); g.arc(C, C, ARENA_R * K, m - w, m + w); g.stroke(); g.lineWidth = 1;
     };
     g.setTransform(1, 0, 0, 1, 0, 0);
-    g.fillStyle = '#10140e'; g.fillRect(0, 0, cv.width, cv.height);
+    g.fillStyle = '#020a05'; g.fillRect(0, 0, cv.width, cv.height);
     g.setTransform(sy * K, cy * K, -cy * K, sy * K, C, C);
-    g.globalAlpha = 0.85; g.drawImage(map, -IMG_R, -IMG_R, 2 * IMG_R, 2 * IMG_R); g.globalAlpha = 1;
+    g.globalAlpha = 0.6; g.drawImage(map, -IMG_R, -IMG_R, 2 * IMG_R, 2 * IMG_R); g.globalAlpha = 1;
     g.setTransform(1, 0, 0, 1, 0, 0);
+    for (let r = 20; r <= ARENA_R; r += 20) ring(0, 0, r, rgba(PAL.bright, 0.18)); // range rings
     const play = s.phase === 'play' || s.phase === 'pause';
     // The front, and the wider arc long-range drones and missiles can come from right now.
     if (flankArc(s.stage) > FRONT_ARC) rimArc(Math.min(Math.PI, flankArc(s.stage)), rgba(PAL.alert, 0.6), 2);

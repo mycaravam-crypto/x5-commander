@@ -1,27 +1,38 @@
 /* --dim --mid --bright --hot --alert are copied from PAL in config.ts by hud.ts */
 :root {
-  --bg: #0d100c; --panel: rgba(20, 24, 19, 0.84);
-  --line: rgba(255, 255, 255, 0.12);
-  --glow: 0 1px 2px rgba(0, 0, 0, 0.85);
+  --bg: #000; --panel: rgba(0, 10, 4, 0.8);
+  --line: color-mix(in srgb, var(--mid) 35%, transparent);
+  /* Phosphor glow, over a dark edge so text still reads on bright ground. */
+  --glow: 0 0 6px color-mix(in srgb, var(--bright) 50%, transparent), 0 1px 2px rgba(0, 0, 0, 0.9);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--bright);
-  font: 13px/1.3 'Segoe UI', Roboto, 'Helvetica Neue', system-ui, sans-serif; font-variant-numeric: tabular-nums; user-select: none;
-  text-transform: uppercase; text-shadow: var(--glow); }
+  font: 13px/1.3 ui-monospace, 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; font-variant-numeric: tabular-nums; user-select: none;
+  text-transform: uppercase; text-shadow: var(--glow); -webkit-text-size-adjust: 100%; }
 canvas { display: block; touch-action: none; }
+/* Scanlines over everything, the 3D view included: light enough to leave the terrain readable. */
+body::after { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 10;
+  background: repeating-linear-gradient(transparent 0 2px, rgba(0, 0, 0, 0.16) 2px 3px); }
 #hud { position: fixed; inset: 0; pointer-events: none; }
+@media (pointer: fine) and (prefers-reduced-motion: no-preference) { #hud { animation: flicker 5s infinite; } }
+@keyframes flicker { 0%, 61%, 63%, 65%, 100% { opacity: 1; } 62% { opacity: 0.88; } 64% { opacity: 0.93; } }
 #hud > * { position: absolute; }
 body.crit #top, body.crit #left { animation: crit 0.7s steps(1) infinite; }
 @keyframes crit { 50% { filter: invert(1) hue-rotate(180deg); } }
-small { color: var(--mid); font-size: 10px; letter-spacing: 0.1em; }
+small { color: var(--mid); font-size: 10px; letter-spacing: 0.12em; }
 b { font-weight: 600; }
 .hot { color: var(--hot); }
-.alert { color: var(--alert); }
-.red { color: var(--crit); }
+.alert { color: var(--alert); text-shadow: 0 0 8px var(--alert), 0 1px 2px #000; }
+.red { color: var(--crit); text-shadow: 0 0 8px var(--crit), 0 1px 2px #000; }
 
-/* Command panel: dark translucent plate, a thin accent along the top (--c: amber in a raid, red when blind). */
-.frame { --c: rgba(255, 255, 255, 0.28); border: 1px solid var(--line); border-top: 2px solid var(--c); border-radius: 4px;
-  background: var(--panel); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); backdrop-filter: blur(3px); }
+/* Thin faint border with bright corner brackets (--c: amber in a raid, red when blind). */
+.frame { --c: var(--bright); border: 1px solid var(--line); background:
+  linear-gradient(var(--c) 0 0) 0 0 / 10px 2px, linear-gradient(var(--c) 0 0) 0 0 / 2px 10px,
+  linear-gradient(var(--c) 0 0) 100% 0 / 10px 2px, linear-gradient(var(--c) 0 0) 100% 0 / 2px 10px,
+  linear-gradient(var(--c) 0 0) 0 100% / 10px 2px, linear-gradient(var(--c) 0 0) 0 100% / 2px 10px,
+  linear-gradient(var(--c) 0 0) 100% 100% / 10px 2px, linear-gradient(var(--c) 0 0) 100% 100% / 2px 10px,
+  var(--panel);
+  background-repeat: no-repeat; background-origin: border-box; }
 
 #top { top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 28px; align-items: end; padding: 8px 20px; }
 .stat { display: flex; flex-direction: column; align-items: center; min-width: 54px; }
@@ -62,6 +73,7 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 /* 20-segment bar: --r fills it, the mask cuts the gaps. */
 .seg { --f: var(--bright); display: block; height: 8px; margin-top: 3px;
   background: linear-gradient(90deg, var(--f) calc(var(--r, 1) * 100%), var(--dim) 0);
+  -webkit-mask: repeating-linear-gradient(90deg, #000 0 calc(5% - 2px), transparent 0 5%);
   mask: repeating-linear-gradient(90deg, #000 0 calc(5% - 2px), transparent 0 5%); }
 .seg.crit { --f: var(--alert); animation: blink 0.4s infinite alternate; }
 #hpBar.crit { --f: var(--crit); } /* battery critical is the one red bar; low power / ammo stay amber */
@@ -80,7 +92,7 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #threats div.mk { color: var(--hot); }
 #shop button.hint.hint { border-left-color: var(--alert); }
 #shop button.hint .c::before { content: '◆ '; color: var(--alert); }
-#radar { width: 220px; height: 220px; border-radius: 3px; border: 1px solid var(--line); pointer-events: auto; cursor: crosshair; }
+#radar { width: 220px; height: 220px; border: 1px solid var(--line); pointer-events: auto; cursor: crosshair; }
 
 #shop { top: 12px; right: 12px; bottom: 12px; width: 250px; overflow-y: auto; pointer-events: auto; scrollbar-width: thin;
   scrollbar-color: var(--mid) transparent; padding: 6px; }
@@ -90,7 +102,7 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #shop button { all: unset; display: grid; grid-template-columns: 1fr auto auto; gap: 8px; width: 100%; box-sizing: border-box;
   padding: 4px 6px; cursor: pointer; opacity: 0.4; border-left: 2px solid transparent; }
 #shop button.can { opacity: 1; border-left-color: var(--hot); }
-#shop button.can:hover { background: rgba(255, 255, 255, 0.08); }
+#shop button.can:hover { background-color: color-mix(in srgb, var(--bright) 12%, transparent); }
 #shop button.max { opacity: 0.25; cursor: default; }
 #shop button.locked { opacity: 0.35; cursor: default; }
 #shop button.locked .c { color: var(--alert); }
@@ -114,7 +126,7 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #padcard { padding: 6px 10px; font-size: 11px; pointer-events: auto; --c: var(--hot); }
 #padcard:empty { display: none; }
 #padcard b { color: var(--hot); }
-#padcard button { font: inherit; font-size: 10px; color: var(--hot); background: rgba(255, 255, 255, 0.05); border: 1px solid var(--line); border-radius: 3px; padding: 3px 7px; margin: 5px 3px 2px 0; cursor: pointer; letter-spacing: 0; }
+#padcard button { font: inherit; font-size: 10px; color: var(--hot); background: transparent; border: 1px solid var(--mid); padding: 3px 7px; margin: 5px 3px 2px 0; cursor: pointer; letter-spacing: 0; }
 #padcard button.on { background: var(--hot); color: var(--bg); }
 #padcard button:disabled { color: var(--mid); opacity: 0.6; cursor: default; }
 #target { --c: var(--hot); }
@@ -125,7 +137,7 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 
 #labels { inset: 0; }
 #labels div { position: absolute; left: 0; top: 0; font-size: 10px; white-space: nowrap; color: var(--bright); display: none;
-  background: rgba(0, 0, 0, 0.45); padding: 0 4px; border-radius: 2px; }
+  background: rgba(0, 10, 4, 0.55); padding: 0 4px; border-left: 1px solid var(--mid); }
 #labels div.on { display: block; }
 #labels div.mk { color: var(--hot); }
 
@@ -148,19 +160,19 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #banner.info { color: var(--bright); text-shadow: 0 2px 8px #000; font-size: 22px; }
 @keyframes banner { 0% { opacity: 0; letter-spacing: 0.8em; } 12%, 70% { opacity: 1; letter-spacing: 0.3em; } 100% { opacity: 0; } }
 
-#overlay { inset: 0; display: none; place-items: safe center; overflow-y: auto; background: rgba(12, 15, 11, 0.72); pointer-events: auto; backdrop-filter: blur(2px); }
+#overlay { inset: 0; display: none; place-items: safe center; overflow-y: auto; background: rgba(0, 4, 1, 0.78); pointer-events: auto; }
 #overlay.on { display: grid; }
 .card { text-align: center; max-width: 760px; padding: 20px; }
-.card h1 { font-size: 54px; letter-spacing: 0.25em; margin: 0 0 4px; color: var(--bright); text-shadow: 0 3px 16px #000; }
+.card h1 { font-size: 54px; letter-spacing: 0.25em; margin: 0 0 4px; color: var(--hot); text-shadow: 0 0 24px var(--bright); }
 .card h2 { letter-spacing: 0.3em; color: var(--hot); margin: 0 0 18px; }
 .card p { margin: 6px 0; }
 .card .dim { color: var(--mid); }
-.btn { all: unset; cursor: pointer; display: inline-block; margin-top: 18px; padding: 10px 28px; border: 1px solid var(--bright); border-radius: 4px;
+.btn { all: unset; cursor: pointer; display: inline-block; margin-top: 18px; padding: 10px 28px; border: 1px solid var(--bright);
   color: var(--bright); letter-spacing: 0.25em; font-weight: 700; }
-.btn:hover { background: var(--bright); color: var(--bg); text-shadow: none; }
+.btn:hover { background: var(--bright); color: var(--bg); text-shadow: none; box-shadow: 0 0 20px var(--bright); }
 .perks { display: flex; gap: 14px; justify-content: center; }
 .perk { font: inherit; color: inherit; text-transform: inherit; text-shadow: inherit; text-align: center; cursor: pointer; width: 200px; padding: 18px 14px; }
-.perk:hover { --c: var(--hot); background: rgba(40, 48, 38, 0.92); }
+.perk:hover { --c: var(--hot); box-shadow: 0 0 20px color-mix(in srgb, var(--bright) 35%, transparent); }
 .perk b { display: block; color: var(--hot); letter-spacing: 0.15em; margin-bottom: 8px; }
 .perk span { font-size: 12px; }
 .debrief { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; text-align: left; margin: 14px auto; max-width: 560px; font-size: 12px; }
@@ -170,7 +182,7 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 .debrief dd { margin: 0; text-align: right; }
 .docs { margin: 8px 0 18px; }
 .docs .perk { width: 170px; padding: 10px; }
-.perk.sel { --c: var(--hot); outline: 1px solid var(--hot); }
+.perk.sel { --c: var(--hot); box-shadow: 0 0 16px color-mix(in srgb, var(--bright) 30%, transparent); }
 .perk.locked { opacity: 0.4; cursor: default; }
 .perk.rule { --c: var(--alert); }
 .perk i { display: block; font-style: normal; font-size: 10px; letter-spacing: 0.2em; color: var(--alert); margin-bottom: 6px; }
@@ -200,7 +212,7 @@ body.cov #covkey { display: block; }
 #views, #touch { display: none; }
 .bar i { font-style: normal; }
 svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6)); }
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--bright) 60%, transparent)); }
 
 /* Phones and tablets (touch, narrow, or short landscape): compact HUD.
    Short labels / icons, a thin vitals strip top-left, mini radar and details on toggles, icon action bar at the bottom. */

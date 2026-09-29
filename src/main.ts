@@ -8,7 +8,22 @@ import * as sfx from './sfx.ts';
 const savedDoctrine = () => { try { return localStorage.getItem('x5-doctrine') ?? ''; } catch { return ''; } };
 const openDoc = (id: string) => DOCTRINES.find(d => d.id === id)?.unlock(loadBest()) ? id : 'standard';
 let s: State = newGame(undefined, '', openDoc(savedDoctrine()));
-const view = createRenderer();
+// No WebGL 2 (or the GPU gave up): say so instead of leaving a blank page.
+const fatal = (msg: string) => {
+  const o = document.getElementById('overlay')!;
+  o.innerHTML = `<div class="card"><h2>DISPLAY FAULT</h2><p>${msg}</p><button class="btn" onclick="location.reload()">RELOAD</button></div>`;
+  o.classList.add('on');
+};
+let view: ReturnType<typeof createRenderer>, lost = false;
+try { view = createRenderer(); } catch (err) {
+  fatal('This browser could not start WebGL 2. Update the browser or turn on hardware acceleration.');
+  throw err;
+}
+document.querySelector('canvas')!.addEventListener('webglcontextlost', e => {
+  e.preventDefault();
+  lost = true;
+  fatal('The graphics context was lost (the device ran short of GPU memory).');
+});
 
 const today = () => new Date().toISOString().slice(0, 10);
 const start = (daily = false) => {
@@ -153,6 +168,7 @@ if (import.meta.env.DEV) Object.assign(window, { x5: () => s });
 // ---- loop ----
 let last = performance.now();
 function frame(now: number) {
+  if (lost) return; // the loop stops; the fault card offers a reload
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   if (held.has('KeyQ')) view.rotate(-dt * 1.5);

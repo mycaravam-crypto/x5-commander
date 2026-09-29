@@ -11,10 +11,10 @@ export const COMBO_CAP = 50;
 export const LEVEL_LEN = 60, BUILD_TIME = 20, BUILD_LOST = 8; // s
 export const ELITE_FROM = 3; // level index (SEAD) from which every level has a Su-34 strike package halfway through
 
-// HUD palette, shared by the overlays in the 3D scene and the CSS (hud.ts copies it into CSS variables).
-// Hierarchy: dim/mid for frames and labels, bright for text and what's active, hot (cyan) for what's yours, locked or
+// Green phosphor HUD palette, shared by the overlays in the 3D scene and the CSS (hud.ts copies it into CSS variables).
+// Hierarchy: dim/mid for frames and labels, bright for text and what's active, hot for what's yours, locked or
 // selected, amber (alert) for warnings, red (crit) only for the worst: battery critical, radar knocked out.
-export const PAL = { dim: 0x3b4034, mid: 0x9ca08a, bright: 0xece8d6, hot: 0x7fd8ff, alert: 0xffae2a, crit: 0xff4a2a };
+export const PAL = { dim: 0x0b3d1f, mid: 0x1f9e4f, bright: 0x39ff88, hot: 0xc8ffe0, alert: 0xffb000, crit: 0xff4a2a };
 // Radar bearing in degrees, 0-360, measured from +x toward +z (grid labels and the HUD use the same one).
 // The front: manned aircraft and short-range drones (launched from the line) always come from FRONT ± FRONT_ARC,
 // the top of the default view. Long-range drones and missiles (`flank` below) can come from anywhere within the
