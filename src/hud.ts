@@ -96,7 +96,7 @@ function debrief(s: State) {
     <div><small>OPS</small><dl><dt>RAIDS CLEAN</dt><dd>${S.clean} / ${S.raids}</dd><dt>ARMS EVADED</dt><dd>${S.armsEvaded}</dd><dt>RADAR HITS</dt><dd>${S.radarHits}</dd><dt>SALVAGE</dt><dd>${S.recovered} / ${S.drops}</dd></dl></div></div>`;
 }
 
-export function createHud(actions: { buy(id: string): void; perk(i: number): void; pad(act: string): void; start(daily?: boolean): void; restart(): void; doctrine(i: number): void; look(x: number, z: number): void }) {
+export function createHud(actions: { buy(id: string): void; perk(i: number): void; pad(act: string): void; start(daily?: boolean): void; restart(): void; resume(): void; doctrine(i: number): void; look(x: number, z: number): void }) {
   for (const [k, v] of Object.entries(PAL)) document.documentElement.style.setProperty(`--${k}`, rgba(v));
 
   // ---- shop (built once) ----
@@ -147,6 +147,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     else if (a === 'restart') actions.restart();
     else if (a === 'share') share();
     else if (a?.startsWith('perk')) actions.perk(+a.slice(4));
+    // The pause card covers the on-screen pause button, so any tap on it resumes.
+    else if (shownPhase.startsWith('pause')) actions.resume();
   };
   let shownPhase = '', shownDoc = '', shownSeed = NaN;
   function showOverlay(s: State) {
@@ -173,7 +175,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       <p class="dim">DOCTRINE · starting loadout, unlocked by your records</p><div class="perks docs">${docsHtml(s, best)}</div>
       <button class="btn" data-a="start">DEPLOY [SPACE]</button> <button class="btn" data-a="daily">DAILY OP [D]</button>
       <p class="dim">Daily op: same raid for everyone today. ${(d => d.time ? `Your best today · ${clock(d.time)} · ${fmt(d.kills)} kills` : 'Not flown yet today.')(loadDaily(new Date().toISOString().slice(0, 10)))}</p></div></div>`;
-    else if (s.phase === 'pause') html = `<div class="card"><h2>PAUSED</h2><p class="dim">[P] resume</p></div>`;
+    else if (s.phase === 'pause') html = `<div class="card"><h2>PAUSED</h2><p class="dim">[P] or tap to resume</p></div>`;
     else if (s.phase === 'perk') html = `<div class="card"><h2>BATTERY LEVEL ${s.level} · ${baseLevelInfo(s.level).name}</h2><p class="hot">${baseLevelInfo(s.level).desc}</p>${s.level > 1 ? `<p class="dim">${s.st.weapons.cannon ? '+1 M903 LAUNCHER · ' : ''}${perimSlots(s.level)} PERIMETER PADS</p>` : ''}<h2>CHOOSE A PERK</h2><div class="perks">${
       s.perkChoices.map((id, i) => { const p = PERKS.find(p => p.id === id)!; return `<button class="perk frame${p.rule ? ' rule' : ''}" data-a="perk${i}">${p.rule ? '<i>★ NEW RULE</i>' : ''}<b>${p.name}</b><span>${p.desc}</span><kbd>[${i + 1}]</kbd></button>`; }).join('')
     }</div></div>`;
