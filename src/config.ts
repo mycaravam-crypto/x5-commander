@@ -87,6 +87,7 @@ export const SHAHED_DIVE = 10; // m from the battery a Shahed pitches over into 
 export const LANCET = { loiter: 26, time: 3, seek: 5 }; // m out it circles at, s it searches, m it spots a unit from and dives on it
 export const HELO = { standoff: 26, every: 4, ammo: 4 }; // Mi-28: m out it hovers at, s between ATGMs, ATGMs carried; then it goes home
 export const KAB_R = 32, KAB_PAIR = 2; // m out a Su-34 releases its glide bombs (and how many), then turns for home
+export const KAB_FIRST = 1; // bombs a Su-34 carries on the SEAD level, where it's new: one, so the first strike teaches instead of ending the run
 export const EGRESS_SPEED = 1.4; // aircraft heading home, out of the arena (no reward, but no more harm)
 export const TBM_TERMINAL = { r: 25, jink: 2.5 }; // Iskander: m out it starts its evasive manoeuvres, their size
 export const CRUISE_DOGLEG = 0.7; // rad off its launch bearing a Kh-101 routes through before turning in on its target
@@ -182,14 +183,20 @@ export const EW_JAM = 0.35; // detection chance multiplier inside a jammed secto
 // Logarithmic growth: every doubling of play time adds about the same threat, so upgrades (whose costs grow
 // exponentially) can keep up and a run has no built-in end. m = minutes played.
 export const grow = (m: number, k: number) => 1 + k * Math.log1p(m / 4);
+// Past SURGE.from minutes the war escalates: HP and damage grow exponentially, numbers linearly, on top of the
+// gentle curve. Upgrades cost more with every level, so a battery's strength grows about with the log of its
+// income; the surge outruns it, and every run ends. Per minute past `from`.
+export const SURGE = { from: 12, hp: 0.12, dmg: 0.06, spawn: 0.05 };
+const surge = (m: number, k: number) => Math.exp(k * Math.max(0, m - SURGE.from));
+const surgeLin = (m: number, k: number) => 1 + k * Math.max(0, m - SURGE.from);
 export function difficulty(t: number) {
   const m = t / 60;
   return {
-    // Composition carries most of the difficulty (see LEVELS), so raw numbers grow gently.
-    spawnRate: 0.6 * grow(m, 1.4), // spawn events / s
-    hp: grow(m, 0.75),
+    // Composition carries most of the difficulty (see LEVELS), so raw numbers grow gently, until the surge.
+    spawnRate: 0.6 * grow(m, 1.4) * surgeLin(m, SURGE.spawn), // spawn events / s
+    hp: grow(m, 0.75) * surge(m, SURGE.hp),
     speed: 1 + 0.025 * Math.min(m, 20),
-    dmg: grow(m, 0.6),
+    dmg: grow(m, 0.6) * surge(m, SURGE.dmg),
   };
 }
 
@@ -345,7 +352,7 @@ export const PERKS: { id: string; name: string; desc: string; fx: PerkFx; rule?:
   { id: 'overcharge', name: 'OVERCHARGE', desc: '+50% damage · -30% power gen', fx: { dmg: 1.5, gen: 0.7 } },
   { id: 'highfreq', name: 'HIGH FREQUENCY', desc: '+40% sweep speed · -15% radar range', fx: { sweep: 1.4, range: 0.85 }, need: 'radar' },
   { id: 'logistics', name: 'AUTOMATED LOGISTICS', desc: '+100% ammo production · -15% credits', fx: { aprod: 2, credits: 0.85 }, need: 'pac3' },
-  { id: 'glass', name: 'GLASS CANNON', desc: '+100% damage · -40% max HP', fx: { dmg: 2, hp: 0.6 } },
+  { id: 'glass', name: 'GLASS CANNON', desc: '+60% damage · -45% max HP', fx: { dmg: 1.6, hp: 0.55 } },
   { id: 'salvage', name: 'SALVAGE', desc: '+25% credits · -15% damage', fx: { credits: 1.25, dmg: 0.85 } },
   { id: 'trigger', name: 'HAIR TRIGGER', desc: '+35% fire rate · -20% ammo production', fx: { rate: 1.35, aprod: 0.8 } },
   { id: 'deepscan', name: 'DEEP SCAN', desc: '+30% radar range · -20% sweep speed', fx: { range: 1.3, sweep: 0.8 }, need: 'radar' },
