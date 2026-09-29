@@ -1,46 +1,100 @@
-// Tiny WebAudio synth. No files.
+// Tiny WebAudio synth. No files. Effects and music run on their own buses, each with its own volume.
+import { AUDIO, BIG_KILLS, type EnemyKind } from './config.ts';
 let ctx: AudioContext | null = null;
-let master: GainNode;
+let master: GainNode, fxBus: GainNode, musicBus: GainNode;
 export let muted = false;
 export const toggleMute = () => { muted = !muted; if (master) master.gain.value = muted ? 0 : 0.6; };
 
+// Volumes 0..1, remembered between runs.
+export const volume: { sfx: number; music: number } = (() => {
+  try { const v = JSON.parse(localStorage.getItem('x5-vol') ?? '{}'); return { sfx: v.sfx ?? AUDIO.sfx, music: v.music ?? AUDIO.music }; }
+  catch { return { sfx: AUDIO.sfx, music: AUDIO.music }; }
+})();
+const applyVolume = () => { if (ctx) { fxBus.gain.value = volume.sfx; musicBus.gain.value = volume.music; } };
+export function setVolume(k: 'sfx' | 'music', v: number) {
+  volume[k] = Math.max(0, Math.min(1, v));
+  applyVolume();
+  try { localStorage.setItem('x5-vol', JSON.stringify(volume)); } catch { /* storage blocked: skip */ }
+}
+
 export function unlock() {
-  if (!ctx) { ctx = new AudioContext(); master = ctx.createGain(); master.gain.value = muted ? 0 : 0.6; master.connect(ctx.destination); }
+  if (!ctx) {
+    ctx = new AudioContext(); master = ctx.createGain(); master.gain.value = muted ? 0 : 0.6; master.connect(ctx.destination);
+    fxBus = ctx.createGain(); fxBus.connect(master); musicBus = ctx.createGain(); musicBus.connect(master);
+    applyVolume();
+  }
   ctx.resume();
 }
 
-function tone(freq: number, dur: number, type: OscillatorType = 'square', vol = 0.05, to = freq, delay = 0) {
+function tone(freq: number, dur: number, type: OscillatorType = 'square', vol = 0.05, to = freq, delay = 0, bus = fxBus, at = 0) {
   if (!ctx) return;
-  const t = ctx.currentTime + delay, o = ctx.createOscillator(), g = ctx.createGain();
+  const t = (at || ctx.currentTime) + delay, o = ctx.createOscillator(), g = ctx.createGain();
   o.type = type;
   o.frequency.setValueAtTime(freq, t);
   o.frequency.exponentialRampToValueAtTime(Math.max(20, to), t + dur);
   g.gain.setValueAtTime(vol, t);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(g).connect(master);
+  o.connect(g).connect(bus);
   o.start(t); o.stop(t + dur);
 }
 
 let noiseBuf: AudioBuffer | null = null;
-function noise(dur: number, vol = 0.08, freq = 1200) {
+function noise(dur: number, vol = 0.08, freq = 1200, bus = fxBus, at = 0) {
   if (!ctx) return;
   if (!noiseBuf) {
     noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
   }
-  const t = ctx.currentTime, src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+  const t = at || ctx.currentTime, src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
   src.buffer = noiseBuf; f.type = 'lowpass'; f.frequency.setValueAtTime(freq, t); f.frequency.exponentialRampToValueAtTime(80, t + dur);
   g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  src.connect(f).connect(g).connect(master);
+  src.connect(f).connect(g).connect(bus);
   src.start(t); src.stop(t + dur);
 }
 
-const last: Record<string, number> = {};
-const GAP: Record<string, number> = { drop: 0.2, pickup: 0.05, gun: 0.07, shot: 0.05, beam: 0.06, hit: 0.04, kill: 0.04, detect: 0.25, missile: 0.08, baseHit: 0.1, arm: 0.5, tbm: 0.8, release: 0.3, ident: 0.1, acquire: 0.12, lost: 0.25 };
+// ---- music: a low drone under a sparse minor-pentatonic arpeggio, scheduled a little ahead from the frame loop.
+// heat 0..1: calm in the build window, driving (faster, a kick and hats) with a raid in the air.
+const ROOTS = [0, -4, 3, -2]; // semitones off A2, one per bar
+const SCALE = [0, 3, 5, 7, 10, 12, 15];
+let drone: { o: OscillatorNode[]; g: GainNode } | null = null, step = 0, nextStep = 0;
+const hz = (semi: number) => 110 * 2 ** (semi / 12);
+export function music(on: boolean, heat: number) {
+  if (!ctx || ctx.state !== 'running') return;
+  const now = ctx.currentTime;
+  if (!on || !volume.music) {
+    if (drone) { const d = drone; d.g.gain.setTargetAtTime(0, now, 0.3); d.o.forEach(o => o.stop(now + 1.5)); drone = null; }
+    return;
+  }
+  if (!drone) {
+    const g = ctx.createGain(), f = ctx.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = 420; g.gain.value = 0; g.connect(musicBus); f.connect(g);
+    const o = [0, 7, -12].map(semi => { const x = ctx!.createOscillator(); x.type = semi < 0 ? 'sine' : 'sawtooth'; x.frequency.value = hz(semi); x.connect(f); x.start(); return x; });
+    drone = { o, g }; nextStep = now + 0.1; step = 0;
+  }
+  drone.g.gain.setTargetAtTime(0.035 + 0.02 * heat, now, 0.5);
+  const dur = 60 / (AUDIO.bpm + (AUDIO.raidBpm - AUDIO.bpm) * heat) / 2; // eighth notes
+  if (nextStep < now) nextStep = now + 0.05; // after a stall (tab hidden), don't catch up in a burst
+  while (nextStep < now + 0.25) {
+    const bar = Math.floor(step / 16) % ROOTS.length, root = ROOTS[bar], i = step % 16;
+    if (i === 0) drone.o.forEach((o, j) => o.frequency.setTargetAtTime(hz(root + [0, 7, -12][j]), nextStep, 0.4));
+    // Arpeggio: denser as the heat rises; accents on the beat.
+    if (Math.random() < 0.3 + 0.35 * heat || i % 4 === 0) {
+      const n = SCALE[(i * 3 + bar * 2 + (Math.random() < 0.3 ? 1 : 0)) % SCALE.length];
+      tone(hz(root + n + 12), dur * 1.6, 'triangle', i % 4 ? 0.018 : 0.028, hz(root + n + 12), 0, musicBus, nextStep);
+    }
+    if (heat > 0.3 && i % 4 === 0) tone(90, 0.16, 'sine', 0.09 * heat, 40, 0, musicBus, nextStep); // kick
+    if (heat > 0.6 && i % 2 === 1) noise(0.04, 0.02 * heat, 7000, musicBus, nextStep); // hats
+    nextStep += dur; step++;
+  }
+}
 
-export function play(k: string, e: { n?: number; star?: boolean; drop?: string } = {}) {
+const last: Record<string, number> = {};
+const GAP: Record<string, number> = { alarm: 2, bigKill: 0.15, padRank: 0.2, drop: 0.2, pickup: 0.05, gun: 0.07, shot: 0.05, beam: 0.06, hit: 0.04, kill: 0.04, detect: 0.25, missile: 0.08, baseHit: 0.1, arm: 0.5, tbm: 0.8, release: 0.3, ident: 0.1, acquire: 0.12, lost: 0.25 };
+
+export function play(k: string, e: { n?: number; star?: boolean; drop?: string; kind?: EnemyKind } = {}) {
   if (!ctx || muted) return;
+  if (k === 'kill' && e.kind && BIG_KILLS[e.kind]) k = 'bigKill';
   const now = ctx.currentTime;
   if (now - (last[k] ?? -1) < (GAP[k] ?? 0)) return;
   last[k] = now;
@@ -53,6 +107,9 @@ export function play(k: string, e: { n?: number; star?: boolean; drop?: string }
     case 'dud': noise(0.12, 0.05, 600); break;
     case 'hit': tone(500, 0.03, 'triangle', 0.02, 300); break;
     case 'kill': noise(0.15, 0.06, 2500); tone(160, 0.1, 'square', 0.02, 50); break;
+    case 'bigKill': noise(0.7, 0.16, 1800); tone(90, 0.6, 'sawtooth', 0.07, 30); [784, 988, 1319].forEach((f, i) => tone(f, 0.16, 'square', 0.035, f, 0.18 + i * 0.07)); break; // boom, then a chime
+    case 'alarm': tone(1760, 0.07, 'square', 0.03); tone(1760, 0.07, 'square', 0.03, 1760, 0.12); break; // a critical state came on
+    case 'padRank': [659, 880, 1109].forEach((f, i) => tone(f, 0.14, 'triangle', 0.04, f, i * 0.06)); break;
     case 'baseHit': tone(110, 0.3, 'sawtooth', 0.09, 35); noise(0.3, 0.12, 800); break;
     case 'ping': tone(1250, 0.6, 'sine', 0.018, 1180); break;
     case 'detect': tone(1760, 0.05, 'sine', 0.015); break;
@@ -66,7 +123,7 @@ export function play(k: string, e: { n?: number; star?: boolean; drop?: string }
     }
     case 'drop': tone(2093, 0.08, 'sine', 0.025); tone(2637, 0.12, 'sine', 0.02, 2637, 0.07); break; // something glints
     case 'pickup': (e.drop === 'tech' ? [523, 784, 1047, 1319, 1568] : [784, 1047, 1319]).forEach((f, i) => tone(f, 0.12, 'triangle', 0.045, f, i * 0.05)); break;
-    case 'level': [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.18, 'square', 0.04, f, i * 0.09)); break;
+    case 'level': case 'trained': [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.18, 'square', 0.04, f, i * 0.09)); break;
     case 'warning': for (let i = 0; i < 3; i++) { tone(440, 0.2, 'sawtooth', 0.05, 440, i * 0.45); tone(330, 0.2, 'sawtooth', 0.05, 330, i * 0.45 + 0.22); } break;
     case 'arm': for (let i = 0; i < 5; i++) tone(2400, 0.045, 'square', 0.03, 2400, i * 0.08); break; // RWR launch warning
     case 'cruise': for (let i = 0; i < 3; i++) tone(1400, 0.09, 'sawtooth', 0.03, 900, i * 0.14); break; // cruise missile warning

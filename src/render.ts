@@ -5,7 +5,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { ARENA_R, BASE_R, BUILD_MIN, DROP_MAX, ENEMIES, MUNITIONS, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, FANS, GUNS, MG_TIERS, PERIM, PAD_HP, altitude, flightAlt, buildR, type EnemyKind, type PerimKind } from './config.ts';
+import { ARENA_R, BASE_R, BUILD_MIN, DROP_MAX, ENEMIES, MUNITIONS, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, FANS, GUNS, MG_TIERS, PERIM, PAD_HP, BIG_KILLS, altitude, flightAlt, buildR, type EnemyKind, type PerimKind } from './config.ts';
 import { building as inBuildWindow, emitting, focusBearing, flankArc, radarRange, radarSector, bestSpot, spotNear, selectedPad, coverage, padStats, phase, shownKind, visible, type Enemy, type Shot, type State } from './sim.ts';
 import { heightSampler, treeList, ROCKS, FARMS, WATER_Y, mapSeed } from './terrain.ts';
 import { paintTerrain } from './terrainPaint.ts';
@@ -580,8 +580,10 @@ export function createRenderer() {
   const covTex = new THREE.CanvasTexture(cov);
   const covGeo = new THREE.PlaneGeometry(COV_R * 2, COV_R * 2, 96, 96).rotateX(-Math.PI / 2);
   { const p = covGeo.attributes.position; for (let i = 0; i < p.count; i++) p.setY(i, groundY(p.getX(i), p.getZ(i)) + 0.1); }
-  const covMesh = new THREE.Mesh(covGeo, new THREE.MeshBasicMaterial({ map: covTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+  const covMat = new THREE.MeshBasicMaterial({ map: covTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+  const covMesh = new THREE.Mesh(covGeo, covMat);
   covMesh.visible = false; covMesh.renderOrder = 1; scene.add(covMesh);
+  // 0 off · 1 faint (a see-through layer to leave on) · 2 full
   let showCov = false, covKey = '';
   const rgb = (c: number) => [c >> 16, c >> 8 & 255, c & 255];
   function drawCoverage(s: State) {
@@ -715,6 +717,12 @@ export function createRenderer() {
           for (const g of flights.values()) { const d = (g.x - e.x) ** 2 + (g.z - e.z) ** 2; if (g.kind === e.kind && d < bd) { bd = d; f = g; } }
           const y = f ? f.y : groundY(e.x, e.z) + altitude(e.kind!, e.x, e.z);
           boom(e.x, y, e.z, T.size * 1.3, KILL_SHARDS[e.kind!]);
+          if (BIG_KILLS[e.kind!]) { // a kill that matters: a second, whiter blast, a shock ring and a flash on the ground
+            boom(e.x, y, e.z, T.size * 2, 30);
+            wave(e.x, y, e.z, T.size * 7, C.flash, 0.6, 2);
+            gwave(e.x, e.z, T.size * 6, C.flash, 0.9, 1.5);
+            groundFlash = Math.max(groundFlash, 0.5);
+          }
           // Aircraft come down in one piece-ish; missiles and FPVs just go up in the blast.
           if (f && WRECKS.includes(e.kind!)) { f.x = e.x; f.z = e.z; wreck(f, T.size * VIS); }
           else if (T.size > 1.5) gwave(e.x, e.z, T.size * 3, C.fire, 0.5, 0.6); // debris lands
@@ -756,7 +764,17 @@ export function createRenderer() {
         case 'arm': case 'tbm': case 'cruise': wave(e.x, groundY(e.x, e.z) + altitude(e.k as EnemyKind, e.x, e.z), e.z, e.k === 'arm' ? 6 : 4, ALERT, 0.8, 1.5); break;
         case 'release': wave(e.x, airY(s, e.x, e.z), e.z, 2.5, ALERT, 0.4, 1.2); break;
         case 'jam': gwave(e.x, e.z, 8, ALERT, 1.2); break;
-        case 'ident': gwave(e.x, e.z, 3, 0xcccccc, 0.4); break;
+        case 'ident': { // classified: a grey ring collapses on it and it goes dim
+          const y = airY(s, e.x, e.z);
+          wave(e.x, y, e.z, 4, 0xcccccc, 0.5, 1.5); gwave(e.x, e.z, 3, 0xcccccc, 0.6); shards(e.x, e.z, 5, 0xbbbbbb, 4, 0.4, y, 1.2);
+          break;
+        }
+        case 'padRank': { // a gun ranks up: gold burst over it
+          const y = groundY(e.x, e.z) + 1.5;
+          gwave(e.x, e.z, 6, 0xffd966, 0.8, 1.6); shards(e.x, e.z, 20, 0xffd966, 9, 0.7, y, 1.8);
+          beam(e.x, y - 1.2, e.z, e.x, y + 8, e.z, 0.3, 0xffd966, 0.5, 1.5);
+          break;
+        }
         case 'acquire': wave(e.x, airY(s, e.x, e.z), e.z, 3.5, C.friend, 0.25, 1.2); break; // brackets snap on
         case 'lost': wave(e.x, airY(s, e.x, e.z), e.z, 2.5, ALERT, 0.3, 0.8); break;
         case 'radarDown': gwave(0, 0, 14, ALERT, 0.8, 1.5); boom(0, 2.5, 0, 1.5, 20); puffs(0, 2, 0, 6, 1.5, 3, 0.2); groundFlash = 0.8; break;
@@ -771,13 +789,20 @@ export function createRenderer() {
         case 'padMoved': puffs(e.x, groundY(e.x, e.z) + 0.3, e.z, 4, 1.2, 1.2, 0.55); break; // dust as it digs in
         case 'upgrade': // the battery answers every purchase; a new rank lights it up
           gwave(0, 0, e.star ? 18 : 7, C.friend, e.star ? 0.9 : 0.4, e.star ? 1.5 : 0.8);
-          shards(0, 0, e.star ? 24 : 6, e.star ? 0xffe9a8 : C.friend, e.star ? 16 : 8, 0.8, 2.5, 1.5);
-          if (e.star) groundFlash = 0.3;
+          shards(0, 0, e.star ? 40 : 6, e.star ? 0xffe9a8 : C.friend, e.star ? 18 : 8, 0.8, 2.5, 1.5);
+          if (e.star) { groundFlash = 0.5; gwave(0, 0, 30, 0xffe9a8, 1.3, 1.2); beam(0, 1, 0, 0, 16, 0, 0.6, 0xffe9a8, 0.8, 1.5); }
           break;
-        case 'drop': gwave(e.x, e.z, 4, 0xffe9a8, 0.6, 1.2); puffs(e.x, groundY(e.x, e.z) + 0.3, e.z, 3, 1, 1.2, 0.55); break;
+        case 'drop': { // salvage lands: a light column flares up, a ring and a spray of sparks
+          const gy = groundY(e.x, e.z);
+          gwave(e.x, e.z, 6, 0xffe9a8, 0.8, 1.5); gwave(e.x, e.z, 3, 0xffffff, 0.5, 1.2); puffs(e.x, gy + 0.3, e.z, 3, 1, 1.2, 0.55);
+          shards(e.x, e.z, e.drop === 'tech' ? 18 : 10, 0xffe9a8, 7, 0.6, gy + 1, 1.8);
+          beam(e.x, gy, e.z, e.x, gy + 14, e.z, 0.5, 0xffe9a8, 0.7, 1.6);
+          break;
+        }
         case 'pickup': { // recovered: burst, and a streak back to the battery
           const y = groundY(e.x, e.z) + 1.2;
-          gwave(e.x, e.z, 7, 0xffe9a8, 0.5, 1.5); shards(e.x, e.z, e.drop === 'tech' ? 30 : 14, 0xffe9a8, 12, 0.9, y, 1.5);
+          gwave(e.x, e.z, 9, 0xffe9a8, 0.6, 1.8); shards(e.x, e.z, e.drop === 'tech' ? 40 : 22, 0xffe9a8, 13, 0.9, y, 1.8);
+          groundFlash = Math.max(groundFlash, 0.25);
           beam(e.x, y, e.z, 0, 1.5, 0, 0.25, 0xffe9a8, 0.35, 1.5);
           if (e.drop === 'tech') { gwave(0, 0, 14, 0xffffff, 0.8, 1.5); groundFlash = 0.4; }
           break;
@@ -957,7 +982,8 @@ export function createRenderer() {
       if (m.count >= MAX_ENEMIES) continue;
       const gy = groundY(e.x, e.z), sz = e.size * VIS, f = fly(e, gy, dt, play), y = f.y, alt = y - gy;
       const pos = ePos[ne++ % MAX_ENEMIES]; pos.x = e.x; pos.z = e.z; pos.y = y; byId.set(e.id, pos);
-      const fade = e.locked ? 1 : Math.max(0.35, Math.min(1, (e.seenUntil - s.t) / 1.5));
+      // A classified decoy is drawn as a ghost, so it can't be mistaken for the Shahed it copies.
+      const fade = (e.locked ? 1 : Math.max(0.35, Math.min(1, (e.seenUntil - s.t) / 1.5))) * (e.ided ? 0.45 : 1);
       // FPVs rock as they jink, on top of the banking.
       const bank = f.bank + (k === 'swarm' ? 0.25 * Math.sin(clock * 9 + e.id) : 0);
       dummy.position.set(e.x, y, e.z);
@@ -1340,7 +1366,7 @@ export function createRenderer() {
       }
       return best;
     },
-    toggleCoverage: () => (showCov = !showCov),
+    setCoverage(mode: number) { showCov = mode > 0; covMat.opacity = mode === 1 ? 0.4 : 1; },
     cameraYaw: () => yaw,
     target: () => ({ x: tx, z: tz }),
   };

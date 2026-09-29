@@ -31,6 +31,8 @@ The game runs entirely in the browser, with no backend and no asset files. `dist
 | Input                  | Action                                    |
 |------------------------|-------------------------------------------|
 | Space / Enter          | Start game                                |
+| T (start screen)       | Training: a 3-minute drill of four waves  |
+| S (start screen)       | Play a seed: paste a seed code or a friend's result line |
 | Space (in play)        | Emergency intercept                       |
 | G                      | Cycle fire discipline: CONSERVE / BALANCED / MAXIMUM |
 | D                      | Start today's daily op                    |
@@ -49,18 +51,22 @@ The game runs entirely in the browser, with no backend and no asset files. `dist
 | F                      | EMCON: silence the radar (toggle)         |
 | 1 / 2 / 3              | Pick a perk when the base levels up       |
 | 1 – 4 (start screen)   | Pick a doctrine                           |
-| P / Esc                | Pause                                     |
-| O                      | Coverage map: gaps, single cover and crossfire on the ground (toggle) |
+| P / Esc                | Pause menu: help, SFX / music volume, coverage overlay, reset tips |
+| O                      | Coverage map: gaps, single cover and crossfire on the ground: off / faint / full (remembered) |
 | X                      | 2× speed (toggle)                         |
 | M                      | Mute                                      |
-| C                      | Copy your result line after game over     |
+| C                      | Copy your result line (with its seed code) after game over |
 | R                      | Restart after game over                   |
 
 The game pauses by itself when the window loses focus.
 
 **Touch screens:** tap marks a contact, builds or picks a unit (the MOVE button on the unit card moves it), one-finger drag pans, two fingers pinch to zoom and twist to rotate. Phones get a compact HUD: a thin HP / power / missile strip top-left with toggles for the minimap and the details list (remembered between runs) plus 2× and pause, and an icon bar at the bottom for shop, intercept, fire discipline, scan mode, EMCON and targeting mode, each showing its current setting.
 
-The first time you meet each threat or mechanic, a short tip explains it. Tips don't come back once you've seen them.
+The first time you meet each threat or mechanic, a short tip explains it. Tips don't come back once you've seen them, unless you press RESET TIPS (start screen or pause menu).
+
+**Training.** A first-run drill of four short scripted waves on a fixed map, each with its lesson on screen: **eyesight** (guns fire at what they can see; build a second gun), **radar** (the radar and Patriot are handed over: see far, lock, mark a priority target), **ARMs and EMCON** (ARM salvos: go silent with `F`, then radiate again) and **decoys** (Gerberas among Shaheds, classified and greyed out once locked). The battery can't fall in training and no records are kept. The start screen offers it first until you've finished it once; `T` there starts it any time.
+
+**Pause menu.** Resume or quit to the menu, SFX and music volumes, the coverage overlay mode, RESET TIPS, and a compact help panel: the key systems in a line each, and every hotkey.
 
 ## Gameplay
 
@@ -73,6 +79,7 @@ The base sits on a low plateau in farmland. Ahead, toward the front, a cleared f
 - **Left panel:** battery, power and interceptor bars (with net flow per second), then three groups: SENSORS (radar mode, radar state, range, tracks), FIRE CONTROL (locks in use with a bar, fire discipline, target mode, intercept readiness) and BATTERY (pads, raid state, build window). The top bar shows the level you're on.
 - **Minimap (under the left panel):** the terrain from above, turned with the camera: the build zone (dashed), your units (pale green), contacts (red, missiles amber), the front (red rim), the radar or eyesight range and the camera's view. Click it to look there.
 - **Threat board (top right):** what's on the scope by type, and the 4 most urgent contacts (damage they'd do over time to impact). Amber means dangerous now; ◆ means locked.
+- **Warnings (beside the left panel):** chips for critical states, with an alarm blip as each comes on: hull critical (red), power low / radar starved, interceptors low, locks full with contacts waiting, guns out of ammo, units down. Each stays up a moment after its cause clears. Thresholds are `WARN` in `config.ts`.
 - **Shop:** until the radar is built, PERIMETER comes first. Rows waiting on something you don't own yet (the radar or the Patriot) are folded away, and a group with nothing else left shows only its header and what it needs. The row marked ◆ in amber is the suggested buy for the current bottleneck: a gun while there's a free unit slot, interceptors when the magazine runs low, generator when power starves the radar, hull when HP is low, ECS channels when contacts wait for a lock.
 
 ### Starting out: one gun and your eyes
@@ -101,7 +108,7 @@ The enemy fights your radar, not just your base.
   | ACTIVE  | all round                                          | ×1          | normal       |
   | FOCUSED | a 120° arc on the bearing you last clicked (or your priority target): +30% range, +30% chance, about 3× the revisit rate. Blind everywhere else. LTAMDS AESA widens the arc to 180°. | ×1.4 | high: Su-34s launch from 25% further out, 30% more often |
   | LPI     | −15% range, −40% chance                            | ×0.6        | low: ARMs only find the radar inside 15 m, so most miss; Su-34s launch half as often |
-- **Decoys (Gerbera)** look exactly like Shaheds. Fire control tells them apart once a decoy has been locked for about 1.5 s, then releases it. Until then they waste lock slots and interceptors. *GaN T/R Modules* shorten that time.
+- **Decoys (Gerbera)** look exactly like Shaheds. Fire control tells them apart once a decoy has been locked for about 1.5 s, then releases it: it pops a DECOY marker, and from then on is drawn as a grey ghost with a struck-through label. Until then they waste lock slots and interceptors. *GaN T/R Modules* shorten that time.
 - **Jammer helicopters (Mi-8MTPR-1)** stop outside the battery and hold station on their bearing, out on the front. Inside the sector they cover, detection chance drops to about a third. You see the jammer's bearing as an amber strobe, not its range. The jammer itself shows up clearly on radar, so mark it and kill it.
 
 ### Locking and targeting
@@ -151,7 +158,7 @@ Where a unit stands decides its **belt**:
 
 **Fields of fire.** A gun covers a fan pointing away from the base, drawn on the ground: MGs 120°, Stingers 180°, MANTIS all round. It can't shoot what has flown past it. A target inside two guns' fields of fire takes **+20% crossfire damage** from both. Amber ticks on the minimap rim mark bearings in the threat arc that no working gun covers. Press `O` (or the half-circle button on phones) for the coverage map: amber ground in the threat arc that nothing covers, dim green where one gun does, bright green where guns cross their fire.
 
-**Veterancy.** Every gun counts its own kills (shown on its unit card; the debrief lists perimeter kills by unit type) and ranks up as they add up. Ranks carry through moves and MG tier upgrades and are lost when the unit is sold.
+**Veterancy.** Every gun counts its own kills and ranks up as they add up. A gun with kills wears a badge over it: its rank in stars and its tally (gold from ELITE up). A rank-up gets a banner, a gold burst and a sound; the unit card and the debrief's BEST UNITS show it too. Ranks carry through moves and MG tier upgrades and are lost when the unit is sold.
 
 | Rank    | Kills | Damage | Fire rate | Range |
 | ------- | ----- | ------ | --------- | ----- |
@@ -203,7 +210,7 @@ A run is a string of **levels**. Each one is 60 s of waves, then the level's **r
 5. **EW AND CRUISE:** cruise missiles going for your units, and jammer helicopters. Up to 120° either side.
 6. **SEAD:** Su-34s, anti-radiation missiles and Iskanders: the Patriot's job. From here, every level has a Su-34 strike package halfway through its waves.
 
-After SEAD, every level adds a **condition** on top of that mix, missiles and drones can come from any direction, and attack packages get more likely. The conditions loop in this order: **NIGHT RAID** (contacts fade twice as fast), **GROUND CLUTTER** (−30% detection), **LULL** (a breather to rebuild), **JAMMING STORM** (more jammer helicopters), **SWARM TIDE** (many more, weaker enemies) and **SEAD WAVE** (strike aircraft, ARMs and cruise missiles). Each strike package is announced with a *STRIKE AIRCRAFT* warning.
+After SEAD, every level adds a **condition** on top of that mix, missiles and drones can come from any direction, and attack packages get more likely. The conditions loop in this order: **NIGHT RAID** (contacts fade twice as fast), **GROUND CLUTTER** (−30% detection), **LULL** (a breather to rebuild), **JAMMING STORM** (more jammer helicopters), **SWARM TIDE** (many more, weaker enemies), **SEAD WAVE** (strike aircraft, ARMs and cruise missiles), **EW OFFENSIVE** (jammers, decoys and cruise missiles, −15% detection) and **COMBINED ARMS** (helicopters, swarms and cruise missiles together). Past the scripted levels, jammer helicopters also get a little likelier every level (`EW_GROW`, up to `EW_MAX`). Each strike package is announced with a *STRIKE AIRCRAFT* warning.
 
 **Attack packages:** from the FLANKS level on, some spawns are a package instead of a single pack: several types flying in together from one bearing, each covering another's weakness. The log names the element to kill first.
 
@@ -212,8 +219,10 @@ After SEAD, every level adds a **condition** on top of that mix, missiles and dr
 | JAMMED SWARM | L5   | Mi-8 escort, 12 FPV, 2 Shahed            | Mi-8       | the swarm flies inside the jammer's sector          |
 | SEAD PACKAGE | L6   | Su-34, 2 Kh-31P, 3 decoys, Shahed        | Su-34      | decoys soak locks while the Su-34 keeps firing ARMs |
 | SATURATION   | L6   | 6 decoys, Mi-8 escort, 3 Lancets, Mi-28  | Mi-28      | the heavy hides among decoys and fast Lancets       |
+| EW SCREEN    | L7   | 2 Mi-8 escorts, 2 Kh-101, 6 decoys, 2 Lancets | Mi-8  | two jammers side by side blank a wide sector while cruise missiles slip in low |
+| MIXED STRIKE | L8   | Mi-28, 12 FPV, Kh-101, 2 Kh-31P          | Mi-28      | cruise and ARM launches pull your guns and the radar away |
 
-An EW helicopter in a package is an **escort**: it goes in first and holds station on the package's bearing, so its jammed sector stays over the package.
+An EW helicopter in a package is an **escort**: it goes in first and holds station on the package's bearing, so its jammed sector stays over the package. Two escorts stand side by side, their sectors edge to edge, never further off the front than the package itself.
 
 **Raids:** every level ends with a named raid, all from one bearing. Which raids can come, and how big they are, goes by the level. Each one runs the same way:
 1. **Warning and preparation (10 s):** a briefing card shows the sector, the raid's name, its composition, the objective and the bonus, with chevrons at the rim. When that part of the rim is off screen, an amber arrow on the screen edge points toward it. Use the time to set radar, fire discipline and priority.
@@ -223,7 +232,7 @@ An EW helicopter in a package is an **escort**: it goes in first and holds stati
    - **Lost:** no bonus, and only an **8 s build window**.
    Either way, the level ends when the last aircraft of the raid is gone.
 
-Raids include SHAHED WAVE, LANCET PACK, FPV SWARM, DECOY SCREEN, HELO ASSAULT, ISKANDER SALVO, CRUISE SALVO and the package raids SWARM ASSAULT, SEAD STRIKE (led by a Su-34) and SATURATION STRIKE. An escort jammer flies with its raid but doesn't count toward it; ARMs a raid's Su-34 launches do.
+Raids include SHAHED WAVE, LANCET PACK, FPV SWARM, DECOY SCREEN, HELO ASSAULT, ISKANDER SALVO, CRUISE SALVO and the package raids SWARM ASSAULT, SEAD STRIKE (led by a Su-34) and SATURATION STRIKE, and late in a run EW BARRAGE (level 8: two jammers over cruise missiles, decoys, Shaheds and Lancets) and COMBINED STRIKE (level 9: a Su-34, Mi-28s, FPVs and cruise missiles). An escort jammer flies with its raid but doesn't count toward it; ARMs a raid's Su-34 launches do.
 
 Spawn rate, HP and damage grow **logarithmically** with play time, and raid size with the level: each doubling adds about the same threat. **After 12 minutes the war escalates:** enemy HP grows 12% and damage 6% per minute (compounding), and numbers 5% per minute. Upgrades cost more with every level, so the surge outruns any battery sooner or later: every run ends, and the question is when.
 
@@ -255,18 +264,28 @@ The base is laid out like a Patriot site. Every base level builds something that
 
 The level-up card names what was built. The LTAMDS AESA upgrade adds rear arrays to the radar, and buying laser, IRIS-T SLX or HPM adds their vehicles.
 
-**Doctrines:** before a normal run, pick a starting loadout of free upgrade levels (they don't count toward base level). **STANDARD** is always available. The others unlock from your all-time records: **SENSOR NET** (survive 5:00; the classic battery, with the radar and the Patriot from the start), **LOGISTICS** (earn 5,000 credits in a run) and **FORWARD STRIKE** (reach base level 6). Daily ops always fly STANDARD.
+**Doctrines:** before a normal run, pick a doctrine: a starting loadout of free upgrade levels (they don't count toward base level) and a trade that holds for the whole run, through every level-up and perk (the start screen shows it in amber). **STANDARD** is always available and has no trade. The others unlock from your all-time records:
+
+| Doctrine       | Unlock                  | Starting loadout                         | All run                                                      |
+|----------------|-------------------------|------------------------------------------|--------------------------------------------------------------|
+| SENSOR NET     | survive 5:00            | radar and Patriot, LTAMDS Array 1        | +15% radar range, +30% contact memory, −10% damage           |
+| LOGISTICS      | earn 5,000 credits      | Generator 2, Canisters 2, Reload 2       | upgrades 12% cheaper, +30% interceptor production, −12% damage |
+| FORWARD STRIKE | reach base level 6      | Lethality 2, Salvo 1, +1 ECS channel     | +15% damage, +10% fire rate, −25% max HP                     |
+
+Daily ops always fly STANDARD.
 
 **Progression layers.** There are three, and they stay separate:
 - **Run:** kills → credits → upgrades → base level → perks → more complex threats. All of it resets every run.
 - **Meta:** each run can set a record, and records unlock doctrines. Doctrines are only starting loadouts: they don't count toward base level and don't carry anything else between runs.
-- **Daily op:** a fixed challenge with a fixed doctrine (STANDARD), scored by your best time for the day.
+- **Daily op:** a fixed challenge with a fixed doctrine (STANDARD), scored by your best time for the day, on a local daily board.
 
 **Daily op:** the same seed for everyone on the same (UTC) day, so the whole enemy schedule is identical: which enemies, packages, bearings, raids and perk drafts. Your commands, radar mode and detection luck never touch that schedule. Normal waves, raids and strike packages each draw from their own seeded stream, and the waves' stream starts over at every level, so each level sends everyone the same things in the same order, however long earlier levels took. What play can change is pacing: how quickly you deal with a raid decides when the level ends, and a lost objective cuts the build window short. Your best time for the day is saved. `R` after a daily op flies it again.
 
-**Feedback:** every tactical event gets a sound, a mark on the scope and a line in the log. That covers detection, lock acquired (a tick and a flash as the brackets snap on), lock lost (amber), launches, hits, kills (credit popups), ARM and Iskander launches and intercepts, jammers coming on station and going down, decoys classified, raids starting and ending, and battery hits (a red damage popup).
+**Daily board and seed sharing.** Every run has a **seed code**: `X5-<seed>-<doctrine>` for a normal run (same map, same raids, same loadout), `X5-D<date>` for a daily op. The start screen and the game-over card show it, and the result line (`C`) carries it. **PLAY A SEED** (`S` on the start screen) takes a code, or a friend's whole result line, and loads that run; press DEPLOY to fly it. A daily op's result line also puts your friend's time on that day's **daily board** as RIVAL. The board keeps the best 5 runs per day (yours and rivals') for the last 14 days, in `localStorage`; the start screen shows today's (or the loaded op's), the daily debrief shows where your run placed.
 
-An enemy that reaches the base damages it and dies. When base HP hits 0, the game is over. Your best time, kills, level and credits earned are saved in `localStorage`. The game-over card has **COPY RESULT** (`C`), which copies a one-line result to paste into a chat. It also shows a **debrief**: kills by enemy type, each weapon's share of the damage dealt, the HP lost to each threat, clean raids, ARMs evaded and radar hits. A line over it names the threat that did the most damage and what to do about it next time.
+**Feedback:** every tactical event gets a sound, a mark on the scope and a line in the log. Kills that matter (`BIG_KILLS`: Su-34, jammer, ballistic missile) get more: a second blast and shock ring, a camera shake, a screen flash, a white banner and a sound of their own. Salvage flares a light column as it lands, and recovering it or reaching a new upgrade rank bursts bigger. That covers detection, lock acquired (a tick and a flash as the brackets snap on), lock lost (amber), launches, hits, kills (credit popups), ARM and Iskander launches and intercepts, jammers coming on station and going down, decoys classified, raids starting and ending, and battery hits (a red damage popup).
+
+An enemy that reaches the base damages it and dies. When base HP hits 0, the game is over. Your best time, kills, level and credits earned are saved in `localStorage`. The game-over card has **COPY RESULT** (`C`), which copies a one-line result to paste into a chat. It also shows a **debrief**: kills by enemy type, each weapon's share of the damage dealt (with bars), the HP lost to each threat, clean raids, ARMs evaded and radar hits, the **best units** (by kills, sold ones included) and a **level by level** table: how long each level took, kills, HP lost, and whether it was held, lost or where the battery fell. A line over it names the threat that did the most damage and what to do about it next time.
 
 ## Roadmap
 
@@ -297,7 +316,10 @@ This section replaces the old `plan-mvp.md`, `plan.md` and `plan-frontline.md`; 
 
 ### Later ideas
 - A front that moves back after a held level, giving more depth for the next one.
-- Achievements, more arenas, boss enemies, music.
+- Achievements, more arenas, boss enemies.
+
+### Sound
+Effects and music run on separate buses with their own volumes (pause menu, remembered). The music is procedural like the effects: a low drone under a sparse minor-pentatonic arpeggio, calm in the build window and driving (faster, with a kick and hats) while a raid is in the air. Defaults and tempos are `AUDIO` in `config.ts`; `M` mutes everything.
 
 ### Ground rules for any change
 - `sim.ts` never touches rendering; `render.ts` and `hud.ts` only read state. No per-frame allocation of meshes or DOM.

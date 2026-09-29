@@ -55,6 +55,15 @@ export const ENEMIES: Record<EnemyKind, EnemyType> = {
   atgm: { name: '9M120 Ataka anti-tank missile', code: 'ATAKA', hp: 3, speed: 9, dmg: 6, reward: 4, size: 0.6, sig: 0.4, glow: 1.2, pack: 1, wobble: 0, drop: 0 },
   kab: { name: 'KAB-500 glide bomb (UMPK kit)', code: 'KAB', hp: 35, speed: 4.5, dmg: 40, reward: 20, size: 1, sig: 0.9, glow: 1, pack: 1, wobble: 0, drop: 0 },
 };
+// Kills that matter get a bigger blast, a camera shake, a banner and a sound of their own (hud, render, sfx).
+export const BIG_KILLS: Partial<Record<EnemyKind, string>> = { elite: 'SU-34 SPLASHED', ew: 'JAMMER DOWN', tbm: 'BALLISTIC INTERCEPTED' };
+export const BIG_KILL_SHAKE = 0.5;
+// Critical-state warnings on the HUD (hud.warnings): shares of capacity a resource is critical below. sweep: radar
+// speed share while power starves it; waiting: contacts in tracking range waiting for a lock while every slot is
+// taken. A warning stays up `hold` s after its cause clears, so it doesn't flicker at the line.
+export const WARN = { hp: 0.3, power: 0.15, ammo: 0.15, sweep: 0.6, waiting: 2, hold: 1.5 };
+// Sound: default volumes (0..1, the player's own are saved) and the music's tempo, calm and in a raid.
+export const AUDIO = { sfx: 0.8, music: 0.35, bpm: 84, raidBpm: 108 };
 // Munitions heading for the battery: drawn amber, their launches and intercepts logged.
 export const MUNITIONS: EnemyKind[] = ['arm', 'tbm', 'cruise', 'atgm', 'kab'];
 export const KINDS = Object.keys(ENEMIES) as EnemyKind[];
@@ -127,6 +136,30 @@ export const LEVELS: { name: string; desc: string; w: Partial<Record<EnemyKind, 
   { name: 'SEAD', desc: 'Su-34s, anti-radiation missiles and Iskanders', w: { scout: 2, drone: 3, swarm: 2, tank: 1.5, elite: 0.25, decoy: 1.5, arm: 0.3, ew: 0.1, tbm: 0.15, cruise: 0.3 }, pk: 0.1, arc: 120 * DEG },
 ];
 export const PK_GROW = 0.02, PK_MAX = 0.25;
+// Past the scripted levels, jammer helicopters get likelier every level too (spawn weight), up to EW_MAX.
+export const EW_GROW = 0.03, EW_MAX = 0.4;
+
+// Training: a short first-run drill, one lesson per wave, on a fixed map (sim.drill). Waves follow a script instead
+// of the level's mix: `n` packs of `kind` `at` s after the wave starts, `off` rad off the front, `r` m out (default:
+// the rim). `grant`: upgrades handed out free as the wave starts. A wave ends once its script has run and the sky
+// is clear, then a short build window. The battery can't fall in training (HP stops at 1) and no records are kept.
+export const TRAINING_SEED = 0x5eed7a1;
+export const TRAINING_BUILD = 6; // s between waves
+export interface Drill { name: string; desc: string; tip: string; grant?: string[]; spawns: { at: number; kind: EnemyKind; n: number; off?: number; r?: number }[] }
+export const TRAINING: Drill[] = [
+  { name: 'EYESIGHT', desc: 'guns fire at what they can see',
+    tip: 'TRAINING 1/4 · EYESIGHT: no radar yet. Anything close to the base or a gun is seen, and guns fire at it by themselves. Buy a second gun in the shop [Tab] and click open ground in the dashed ring to build it.',
+    spawns: [{ at: 2, kind: 'drone', n: 1 }, { at: 7, kind: 'scout', n: 2 }, { at: 14, kind: 'drone', n: 2, off: 0.25 }, { at: 20, kind: 'scout', n: 3, off: -0.2 }] },
+  { name: 'RADAR', desc: 'see far, lock, and let the Patriot shoot', grant: ['radar', 'pac3'],
+    tip: 'TRAINING 2/4 · RADAR: radar and Patriot online. The radar sees far beyond your eyes, fire control locks what it sees, and the Patriot fires at every lock. Click a contact to make it the priority target.',
+    spawns: [{ at: 3, kind: 'drone', n: 2, off: 0.6 }, { at: 9, kind: 'drone', n: 2, off: -0.6 }, { at: 15, kind: 'scout', n: 3 }, { at: 21, kind: 'tank', n: 1 }] },
+  { name: 'ARMS AND EMCON', desc: 'go silent when an ARM comes in',
+    tip: 'TRAINING 3/4 · ARMs: anti-radiation missiles home on a radiating radar and knock it out. When the ARM warning sounds, press [F] EMCON to go silent (you lose your locks), then [F] again once it has veered off.',
+    spawns: [{ at: 2, kind: 'drone', n: 2 }, { at: 5, kind: 'arm', n: 1 }, { at: 16, kind: 'arm', n: 1, off: 0.3 }, { at: 18, kind: 'drone', n: 2, off: -0.3 }, { at: 28, kind: 'arm', n: 1, off: -0.2 }] },
+  { name: 'DECOYS', desc: 'decoys look like Shaheds until classified',
+    tip: 'TRAINING 4/4 · DECOYS: Gerbera decoys look exactly like Shaheds and soak up locks. Fire control classifies one after holding it for a moment, then greys it out and releases it. Don\'t waste your priority target on them.',
+    spawns: [{ at: 2, kind: 'decoy', n: 1 }, { at: 3, kind: 'drone', n: 1 }, { at: 10, kind: 'decoy', n: 1, off: 0.3 }, { at: 11, kind: 'drone', n: 2, off: 0.3 }, { at: 19, kind: 'decoy', n: 2, off: -0.2 }, { at: 20, kind: 'drone', n: 1, off: -0.2 }] },
+];
 
 // Attack packages (`from`: first level index): existing types flying in together from one bearing, each covering another's weakness.
 // Counts are packs (a decoy pack is 3, an FPV pack 6). An EW helicopter in a package is an escort: it holds
@@ -140,6 +173,11 @@ export const PACKAGES: Package[] = [
     why: 'the swarm hides in the jammer\'s sector' },
   { name: 'SATURATION', from: 5, g: { decoy: 2, ew: 1, scout: 3, tank: 1 }, first: 'tank',
     why: 'the Mi-28 hides among decoys and fast Lancets under jamming' },
+  // Late game: two jammers side by side blank a wide sector; mixed profiles split your fire high, low and ballistic.
+  { name: 'EW SCREEN', from: 6, g: { ew: 2, cruise: 2, decoy: 2, scout: 2 }, first: 'ew',
+    why: 'two jammers blank the sector while cruise missiles slip in low behind the decoys' },
+  { name: 'MIXED STRIKE', from: 7, g: { tank: 1, swarm: 2, cruise: 1, arm: 1 }, first: 'tank',
+    why: 'cruise and ARM launches pull your guns and the radar away while the Mi-28 hovers' },
 ];
 
 // After the last scripted level, each level brings a new condition on top of SEAD's mix, looping in order.
@@ -152,6 +190,8 @@ export const MODS: Mod[] = [
   { name: 'JAMMING STORM', desc: 'EW helicopters inbound', w: { ew: 0.8 } },
   { name: 'SWARM TIDE', desc: 'many more, much weaker', spawn: 1.5, hp: 0.6, w: { swarm: 4, decoy: 2 } },
   { name: 'SEAD WAVE', desc: 'strike aircraft, ARMs and cruise missiles', w: { arm: 0.8, elite: 0.3, cruise: 0.4 } },
+  { name: 'EW OFFENSIVE', desc: 'jammers, decoys and cruise missiles · -15% detection', sig: 0.85, w: { ew: 0.5, decoy: 1.5, cruise: 0.3 } },
+  { name: 'COMBINED ARMS', desc: 'helicopters, swarms and cruise missiles together', w: { tank: 1, swarm: 1.5, scout: 1, cruise: 0.3 } },
 ];
 
 // Raids: every level ends with one, a named group from one bearing (`from`: first level index it can be drawn at).
@@ -176,6 +216,8 @@ export const RAIDS: { name: string; from: number; g: Partial<Record<EnemyKind, n
   { name: 'SATURATION STRIKE', from: 5, g: { decoy: 2, ew: 1, scout: 5, tank: 2 } },
   { name: 'ISKANDER SALVO', from: 5, g: { tbm: 3 } },
   { name: 'CRUISE SALVO', from: 4, g: { cruise: 3 } },
+  { name: 'EW BARRAGE', from: 7, g: { ew: 2, cruise: 2, decoy: 3, drone: 3, scout: 3 } },
+  { name: 'COMBINED STRIKE', from: 8, g: { elite: 1, tank: 2, swarm: 2, cruise: 2 } },
 ];
 
 // Radar threats. ARMs home on the radar while it radiates, and a hit takes it offline. EMCON [F] silences it:
@@ -411,14 +453,18 @@ export const PERKS: { id: string; name: string; desc: string; fx: PerkFx; rule?:
   { id: 'frag', name: 'FRAG WARHEADS', desc: 'PAC-3 hits splash for 50% · -15% fire rate', fx: { addFrag: 0.5, rate: 0.85 }, rule: true, min: 5, need: 'pac3' },
 ];
 
-// Doctrines: a starting loadout picked before a normal run (daily ops fly STANDARD). Free upgrade levels that
-// don't count toward base level. Unlocked by your all-time records.
+// Doctrines: picked before a normal run (daily ops fly STANDARD). A starting loadout of free upgrade levels that
+// don't count toward base level, and a trade that holds all run: `fx` works like a perk's, `price` scales every
+// upgrade's cost. `run` says what the trade is. Unlocked by your all-time records.
 export type Records = { time: number; kills: number; level: number; earned: number };
-export const DOCTRINES: { id: string; name: string; desc: string; need: string; lv: Record<string, number>; unlock: (b: Records) => boolean }[] = [
-  { id: 'standard', name: 'STANDARD', desc: 'by the book', need: '', lv: {}, unlock: () => true },
-  { id: 'sensor', name: 'SENSOR NET', desc: 'the classic battery: radar and Patriot from the start · LTAMDS 1', need: 'survive 5:00', lv: { radar: 1, pac3: 1, range: 1 }, unlock: b => b.time >= 300 },
-  { id: 'logistics', name: 'LOGISTICS', desc: 'Generator 2 · Canisters 2 · Reload 2', need: 'earn 5,000 credits in a run', lv: { gen: 2, acap: 2, aprod: 2 }, unlock: b => b.earned >= 5000 },
-  { id: 'strike', name: 'FORWARD STRIKE', desc: 'Lethality 2 · Salvo 1 · +1 ECS channel', need: 'reach base level 6', lv: { dmg: 2, rate: 1, slots: 1 }, unlock: b => b.level >= 6 },
+export const DOCTRINES: { id: string; name: string; desc: string; run: string; need: string; lv: Record<string, number>; fx: PerkFx; price?: number; unlock: (b: Records) => boolean }[] = [
+  { id: 'standard', name: 'STANDARD', desc: 'by the book', run: 'no trade-offs', need: '', lv: {}, fx: {}, unlock: () => true },
+  { id: 'sensor', name: 'SENSOR NET', desc: 'the classic battery: radar and Patriot from the start · LTAMDS 1', run: '+15% radar range · +30% contact memory · -10% damage',
+    need: 'survive 5:00', lv: { radar: 1, pac3: 1, range: 1 }, fx: { range: 1.15, persist: 1.3, dmg: 0.9 }, unlock: b => b.time >= 300 },
+  { id: 'logistics', name: 'LOGISTICS', desc: 'Generator 2 · Canisters 2 · Reload 2', run: 'upgrades 12% cheaper · +30% interceptor production · -12% damage',
+    need: 'earn 5,000 credits in a run', lv: { gen: 2, acap: 2, aprod: 2 }, fx: { aprod: 1.3, dmg: 0.88 }, price: 0.88, unlock: b => b.earned >= 5000 },
+  { id: 'strike', name: 'FORWARD STRIKE', desc: 'Lethality 2 · Salvo 1 · +1 ECS channel', run: '+15% damage · +10% fire rate · -25% max HP',
+    need: 'reach base level 6', lv: { dmg: 2, rate: 1, slots: 1 }, fx: { dmg: 1.15, rate: 1.1, hp: 0.75 }, unlock: b => b.level >= 6 },
 ];
 
 // Base level L is reached at 1.5*(L-1)*L upgrades bought: 0, 3, 9, 18, 30, 45, 63...
@@ -448,13 +494,13 @@ export const rank = (n: number) => Math.floor(n / MILESTONE);
 // Levels that count in deriveStats: what you bought, plus a level per rank on the open-ended upgrades.
 const ranked = (id: string, n: number) => n + (UPGRADES.find(u => u.id === id)?.max === Infinity ? rank(n) : 0);
 
-export function deriveStats(lv: Record<string, number>, perks: string[], level = 1) {
+export function deriveStats(lv: Record<string, number>, perks: string[], level = 1, doctrine = 'standard') {
   const L = (id: string) => ranked(id, lv[id] ?? 0);
   const p = { dmg: 1, rate: 1, gen: 1, range: 1, sweep: 1, aprod: 1, credits: 1, hp: 1, persist: 1, drain: 1, trange: 1, addSlots: 0, addArmor: 0, addChain: 0,
     addFusion: 0, addLpi: 0, addArc: 0, addScav: 0, addFrag: 0, markDmg: 1,
     addBlackout: 0, addCounterSead: 0, addKillChain: 0, addOverkill: 0, addLastStand: 0 };
-  for (const id of perks) {
-    const fx = PERKS.find(x => x.id === id)!.fx;
+  // Perks, then the doctrine's run-long trade, folded the same way.
+  for (const fx of [...perks.map(id => PERKS.find(x => x.id === id)!.fx), DOCTRINES.find(d => d.id === doctrine)?.fx ?? {}]) {
     for (const [k, v] of Object.entries(fx) as [keyof typeof p, number][]) {
       if (k.startsWith('add')) p[k] += v; else p[k] *= v;
     }

@@ -1,8 +1,9 @@
-import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, DROP_LIFE, MILESTONE, OVERDRIVE, rank } from './config.ts';
+import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, DROP_LIFE, MILESTONE, OVERDRIVE, rank, TRAINING, BIG_KILLS, WARN } from './config.ts';
+import { play as sound } from './sfx.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import { mapSeed } from './terrain.ts';
 import type { Records } from './config.ts';
-import { beltOf, stageInfo, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, noAmmo, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
+import { seedCode, beltOf, stageInfo, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, noAmmo, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const $ = (id: string) => document.getElementById(id)!;
 const fmt = (n: number) => Math.floor(n).toLocaleString('en-US');
@@ -24,6 +25,28 @@ export function loadBest(): Best {
   try { return JSON.parse(localStorage.getItem('x5-best')!) ?? { time: 0, kills: 0, level: 0, earned: 0 }; }
   catch { return { time: 0, kills: 0, level: 0, earned: 0 }; }
 }
+
+// The daily board: per date, the best runs flown here (YOU) and friends' pasted result lines (RIVAL), best first.
+// Kept for the last BOARD_DAYS dates, BOARD_TOP runs each.
+type Entry = { time: number; kills: number; who: 'YOU' | 'RIVAL' };
+const BOARD_DAYS = 14, BOARD_TOP = 5;
+function loadBoard(): Record<string, Entry[]> {
+  try { return JSON.parse(localStorage.getItem('x5-board')!) ?? {}; } catch { return {}; }
+}
+// Adds a run to a date's board; returns its place (0-based), or -1 if it didn't make the board.
+export function boardAdd(date: string, e: Entry) {
+  const b = loadBoard(), day = [...b[date] ?? []];
+  if (e.who === 'RIVAL' && day.some(x => x.who === 'RIVAL' && x.time === e.time && x.kills === e.kills)) return -1; // pasted twice
+  day.push(e); day.sort((a, c) => c.time - a.time || c.kills - a.kills);
+  b[date] = day.slice(0, BOARD_TOP);
+  for (const d of Object.keys(b).sort().slice(0, -BOARD_DAYS)) delete b[d];
+  try { localStorage.setItem('x5-board', JSON.stringify(b)); } catch { /* storage blocked: skip */ }
+  return b[date].indexOf(e);
+}
+const boardHtml = (date: string, mine = -1) => {
+  const day = loadBoard()[date] ?? [];
+  return day.length ? `<div class="board"><small>DAILY BOARD · ${date}</small><ol>${day.map((e, i) => `<li class="${i === mine ? 'hot' : e.who === 'RIVAL' ? 'dim' : ''}"><span>${e.who}</span><span>${clock(e.time)}</span><span>${fmt(e.kills)} kills</span></li>`).join('')}</ol></div>` : '';
+};
 
 type Daily = { date: string; time: number; kills: number };
 function loadDaily(date: string): Daily {
@@ -54,13 +77,34 @@ const TIPS: Record<string, string> = {
   level: 'Base level up: every level builds something that changes what the battery can do, plus a launcher and 2 perimeter pads. Pads fire on their own, without lock slots.',
 };
 const seenTips = (() => { try { return new Set<string>(JSON.parse(localStorage.getItem('x5-tips') ?? '[]')); } catch { return new Set<string>(); } })();
+const store = (k: string, v: string | null) => { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* storage blocked: skip */ } };
+const trained = () => { try { return !!localStorage.getItem('x5-trained'); } catch { return true; } };
+
+// The pause menu's help panel: the systems in a line each, and the keys.
+const HELP_SYSTEMS: [string, string][] = [
+  ['EYES', 'guns fire at what they can see: near the base, a gun, or an observer post'],
+  ['BUILD', 'buy a unit, click open ground in the dashed ring · guns cover a fan; two fans crossing = +20% crossfire'],
+  ['RADAR', 'from battery lv 3: sees far, locks targets for the Patriot · power starves it'],
+  ['ARMS', 'home on a radiating radar · [F] EMCON goes silent (locks drop) · LPI mode hides you'],
+  ['DECOYS', 'look like Shaheds until locked for a moment, then grey out'],
+  ['RAIDS', 'end every level · hold the objective for the bonus and a long build window'],
+  ['POWER', 'locks, radar, then ammo and repairs · watch the net flow on the bars'],
+  ['SALVAGE', `click crates within ${DROP_LIFE}s: credits, refills, repairs, free tech`],
+];
+const HELP_KEYS: [string, string][] = [
+  ['TAB', 'shop'], ['CLICK', 'build · pick unit · mark target'], ['U / DEL / B', 'upgrade / sell / move unit'], ['SPACE', 'emergency intercept'],
+  ['G', 'fire discipline'], ['T', 'target mode'], ['V', 'radar mode'], ['F', 'EMCON'], ['N', 'next level now'], ['O', 'coverage map'],
+  ['X', '2× speed'], ['WASD / Q E', 'pan / rotate'], ['P / ESC', 'pause'], ['M', 'mute'],
+];
+const helpHtml = () => `<div class="help"><div><small>SYSTEMS</small><dl>${HELP_SYSTEMS.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl></div>
+  <div><small>KEYS</small><dl>${HELP_KEYS.map(([k, v]) => `<dt><kbd>${k}</kbd></dt><dd>${v}</dd>`).join('')}</dl></div></div>`;
 
 // One line to paste in a chat.
-export const resultLine = (s: State) => `X5 COMMANDER · ${s.daily ? `DAILY OP ${s.daily}` : `${DOCTRINES.find(d => d.id === s.doctrine)!.name} RUN`} · ${clock(s.t)} · ${fmt(s.kills)} kills · lv ${s.level} · ${s.stats.clean}/${s.stats.raids} clean raids`;
+export const resultLine = (s: State) => `X5 COMMANDER · ${s.training ? 'TRAINING' : s.daily ? `DAILY OP ${s.daily}` : `${DOCTRINES.find(d => d.id === s.doctrine)!.name} RUN`} · ${clock(s.t)} · ${fmt(s.kills)} kills · lv ${s.level} · ${s.stats.clean}/${s.stats.raids} clean raids${s.training ? '' : ` · ${seedCode(s)}`}`;
 
 const docsHtml = (s: State, best: Best) => DOCTRINES.map((d, i) => {
   const open = d.unlock(best);
-  return `<button class="perk frame${d.id === s.doctrine ? ' sel' : ''}${open ? '' : ' locked'}" data-a="doc${i}"><b>${d.name}</b><span>${open ? d.desc : `LOCKED · ${d.need}`}</span><kbd>[${i + 1}]</kbd></button>`;
+  return `<button class="perk frame${d.id === s.doctrine ? ' sel' : ''}${open ? '' : ' locked'}" data-a="doc${i}"><b>${d.name}</b><span>${open ? d.desc : `LOCKED · ${d.need}`}</span>${open ? `<em>ALL RUN · ${d.run}</em>` : ''}<kbd>[${i + 1}]</kbd></button>`;
 }).join('');
 
 // After the run: what to do next time about the threat that did the most damage.
@@ -84,19 +128,28 @@ function debrief(s: State) {
   const kills = (Object.entries(S.kills) as [keyof typeof ENEMIES, number][]).sort((a, b) => b[1] - a[1])
     .map(([k, n]) => `<dt>${ENEMIES[k].code}</dt><dd>${fmt(n)}</dd>`).join('');
   const dmg = Object.entries(S.dmg).sort((a, b) => b[1] - a[1])
-    .map(([k, n]) => `<dt>${k}</dt><dd>${Math.round(n / total * 100)}%</dd>`).join('');
+    .map(([k, n]) => `<dt>${k}<b class="seg" style="--r:${(n / total).toFixed(2)}"></b></dt><dd>${Math.round(n / total * 100)}%</dd>`).join('');
   const perim = (Object.entries(S.perim) as [keyof typeof PERIM_NAMES, number][]).sort((a, b) => b[1] - a[1])
     .map(([k, n]) => `<dt>${PERIM_NAMES[k]}</dt><dd>${fmt(n)}</dd>`).join('');
   // What hurt the battery, and a line on the worst of it.
   const hurt = (Object.entries(S.taken) as [keyof typeof ENEMIES, number][]).sort((a, b) => b[1] - a[1]);
   const taken = hurt.slice(0, 6).map(([k, n]) => `<dt>${ENEMIES[k].code}</dt><dd>${fmt(Math.round(n))}</dd>`).join('');
   const lesson = hurt.length ? `<p class="lesson"><span class="alert">MOST DAMAGE · ${ENEMIES[hurt[0][0]].code}</span> · ${LESSONS[hurt[0][0]]}</p>` : '';
+  // The units that did the most, sold ones included.
+  const best = Object.values(S.units).sort((a, b) => b.kills - a.kills).slice(0, 3)
+    .map(u => `<dt>${u.name.toUpperCase()} <span class="dim">${VETERANCY[vetRank(u.kills)].name}</span></dt><dd>${fmt(u.kills)}</dd>`).join('');
+  // Level by level: how long each took, what it cost, how it ended.
+  const END = { held: '<span class="hot">HELD</span>', lost: '<span class="alert">LOST</span>', fell: '<span class="red">FELL</span>' };
+  const levels = S.levels.map(l => `<tr><td>${l.name}</td><td>${clock(l.t)}</td><td>${fmt(l.kills)}</td><td>${fmt(Math.round(l.hp))}</td><td>${END[l.end]}</td></tr>`).join('');
   return `${lesson}<div class="debrief"><div><small>KILLS</small><dl>${kills || '<dt>none</dt>'}</dl></div>${perim ? `<div><small>PERIMETER KILLS</small><dl>${perim}</dl></div>` : ''}<div><small>DAMAGE DEALT</small><dl>${dmg || '<dt>none</dt>'}</dl></div>
     <div><small>HP LOST TO</small><dl>${taken || '<dt>nothing</dt>'}</dl></div>
-    <div><small>OPS</small><dl><dt>RAIDS CLEAN</dt><dd>${S.clean} / ${S.raids}</dd><dt>ARMS EVADED</dt><dd>${S.armsEvaded}</dd><dt>RADAR HITS</dt><dd>${S.radarHits}</dd><dt>SALVAGE</dt><dd>${S.recovered} / ${S.drops}</dd></dl></div></div>`;
+    <div><small>OPS</small><dl><dt>RAIDS CLEAN</dt><dd>${S.clean} / ${S.raids}</dd><dt>ARMS EVADED</dt><dd>${S.armsEvaded}</dd><dt>RADAR HITS</dt><dd>${S.radarHits}</dd><dt>SALVAGE</dt><dd>${S.recovered} / ${S.drops}</dd></dl></div>
+    ${best ? `<div class="wide"><small>BEST UNITS</small><dl>${best}</dl></div>` : ''}</div>
+    ${levels ? `<div class="levels"><small>LEVEL BY LEVEL</small><table><tr><th>LEVEL</th><th>TIME</th><th>KILLS</th><th>HP LOST</th><th></th></tr>${levels}</table></div>` : ''}`;
 }
 
-export function createHud(actions: { buy(id: string): void; perk(i: number): void; pad(act: string): void; start(daily?: boolean): void; restart(): void; resume(): void; doctrine(i: number): void; look(x: number, z: number): void }) {
+export function createHud(actions: { buy(id: string): void; perk(i: number): void; pad(act: string): void; start(mode?: 'daily' | 'training'): void; restart(): void; resume(): void; menu(): void; doctrine(i: number): void; look(x: number, z: number): void;
+  setting(k: string, v: number): void; settings(): { sfx: number; music: number; cov: number }; code(): void }) {
   for (const [k, v] of Object.entries(PAL)) document.documentElement.style.setProperty(`--${k}`, rgba(v));
 
   // ---- shop (built once) ----
@@ -142,20 +195,37 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   overlay.onclick = e => {
     const a = (e.target as HTMLElement).closest<HTMLElement>('[data-a]')?.dataset.a;
     if (a === 'start') actions.start();
-    else if (a === 'daily') actions.start(true);
+    else if (a === 'daily') actions.start('daily');
+    else if (a === 'training') actions.start('training');
+    else if (a === 'code') actions.code();
+    else if (a === 'menu') actions.menu();
+    else if (a === 'resume') actions.resume();
+    else if (a === 'resetTips') resetTips((e.target as HTMLElement).closest('button'));
+    else if (a?.startsWith('cov')) { actions.setting('cov', +a.slice(3)); overlay.querySelectorAll('[data-a^=cov]').forEach(b => b.classList.toggle('sel', b === e.target)); }
     else if (a?.startsWith('doc')) actions.doctrine(+a.slice(3));
     else if (a === 'restart') actions.restart();
     else if (a === 'share') share();
     else if (a?.startsWith('perk')) actions.perk(+a.slice(4));
-    // The pause card covers the on-screen pause button, so any tap on it resumes.
-    else if (shownPhase.startsWith('pause')) actions.resume();
+    // The pause card covers the on-screen pause button, so a tap off the menu resumes.
+    else if (shownPhase.startsWith('pause') && !(e.target as HTMLElement).closest('.card')) actions.resume();
+  };
+  overlay.oninput = e => { const el = e.target as HTMLInputElement; if (el.dataset.set) actions.setting(el.dataset.set, +el.value / 100); };
+  // Pause menu settings: volumes and the coverage overlay (all remembered between runs).
+  const settingsHtml = () => {
+    const v = actions.settings(), range = (k: 'sfx' | 'music', label: string) => `<label>${label} <input type="range" min="0" max="100" value="${Math.round(v[k] * 100)}" data-set="${k}"></label>`;
+    return `<div class="settings">${range('sfx', 'SFX')}${range('music', 'MUSIC')}<span>COVERAGE [O] ${['OFF', 'FAINT', 'FULL'].map((n, i) => `<button class="link${v.cov === i ? ' sel' : ''}" data-a="cov${i}">${n}</button>`).join(' ')}</span></div>`;
   };
   let shownPhase = '', shownDoc = '', shownSeed = NaN;
   function showOverlay(s: State) {
     const key = s.phase + s.perkChoices.join();
     // Doctrine picks only redraw their row, so the boot text doesn't replay.
     if (key === shownPhase && s.phase === 'start' && s.doctrine !== shownDoc) { shownDoc = s.doctrine; overlay.querySelector('.docs')!.innerHTML = docsHtml(s, loadBest()); }
-    if (s.phase === 'start' && s.seed !== shownSeed) { shownSeed = s.seed; const m = overlay.querySelector('.mapline'); if (m) m.textContent = `MAP ${mapName(s.seed)} · [N] NEW MAP`; }
+    if (s.phase === 'start' && s.seed !== shownSeed) {
+      shownSeed = s.seed; const m = overlay.querySelector('.mapline');
+      if (m) m.textContent = s.daily ? `DAILY OP ${s.daily} LOADED · ${seedCode(s)} · [SPACE] TO FLY IT` : `MAP ${mapName(s.seed)} · SEED ${seedCode(s)} · [N] NEW MAP`;
+      const b = overlay.querySelector('.boardslot'); // a loaded op shows its own day's board
+      if (b) b.innerHTML = boardHtml(s.daily || new Date().toISOString().slice(0, 10));
+    }
     if (key === shownPhase) return;
     shownDoc = s.doctrine;
     shownPhase = key;
@@ -173,12 +243,27 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       <p class="dim mapline"></p>
       ${best.time ? `<p class="dim">BEST · ${clock(best.time)} · ${fmt(best.kills)} kills · base lv ${best.level}</p>` : ''}
       <p class="dim">DOCTRINE · starting loadout, unlocked by your records</p><div class="perks docs">${docsHtml(s, best)}</div>
-      <button class="btn" data-a="start">DEPLOY [SPACE]</button> <button class="btn" data-a="daily">DAILY OP [D]</button>
-      <p class="dim">Daily op: same raid for everyone today. ${(d => d.time ? `Your best today · ${clock(d.time)} · ${fmt(d.kills)} kills` : 'Not flown yet today.')(loadDaily(new Date().toISOString().slice(0, 10)))}</p></div></div>`;
-    else if (s.phase === 'pause') html = `<div class="card"><h2>PAUSED</h2><p class="dim">[P] or tap to resume</p></div>`;
+      ${trained() ? '' : '<p class="hot">NEW HERE? A 3-MINUTE DRILL: EYES, RADAR, ARMS, DECOYS</p><button class="btn hotbtn" data-a="training">TRAINING [T]</button><br>'}
+      <button class="btn" data-a="start">DEPLOY [SPACE]</button> <button class="btn" data-a="daily">DAILY OP [D]</button>${trained() ? ' <button class="btn" data-a="training">TRAINING [T]</button>' : ''}
+      <p><button class="link" data-a="resetTips">RESET TIPS</button></p>
+      <p class="dim">Daily op: same raid for everyone today. ${(d => d.time ? `Your best today · ${clock(d.time)} · ${fmt(d.kills)} kills` : 'Not flown yet today.')(loadDaily(new Date().toISOString().slice(0, 10)))}</p>
+      <div class="boardslot"></div>
+      <p><button class="link" data-a="code">PLAY A SEED [S]</button> <span class="dim">· a friend's seed code or result line: same map, same raids</span></p></div></div>`;
+    else if (s.phase === 'pause') html = `<div class="card menu"><h2>PAUSED</h2>
+      <button class="btn" data-a="resume">RESUME [P]</button> <button class="btn" data-a="menu">QUIT TO MENU</button>
+      ${settingsHtml()}
+      ${helpHtml()}
+      <p><button class="link" data-a="resetTips">RESET TIPS</button> <span class="dim">· show every tip again</span></p>
+      <p class="dim">[P] or tap outside to resume</p></div>`;
     else if (s.phase === 'perk') html = `<div class="card"><h2>BATTERY LEVEL ${s.level} · ${baseLevelInfo(s.level).name}</h2><p class="hot">${baseLevelInfo(s.level).desc}</p>${s.level > 1 ? `<p class="dim">${s.st.weapons.cannon ? '+1 M903 LAUNCHER · ' : ''}${perimSlots(s.level)} PERIMETER PADS</p>` : ''}<h2>CHOOSE A PERK</h2><div class="perks">${
       s.perkChoices.map((id, i) => { const p = PERKS.find(p => p.id === id)!; return `<button class="perk frame${p.rule ? ' rule' : ''}" data-a="perk${i}">${p.rule ? '<i>★ NEW RULE</i>' : ''}<b>${p.name}</b><span>${p.desc}</span><kbd>[${i + 1}]</kbd></button>`; }).join('')
     }</div></div>`;
+    else if (s.phase === 'over' && s.training) {
+      store('x5-trained', '1');
+      html = `<div class="card"><h1>TRAINING COMPLETE</h1><p class="hot">EYES · RADAR · ARMS AND EMCON · DECOYS</p>
+        <p>The real war starts with one gun and no radar, and doesn't stop. Build across the front, get the radar at battery level 3, and watch for ARMs.</p>
+        <button class="btn hotbtn" data-a="menu">TO THE FRONT [ENTER]</button> <button class="btn" data-a="restart">AGAIN [R]</button></div>`;
+    }
     else if (s.phase === 'over') {
       const now = { time: s.t, kills: s.kills, level: s.level, earned: s.earned };
       const rec = (k: keyof Best) => now[k] > best[k];
@@ -191,12 +276,14 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         const d = loadDaily(s.daily), rec = s.t > d.time;
         if (rec) try { localStorage.setItem('x5-daily', JSON.stringify({ date: s.daily, time: s.t, kills: s.kills })); } catch { /* storage blocked: skip */ }
         daily = `<p class="${rec ? 'hot' : 'dim'}">DAILY OP ${s.daily} · ${rec ? 'NEW BEST TODAY ★' : `today's best ${clock(d.time)}`}</p>`;
+        daily += boardHtml(s.daily, boardAdd(s.daily, { time: s.t, kills: s.kills, who: 'YOU' }));
       }
       const unlocked = DOCTRINES.filter(d => !d.unlock(best) && d.unlock(merged as Best)).map(d => `<p class="hot">DOCTRINE UNLOCKED · ${d.name}</p>`).join('');
       html = `<div class="card"><h1 class="alert">BATTERY LOST</h1>${daily}${unlocked}
         <div class="score">${row('SURVIVED', 'time', clock)}${row('KILLS', 'kills', fmt)}${row('BASE LEVEL', 'level', String)}${row('CREDITS EARNED', 'earned', fmt)}</div>
         ${debrief(s)}
         <p class="dim">perks: ${s.perks.map(id => PERKS.find(p => p.id === id)!.name).join(' · ') || 'none'}</p>
+        <p class="dim">SEED <span class="hot">${seedCode(s)}</span> · the result line carries it: friends fly the same ${s.daily ? 'op' : 'map and raids'}</p>
         <button class="btn" data-a="restart">REDEPLOY [R]</button> <button class="btn" data-a="share">COPY RESULT [C]</button></div>`;
     }
     overlay.innerHTML = html;
@@ -213,12 +300,17 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
 
   // ---- tips ----
   const tipEl = $('tip');
-  let tipUntil = 0;
+  let tipUntil = 0, drillTip = -1;
   function tip(k: string, t: number) {
     if (!TIPS[k] || seenTips.has(k)) return;
     seenTips.add(k);
-    try { localStorage.setItem('x5-tips', JSON.stringify([...seenTips])); } catch { /* storage blocked: skip */ }
-    tipEl.textContent = TIPS[k]; tipEl.classList.add('on'); tipUntil = t + 9;
+    store('x5-tips', JSON.stringify([...seenTips]));
+    show(TIPS[k], t, 9);
+  }
+  function show(text: string, t: number, secs: number) { tipEl.textContent = text; tipEl.classList.add('on'); tipUntil = t + secs; }
+  function resetTips(btn: HTMLElement | null) {
+    seenTips.clear(); store('x5-tips', null);
+    if (btn) btn.textContent = 'TIPS RESET ✓';
   }
 
   // ---- banner + popups ----
@@ -227,6 +319,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     banner.textContent = text; banner.className = cls;
     void banner.offsetWidth; banner.classList.add('go');
   };
+  const flashEl = $('flash');
+  const flash = () => { flashEl.classList.remove('go'); void flashEl.offsetWidth; flashEl.classList.add('go'); };
   const popups = Array.from({ length: 32 }, () => $('popups').appendChild(document.createElement('div')));
   let nextPop = 0;
   const pop = (project: Project, x: number, z: number, text: string, cls: string) => {
@@ -387,7 +481,25 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       el.style.transform = `translate(${Math.round(x + 12 + e.size * 10)}px, ${Math.round(y - 14)}px)`;
       el.className = e.id === s.marked ? 'on mk' : 'on';
     }
+    // Classified decoys: greyed out and struck through, so nobody wastes a mark on them.
+    for (const e of s.enemies) {
+      if (!e.ided || e.locked || !visible(s, e) || n >= labels.length) continue;
+      const el = labels[n++], [x, y] = project(e.x, e.z, flightAlt(e) + e.size);
+      if (el.textContent !== '✕ DECOY') el.textContent = '✕ DECOY';
+      el.style.transform = `translate(${Math.round(x + 10)}px, ${Math.round(y - 12)}px)`;
+      el.className = 'on dc';
+    }
     for (let i = n; i < labels.length; i++) if (labels[i].className) labels[i].className = '';
+    // Veterancy: every gun with kills wears its rank (stars) and its tally.
+    let v = 0;
+    if (s.phase === 'play' || s.phase === 'pause') for (const p of s.perim) {
+      if (!p.kills || !GUNS.includes(p.k) || v >= vetLabels.length) continue;
+      const r = vetRank(p.kills), el = vetLabels[v++], [x, y] = project(p.x, p.z, 4.2), t = `${r ? '★'.repeat(r) + ' ' : ''}${p.kills}`;
+      if (el.textContent !== t) el.textContent = t;
+      el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, -100%)`;
+      el.className = `on vet r${r}`;
+    }
+    for (let i = v; i < vetLabels.length; i++) if (vetLabels[i].className) vetLabels[i].className = '';
     // Guns the interceptor pool can't feed right now.
     let m = 0;
     if (s.phase === 'play') for (const p of s.perim) {
@@ -399,6 +511,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     for (let i = m; i < padLabels.length; i++) if (padLabels[i].className) padLabels[i].className = '';
   }
   const padLabels = Array.from({ length: 16 }, () => { const el = $('labels').appendChild(document.createElement('div')); el.textContent = 'NO AMMO'; return el; });
+  const vetLabels = Array.from({ length: 16 }, () => $('labels').appendChild(document.createElement('div')));
 
   // ---- text (throttled) ----
   let ffSpeed = 1, acc = 1, lastPhase = '', armSaid = -99, tbmSaid = -99, cruiseSaid = -99, shopForBuild = false;
@@ -508,6 +621,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     ].map(([k, v]) => v === '' ? `<dt class="grp">${k}</dt>` : `<dt>${k}</dt><dd>${v}</dd>`).join('');
     if (html !== infoHtml) { infoHtml = html; infoEl.innerHTML = html; } // no DOM churn when nothing changed
     threatBoard(s);
+    warnings(s);
     document.body.classList.toggle('crit', s.phase === 'play' && s.hp / st.maxHp < 0.3);
     // Touch buttons: live value under the icon, lit while the thing is on.
     const ib = interceptBlock(s);
@@ -549,6 +663,29 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       b.classList.toggle('needs', why.startsWith('NEEDS'));
     }
     arrangeShop(s);
+  }
+
+  // ---- critical states: what's about to go wrong, as chips beside the left panel (config WARN) ----
+  const warnEl = $('warn'), hold: Record<string, number> = {};
+  let warnHtml = '', warnKeys = '';
+  function warnings(s: State) {
+    const st = s.st, out: [string, string, string][] = []; // key, class, text
+    const on = (k: string, cond: boolean) => { if (cond) hold[k] = s.t + WARN.hold; return s.t < (hold[k] ?? -1); };
+    if (s.phase === 'play') {
+      const hp = s.hp / st.maxHp, sweep = st.radar && emitting(s) ? s.sweepSpeed / st.sweep : 1;
+      if (on('hp', hp < WARN.hp)) out.push(['hp', 'red', `HULL ${Math.round(hp * 100)}%`]);
+      if (st.radar && on('power', s.power < st.powerCap * WARN.power || sweep < WARN.sweep)) out.push(['power', '', `POWER LOW${sweep < 1 ? ` · RADAR ${Math.round(sweep * 100)}%` : ''}`]);
+      if (st.weapons.cannon && on('ammo', s.ammo < st.ammoCap * WARN.ammo)) out.push(['ammo', '', `INTERCEPTORS ${fmt(s.ammo)}`]);
+      let locks = 0, waiting = 0;
+      for (const e of s.enemies) { if (e.locked) locks++; else if (visible(s, e) && !e.ided && e.x * e.x + e.z * e.z <= st.trackRange ** 2) waiting++; }
+      if (st.radar && on('locks', emitting(s) && locks >= slots(s) && waiting >= WARN.waiting)) out.push(['locks', '', `LOCKS FULL · ${waiting} WAITING`]);
+      const dry = s.perim.filter(p => noAmmo(s, p)).length, down = s.perim.filter(p => p.down).length;
+      if (on('dry', dry > 0)) out.push(['dry', '', `${dry || 'A'} GUN${dry > 1 ? 'S' : ''} OUT OF AMMO`]);
+      if (on('down', down > 0)) out.push(['down', '', `${down || 'A'} UNIT${down > 1 ? 'S' : ''} DOWN`]);
+    }
+    const h = out.map(([, c, t]) => `<div class="${c}">⚠ ${t}</div>`).join(''), keys = out.map(w => w[0]).join();
+    if (h !== warnHtml) { warnHtml = h; warnEl.innerHTML = h; }
+    if (keys !== warnKeys) { if (out.some(([k]) => !warnKeys.split(',').includes(k))) sound('alarm'); warnKeys = keys; }
   }
 
   const blindEl = $('blind');
@@ -598,7 +735,12 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   function raidCard(s: State) {
     let h = '', cls = '';
     const on = s.phase === 'play' || s.phase === 'pause';
-    if (on && s.raid) {
+    if (on && s.training) { // the drill: which lesson, and what's next
+      const w = TRAINING[s.stage], next = TRAINING[s.stage + 1];
+      h = building(s) ? `<small>TRAINING ${s.stage + 1}/${TRAINING.length} COMPLETE</small><b>NEXT · ${next.name}</b>${next.desc.toUpperCase()} · ${Math.ceil(s.buildUntil - s.t)}s<br><button data-k="KeyN">[N] START NOW</button>`
+        : `<small>TRAINING ${s.stage + 1}/${TRAINING.length}</small><b>${w.name}</b>${w.desc.toUpperCase()}`;
+      cls = 'on build';
+    } else if (on && s.raid) {
       const r = s.raid, comp = (Object.entries(r.n) as [keyof typeof ENEMIES, number][]).map(([k, n]) => `${n} × ${ENEMIES[k].code}`).join(' &nbsp; ');
       h = `<small>INCOMING RAID · SECTOR ${pad3(bearing(Math.cos(r.a), Math.sin(r.a)))}° · T-${Math.max(0, r.at - s.t).toFixed(0)}s</small><b>${r.name}</b>${comp}<br>
         <small>OBJECTIVE</small> <span class="obj">${OBJECTIVES[r.obj]}</span> &nbsp; <small>BONUS</small> <span class="obj">+${fmt(r.bonus * s.st.credits)} CR</span>`;
@@ -622,14 +764,18 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   return {
     update(s: State, dt: number, yaw: number, project: Project, speed = 1, look = { x: 0, z: 0 }) {
       lastState = s; ffSpeed = speed;
-      if (s.phase === 'play' && s.t > 2) tip('startMg', s.t);
+      if (s.training) { // each wave's lesson, every time: training is for learning
+        if (s.phase === 'play' && drillTip !== s.stage && !building(s) && s.t > 0.5) { drillTip = s.stage; show(TRAINING[s.stage].tip, s.t, 16); }
+      } else if (s.phase === 'play' && s.t > 2) tip('startMg', s.t);
       for (const e of s.events) tip(e.k, s.t);
-      if (tipEl.classList.contains('on') && (s.t > tipUntil || s.t < tipUntil - 9 || s.phase === 'start')) tipEl.classList.remove('on');
+      if (tipEl.classList.contains('on') && (s.t > tipUntil || s.t < tipUntil - 16 || s.phase === 'start')) tipEl.classList.remove('on');
       for (const e of s.events) {
         if (e.k === 'kill') {
-          if (e.n) pop(project, e.x, e.z, `+${e.n}`, '');
+          const big = BIG_KILLS[e.kind!];
+          if (e.n) pop(project, e.x, e.z, `+${e.n}`, big ? 'big' : '');
+          if (big) { say(big, 'big'); flash(); }
           if (MUNITIONS.includes(e.kind!) && e.kind !== 'atgm') log(`${ENEMIES[e.kind!].code} INTERCEPTED BRG ${pad3(bearing(e.x, e.z))}`);
-          else if (e.kind === 'ew') { say('JAMMER DOWN', 'info'); log(`JAMMER DOWN BRG ${pad3(bearing(e.x, e.z))} · SECTOR CLEAR`); }
+          else if (e.kind === 'ew') log(`JAMMER DOWN BRG ${pad3(bearing(e.x, e.z))} · SECTOR CLEAR`);
           else if (e.kind === 'elite') log('SU-34 SPLASHED');
         }
         else if (e.k === 'lost' && s.phase === 'play' && emitting(s)) log(`LOCK LOST${e.n! > 1 ? ` x${e.n}` : ''} BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
@@ -657,7 +803,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         else if (e.k === 'lastStand') { say('LAST STAND', 'warn'); log('LAST STAND · FIRE RATE UP · POWER DOWN', 'alert'); }
         else if (e.k === 'emcon') log(s.emcon ? 'EMCON · RADAR SILENT' : 'RADIATING', s.emcon ? 'alert' : '');
         else if (e.k === 'jam') log(`JAMMING BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
-        else if (e.k === 'ident') log('DECOY CLASSIFIED · TRACK RELEASED');
+        else if (e.k === 'ident') { log('DECOY CLASSIFIED · TRACK RELEASED'); pop(project, e.x, e.z, '✕ DECOY', 'decoy'); }
         else if (e.k === 'dud') log('DECOY IMPACT · NO DAMAGE');
         else if (e.k === 'placing') { if (s.placing) say(`BUILD ${s.placing.k.toUpperCase()}: CLICK OPEN GROUND`, 'info'); }
         else if (e.k === 'raid') { say(`⚠ ${e.name} · BRG ${pad3(bearing(e.x, e.z))}`, 'warn'); log(`${e.name} · BRG ${pad3(bearing(e.x, e.z))}`, 'alert'); }
@@ -671,10 +817,11 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         else if (e.k === 'raidClear') { say(`OBJECTIVE HELD · +${fmt(e.n)}`, 'info'); log(`RAID DEFEATED · +${fmt(e.n)} CR`); }
         else if (e.k === 'raidLeak') { say('OBJECTIVE LOST', 'warn'); log(`OBJECTIVE LOST · BUILD WINDOW CUT TO ${BUILD_LOST}s`, 'alert'); }
         else if (e.k === 'raidEnd') log('RAID OVER · NO BONUS', 'alert');
+        else if (e.k === 'build' && s.training) { say(`DRILL ${s.stage + 1} COMPLETE`, 'info'); log(`DRILL ${s.stage + 1} COMPLETE · NEXT IN ${e.n}s`); }
         else if (e.k === 'build') { say(`LEVEL ${s.stage + 1} COMPLETE · BUILD ${e.n}s`, 'info'); log(`LEVEL ${s.stage + 1} COMPLETE · BUILD WINDOW ${e.n}s · NO NEW CONTACTS`); }
         else if (e.k === 'padDown') { say('⚠ EMPLACEMENT DOWN', 'warn'); log(`${e.kind.toUpperCase()} DOWN BRG ${pad3(bearing(e.x, e.z))} · REPAIRING`, 'alert'); }
         else if (e.k === 'padUp') { if (e.n) { const n = MG_TIERS[e.n].name; say(n, 'info'); log(`UPGRADED · ${n}`); } else log(`${e.kind.toUpperCase()} BACK IN ACTION BRG ${pad3(bearing(e.x, e.z))}`); }
-        else if (e.k === 'padRank') { const v = VETERANCY[e.n]; pop(project, e.x, e.z, `★ ${v.name}`, 'up star'); log(`${e.kind.toUpperCase()} BRG ${pad3(bearing(e.x, e.z))} · ${v.name} · +${Math.round((v.dmg - 1) * 100)}% DMG`); }
+        else if (e.k === 'padRank') { const v = VETERANCY[e.n]; pop(project, e.x, e.z, `${'★'.repeat(e.n)} ${v.name}`, 'up star'); say(`${PERIM_NAMES[e.kind]} · ${v.name}`, 'info'); log(`${e.kind.toUpperCase()} BRG ${pad3(bearing(e.x, e.z))} · ${v.name} · +${Math.round((v.dmg - 1) * 100)}% DMG`); }
         else if (e.k === 'padSold') log(`${e.kind.toUpperCase()} SOLD · +${fmt(e.n)} CR`);
         else if (e.k === 'padMoved') log(`${e.kind.toUpperCase()} MOVED${e.n ? ` · OFFLINE ${e.n}s` : ''}`);
         else if (e.k === 'radarOnline') { say('RADAR ONLINE', 'info'); log('AN/MPQ-65 ONLINE · SEARCH + FIRE CONTROL'); }
@@ -698,12 +845,13 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       const pn = phaseName(s);
       if (s.phase === 'play' && pn !== lastPhase) {
         const { mod } = phase(s);
-        if (lastPhase) { say(`LEVEL ${s.stage + 1} · ${phase(s).name}`, mod.name ? 'warn' : 'info'); if (mod.desc) log(mod.desc.toUpperCase(), 'alert');
+        if (lastPhase && s.training) { say(`TRAINING ${s.stage + 1} · ${TRAINING[s.stage].name}`, 'info'); log(`TRAINING ${s.stage + 1} · ${TRAINING[s.stage].desc.toUpperCase()}`); }
+        else if (lastPhase) { say(`LEVEL ${s.stage + 1} · ${phase(s).name}`, mod.name ? 'warn' : 'info'); if (mod.desc) log(mod.desc.toUpperCase(), 'alert');
           const arc = flankArc(s.stage);
           if (s.stage && arc > flankArc(s.stage - 1)) log(`DRONES + MISSILES NOW FROM ${arc >= Math.PI ? 'ANY DIRECTION' : `FRONT ±${Math.round(arc * 180 / Math.PI)}°`}`, 'alert'); }
         lastPhase = pn;
       }
-      if (s.phase === 'start') { lastPhase = ''; armSaid = tbmSaid = cruiseSaid = -99; launches.length = 0; shopForBuild = false; }
+      if (s.phase === 'start') { drillTip = -1; lastPhase = ''; armSaid = tbmSaid = cruiseSaid = -99; launches.length = 0; shopForBuild = false; }
       drawRadar(s, yaw, look);
       placeLabels(s, project);
       raidArrow(s, project);
@@ -713,7 +861,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     },
     flash(id: string) { const b = rows.get(id)!; b.classList.remove('pop'); void b.offsetWidth; b.classList.add('pop'); },
     toggleShop: () => document.body.classList.toggle('shop-open', !shop.classList.toggle('hidden')),
-    coverage: (on: boolean) => document.body.classList.toggle('cov', on),
+    coverage: (mode: number) => { document.body.classList.toggle('cov', mode > 0); document.body.classList.toggle('cov-faint', mode === 1); },
     // Phone portrait: px of screen the HUD covers at the top and bottom, so the view can centre the base in what's left.
     insets(): [number, number] {
       if (!portrait.matches) return [0, 0];
