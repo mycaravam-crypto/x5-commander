@@ -55,6 +55,9 @@ export const ENEMIES: Record<EnemyKind, EnemyType> = {
   atgm: { name: '9M120 Ataka anti-tank missile', code: 'ATAKA', hp: 3, speed: 9, dmg: 6, reward: 4, size: 0.6, sig: 0.4, glow: 1.2, pack: 1, wobble: 0, drop: 0 },
   kab: { name: 'KAB-500 glide bomb (UMPK kit)', code: 'KAB', hp: 35, speed: 4.5, dmg: 40, reward: 20, size: 1, sig: 0.9, glow: 1, pack: 1, wobble: 0, drop: 0 },
 };
+// Kills that matter get a bigger blast, a camera shake, a banner and a sound of their own (hud, render, sfx).
+export const BIG_KILLS: Partial<Record<EnemyKind, string>> = { elite: 'SU-34 SPLASHED', ew: 'JAMMER DOWN', tbm: 'BALLISTIC INTERCEPTED' };
+export const BIG_KILL_SHAKE = 0.5;
 // Munitions heading for the battery: drawn amber, their launches and intercepts logged.
 export const MUNITIONS: EnemyKind[] = ['arm', 'tbm', 'cruise', 'atgm', 'kab'];
 export const KINDS = Object.keys(ENEMIES) as EnemyKind[];

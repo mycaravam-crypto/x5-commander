@@ -152,6 +152,11 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #labels div.on { display: block; }
 #labels div.mk { color: var(--hot); }
 #labels div.na { color: var(--alert); font-weight: bold; animation: blink 0.4s infinite alternate; }
+/* Classified decoy: grey and struck through. Veterancy badge: stars and kills over a gun, brighter with rank. */
+#labels div.dc { color: #aaa; border-left-color: #777; text-shadow: none; text-decoration: line-through; opacity: 0.8; }
+#labels div.vet { font-size: 9px; padding: 0 3px; border: 1px solid var(--line); color: var(--mid); text-shadow: none; }
+#labels div.vet.r1, #labels div.vet.r2 { color: var(--bright); border-color: var(--mid); }
+#labels div.vet.r3, #labels div.vet.r4 { color: #ffd966; border-color: #ffd966; font-weight: bold; text-shadow: 0 0 6px rgba(255, 217, 102, 0.6); }
 
 /* Between the left panel and the shop, wrapping instead of running off the edges. */
 #help { bottom: 10px; left: 50%; transform: translateX(-50%); width: min(760px, calc(100vw - 560px)); color: var(--mid); font-size: 11px; text-align: center; line-height: 1.5; }
@@ -165,6 +170,16 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #popups div.up.star, #popups div.loot.star { color: var(--alert); text-shadow: 0 1px 3px #000; font-size: 15px; animation-duration: 1.8s; }
 #popups div.loot { white-space: nowrap; text-shadow: 0 1px 3px #000; font-size: 13px; animation-duration: 1.4s; }
 #popups div.dmg { color: var(--crit); font-size: 16px; }
+/* Juice: stars, loot and big kills punch in larger, then float off. */
+#popups div.up.star.go, #popups div.loot.go, #popups div.big.go { animation-name: punch; }
+#popups div.big { color: #fff; font-size: 22px; text-shadow: 0 0 12px var(--hot), 0 1px 3px #000; animation-duration: 1.6s; }
+#popups div.decoy { color: #bbb; text-shadow: 0 1px 3px #000; font-size: 12px; animation-duration: 1.4s; }
+@keyframes punch { 0% { opacity: 0; transform: translate(-50%, -50%) scale(2.2); } 12% { opacity: 1; transform: translate(-50%, -50%) scale(1); margin-top: 0; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1); margin-top: -40px; } }
+#flash { inset: 0; opacity: 0; background: radial-gradient(circle, color-mix(in srgb, var(--hot) 30%, transparent), transparent 70%); }
+#flash.go { animation: flash 0.5s ease-out; }
+@keyframes flash { from { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { #flash { display: none; } }
 @keyframes float { from { opacity: 1; margin-top: 0; } to { opacity: 0; margin-top: -34px; } }
 
 #banner { top: 22%; left: 50%; transform: translateX(-50%); font-size: 30px; font-weight: 700; letter-spacing: 0.3em;
@@ -172,6 +187,7 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #banner.go { animation: banner 2.6s ease-out; }
 #banner.warn { color: var(--alert); text-shadow: 0 2px 8px #000; }
 #banner.info { color: var(--bright); text-shadow: 0 2px 8px #000; font-size: 22px; }
+#banner.big { color: #fff; text-shadow: 0 0 18px var(--hot), 0 2px 8px #000; font-size: 34px; }
 @keyframes banner { 0% { opacity: 0; letter-spacing: 0.8em; } 12%, 70% { opacity: 1; letter-spacing: 0.3em; } 100% { opacity: 0; } }
 
 #overlay { inset: 0; display: none; place-items: safe center; overflow-y: auto; background: rgba(0, 4, 1, 0.78); pointer-events: auto; }

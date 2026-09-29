@@ -190,7 +190,7 @@ function frame(now: number) {
   // The build window runs slower, so there's time to place things.
   for (let i = 0; i < speed; i++) update(s, dt * (building(s) ? BUILD_SLOW : 1));
   if (s.sweepA < sweep0) sfx.play('ping'); // sweep completed a revolution
-  for (const e of s.events) sfx.play(e.k, e as { n?: number; star?: boolean; drop?: string });
+  for (const e of s.events) sfx.play(e.k, e as Parameters<typeof sfx.play>[1]);
   view.inset(...hud.insets());
   view.render(s, dt);
   hud.update(s, dt, view.cameraYaw(), view.project, speed, view.target());

@@ -1,4 +1,5 @@
 // Tiny WebAudio synth. No files.
+import { BIG_KILLS, type EnemyKind } from './config.ts';
 let ctx: AudioContext | null = null;
 let master: GainNode;
 export let muted = false;
@@ -37,10 +38,11 @@ function noise(dur: number, vol = 0.08, freq = 1200) {
 }
 
 const last: Record<string, number> = {};
-const GAP: Record<string, number> = { drop: 0.2, pickup: 0.05, gun: 0.07, shot: 0.05, beam: 0.06, hit: 0.04, kill: 0.04, detect: 0.25, missile: 0.08, baseHit: 0.1, arm: 0.5, tbm: 0.8, release: 0.3, ident: 0.1, acquire: 0.12, lost: 0.25 };
+const GAP: Record<string, number> = { bigKill: 0.15, padRank: 0.2, drop: 0.2, pickup: 0.05, gun: 0.07, shot: 0.05, beam: 0.06, hit: 0.04, kill: 0.04, detect: 0.25, missile: 0.08, baseHit: 0.1, arm: 0.5, tbm: 0.8, release: 0.3, ident: 0.1, acquire: 0.12, lost: 0.25 };
 
-export function play(k: string, e: { n?: number; star?: boolean; drop?: string } = {}) {
+export function play(k: string, e: { n?: number; star?: boolean; drop?: string; kind?: EnemyKind } = {}) {
   if (!ctx || muted) return;
+  if (k === 'kill' && e.kind && BIG_KILLS[e.kind]) k = 'bigKill';
   const now = ctx.currentTime;
   if (now - (last[k] ?? -1) < (GAP[k] ?? 0)) return;
   last[k] = now;
@@ -53,6 +55,8 @@ export function play(k: string, e: { n?: number; star?: boolean; drop?: string }
     case 'dud': noise(0.12, 0.05, 600); break;
     case 'hit': tone(500, 0.03, 'triangle', 0.02, 300); break;
     case 'kill': noise(0.15, 0.06, 2500); tone(160, 0.1, 'square', 0.02, 50); break;
+    case 'bigKill': noise(0.7, 0.16, 1800); tone(90, 0.6, 'sawtooth', 0.07, 30); [784, 988, 1319].forEach((f, i) => tone(f, 0.16, 'square', 0.035, f, 0.18 + i * 0.07)); break; // boom, then a chime
+    case 'padRank': [659, 880, 1109].forEach((f, i) => tone(f, 0.14, 'triangle', 0.04, f, i * 0.06)); break;
     case 'baseHit': tone(110, 0.3, 'sawtooth', 0.09, 35); noise(0.3, 0.12, 800); break;
     case 'ping': tone(1250, 0.6, 'sine', 0.018, 1180); break;
     case 'detect': tone(1760, 0.05, 'sine', 0.015); break;

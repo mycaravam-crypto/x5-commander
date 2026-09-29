@@ -1,4 +1,4 @@
-import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, DROP_LIFE, MILESTONE, OVERDRIVE, rank, TRAINING } from './config.ts';
+import { ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, DROP_LIFE, MILESTONE, OVERDRIVE, rank, TRAINING, BIG_KILLS } from './config.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import { mapSeed } from './terrain.ts';
 import type { Records } from './config.ts';
@@ -269,6 +269,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     banner.textContent = text; banner.className = cls;
     void banner.offsetWidth; banner.classList.add('go');
   };
+  const flashEl = $('flash');
+  const flash = () => { flashEl.classList.remove('go'); void flashEl.offsetWidth; flashEl.classList.add('go'); };
   const popups = Array.from({ length: 32 }, () => $('popups').appendChild(document.createElement('div')));
   let nextPop = 0;
   const pop = (project: Project, x: number, z: number, text: string, cls: string) => {
@@ -429,7 +431,25 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       el.style.transform = `translate(${Math.round(x + 12 + e.size * 10)}px, ${Math.round(y - 14)}px)`;
       el.className = e.id === s.marked ? 'on mk' : 'on';
     }
+    // Classified decoys: greyed out and struck through, so nobody wastes a mark on them.
+    for (const e of s.enemies) {
+      if (!e.ided || e.locked || !visible(s, e) || n >= labels.length) continue;
+      const el = labels[n++], [x, y] = project(e.x, e.z, flightAlt(e) + e.size);
+      if (el.textContent !== '✕ DECOY') el.textContent = '✕ DECOY';
+      el.style.transform = `translate(${Math.round(x + 10)}px, ${Math.round(y - 12)}px)`;
+      el.className = 'on dc';
+    }
     for (let i = n; i < labels.length; i++) if (labels[i].className) labels[i].className = '';
+    // Veterancy: every gun with kills wears its rank (stars) and its tally.
+    let v = 0;
+    if (s.phase === 'play' || s.phase === 'pause') for (const p of s.perim) {
+      if (!p.kills || !GUNS.includes(p.k) || v >= vetLabels.length) continue;
+      const r = vetRank(p.kills), el = vetLabels[v++], [x, y] = project(p.x, p.z, 4.2), t = `${r ? '★'.repeat(r) + ' ' : ''}${p.kills}`;
+      if (el.textContent !== t) el.textContent = t;
+      el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, -100%)`;
+      el.className = `on vet r${r}`;
+    }
+    for (let i = v; i < vetLabels.length; i++) if (vetLabels[i].className) vetLabels[i].className = '';
     // Guns the interceptor pool can't feed right now.
     let m = 0;
     if (s.phase === 'play') for (const p of s.perim) {
@@ -441,6 +461,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     for (let i = m; i < padLabels.length; i++) if (padLabels[i].className) padLabels[i].className = '';
   }
   const padLabels = Array.from({ length: 16 }, () => { const el = $('labels').appendChild(document.createElement('div')); el.textContent = 'NO AMMO'; return el; });
+  const vetLabels = Array.from({ length: 16 }, () => $('labels').appendChild(document.createElement('div')));
 
   // ---- text (throttled) ----
   let ffSpeed = 1, acc = 1, lastPhase = '', armSaid = -99, tbmSaid = -99, cruiseSaid = -99, shopForBuild = false;
@@ -676,9 +697,11 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       if (tipEl.classList.contains('on') && (s.t > tipUntil || s.t < tipUntil - 16 || s.phase === 'start')) tipEl.classList.remove('on');
       for (const e of s.events) {
         if (e.k === 'kill') {
-          if (e.n) pop(project, e.x, e.z, `+${e.n}`, '');
+          const big = BIG_KILLS[e.kind!];
+          if (e.n) pop(project, e.x, e.z, `+${e.n}`, big ? 'big' : '');
+          if (big) { say(big, 'big'); flash(); }
           if (MUNITIONS.includes(e.kind!) && e.kind !== 'atgm') log(`${ENEMIES[e.kind!].code} INTERCEPTED BRG ${pad3(bearing(e.x, e.z))}`);
-          else if (e.kind === 'ew') { say('JAMMER DOWN', 'info'); log(`JAMMER DOWN BRG ${pad3(bearing(e.x, e.z))} · SECTOR CLEAR`); }
+          else if (e.kind === 'ew') log(`JAMMER DOWN BRG ${pad3(bearing(e.x, e.z))} · SECTOR CLEAR`);
           else if (e.kind === 'elite') log('SU-34 SPLASHED');
         }
         else if (e.k === 'lost' && s.phase === 'play' && emitting(s)) log(`LOCK LOST${e.n! > 1 ? ` x${e.n}` : ''} BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
@@ -706,7 +729,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         else if (e.k === 'lastStand') { say('LAST STAND', 'warn'); log('LAST STAND · FIRE RATE UP · POWER DOWN', 'alert'); }
         else if (e.k === 'emcon') log(s.emcon ? 'EMCON · RADAR SILENT' : 'RADIATING', s.emcon ? 'alert' : '');
         else if (e.k === 'jam') log(`JAMMING BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
-        else if (e.k === 'ident') log('DECOY CLASSIFIED · TRACK RELEASED');
+        else if (e.k === 'ident') { log('DECOY CLASSIFIED · TRACK RELEASED'); pop(project, e.x, e.z, '✕ DECOY', 'decoy'); }
         else if (e.k === 'dud') log('DECOY IMPACT · NO DAMAGE');
         else if (e.k === 'placing') { if (s.placing) say(`BUILD ${s.placing.k.toUpperCase()}: CLICK OPEN GROUND`, 'info'); }
         else if (e.k === 'raid') { say(`⚠ ${e.name} · BRG ${pad3(bearing(e.x, e.z))}`, 'warn'); log(`${e.name} · BRG ${pad3(bearing(e.x, e.z))}`, 'alert'); }
@@ -724,7 +747,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         else if (e.k === 'build') { say(`LEVEL ${s.stage + 1} COMPLETE · BUILD ${e.n}s`, 'info'); log(`LEVEL ${s.stage + 1} COMPLETE · BUILD WINDOW ${e.n}s · NO NEW CONTACTS`); }
         else if (e.k === 'padDown') { say('⚠ EMPLACEMENT DOWN', 'warn'); log(`${e.kind.toUpperCase()} DOWN BRG ${pad3(bearing(e.x, e.z))} · REPAIRING`, 'alert'); }
         else if (e.k === 'padUp') { if (e.n) { const n = MG_TIERS[e.n].name; say(n, 'info'); log(`UPGRADED · ${n}`); } else log(`${e.kind.toUpperCase()} BACK IN ACTION BRG ${pad3(bearing(e.x, e.z))}`); }
-        else if (e.k === 'padRank') { const v = VETERANCY[e.n]; pop(project, e.x, e.z, `★ ${v.name}`, 'up star'); log(`${e.kind.toUpperCase()} BRG ${pad3(bearing(e.x, e.z))} · ${v.name} · +${Math.round((v.dmg - 1) * 100)}% DMG`); }
+        else if (e.k === 'padRank') { const v = VETERANCY[e.n]; pop(project, e.x, e.z, `${'★'.repeat(e.n)} ${v.name}`, 'up star'); say(`${PERIM_NAMES[e.kind]} · ${v.name}`, 'info'); log(`${e.kind.toUpperCase()} BRG ${pad3(bearing(e.x, e.z))} · ${v.name} · +${Math.round((v.dmg - 1) * 100)}% DMG`); }
         else if (e.k === 'padSold') log(`${e.kind.toUpperCase()} SOLD · +${fmt(e.n)} CR`);
         else if (e.k === 'padMoved') log(`${e.kind.toUpperCase()} MOVED${e.n ? ` · OFFLINE ${e.n}s` : ''}`);
         else if (e.k === 'radarOnline') { say('RADAR ONLINE', 'info'); log('AN/MPQ-65 ONLINE · SEARCH + FIRE CONTROL'); }
