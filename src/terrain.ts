@@ -5,6 +5,8 @@
 // Every map keeps the same layout rules: the plateau and the field of fire toward the front stay clear, the
 // river stays beyond the build zone, the starting MG's spot is open, and enough of the build zone is buildable.
 
+import { BUILD_MAX } from './config.ts';
+
 export type Ground = 'grass' | 'field' | 'forest' | 'water' | 'rock' | 'road';
 type Blob = { x: number; z: number; r: number };
 
@@ -26,9 +28,9 @@ const step = (a: number, b: number, t: number) => { const u = Math.min(1, Math.m
 
 // ---- the current map's parameters (see setMap) ----
 const M = {
-  river: { z: -47, a1: 5, f1: 0.055, p1: 0, a2: 2.5, f2: 0.13, p2: 1 },
+  river: { z: -51, a1: 5, f1: 0.055, p1: 0, a2: 2.5, f2: 0.13, p2: 1 },
   road: { a: 2.2, f: 0.07, p: 0, ta: 1.5, tp: 0 },
-  forest: { inner: 0.66, outer: 0.6 }, // fbm cut-offs inside / outside 38 m: higher is fewer woods
+  forest: { inner: 0.66, outer: 0.6 }, // fbm cut-offs inside / outside BUILD_MAX + 2 m: higher is fewer woods
   field: 0.55,
 };
 export let PONDS: Blob[] = [];
@@ -55,7 +57,7 @@ export function ground(x: number, z: number): Ground {
   for (const q of ROCKS) if ((x - q.x) ** 2 + (z - q.z) ** 2 < q.r * q.r) return 'rock';
   if (onRoad(x, z)) return 'road';
   // Woods: thinner inside the build zone, none on the base plateau or in the field of fire.
-  if (r > 14 && !cleared(x, z) && forestness(x, z) > (r < 38 ? M.forest.inner : M.forest.outer)) return 'forest';
+  if (r > 14 && !cleared(x, z) && forestness(x, z) > (r < BUILD_MAX + 2 ? M.forest.inner : M.forest.outer)) return 'forest';
   if (z > 12 && fbm(x * 0.03 + 7, z * 0.03 + 91) > M.field) return 'field';
   return 'grass';
 }
@@ -95,13 +97,13 @@ const rng = (seed: number) => () => {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 };
 const START = { x: 0, z: -17 }; // config.START_PAD: the starting MG's spot must stay open
-export const OPEN_MIN = 0.55; // share of the build zone (10.5 - 36 m) that must be buildable
+export const OPEN_MIN = 0.55; // share of the build zone (10.5 m - BUILD_MAX) that must be buildable
 // Share of the full build zone a unit could stand on (ignores other units).
 export function openShare() {
   let n = 0, open = 0;
-  for (let x = -36; x <= 36; x += 1.5) for (let z = -36; z <= 36; z += 1.5) {
+  for (let x = -BUILD_MAX; x <= BUILD_MAX; x += 1.5) for (let z = -BUILD_MAX; z <= BUILD_MAX; z += 1.5) {
     const r = Math.hypot(x, z);
-    if (r < 10.5 || r > 36) continue;
+    if (r < 10.5 || r > BUILD_MAX) continue;
     n++;
     const g = ground(x, z);
     if (g !== 'water' && g !== 'rock' && g !== 'forest') open++;
@@ -112,7 +114,7 @@ export function openShare() {
 function roll(seed: number) {
   const R = rng(seed), u = (a: number, b: number) => a + R() * (b - a);
   SALT = Math.floor(R() * 2 ** 31);
-  M.river = { z: u(-51, -47.5), a1: u(2.5, 5), f1: u(0.035, 0.07), p1: u(0, 7), a2: u(0.8, 2.5), f2: u(0.1, 0.16), p2: u(0, 7) };
+  M.river = { z: u(-54, -50.5), a1: u(2.5, 5), f1: u(0.035, 0.07), p1: u(0, 7), a2: u(0.8, 2.5), f2: u(0.1, 0.16), p2: u(0, 7) };
   M.road = { a: u(1, 3), f: u(0.05, 0.09), p: u(0, 7), ta: u(0.8, 2), tp: u(0, 7) };
   M.forest = { inner: u(0.62, 0.7), outer: u(0.55, 0.63) };
   M.field = u(0.48, 0.6);

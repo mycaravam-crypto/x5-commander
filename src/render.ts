@@ -5,7 +5,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { ARENA_R, BASE_R, BUILD_MIN, DROP_MAX, ENEMIES, MUNITIONS, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, FANS, GUNS, MG_TIERS, PERIM, PAD_HP, BIG_KILLS, altitude, flightAlt, buildR, type EnemyKind, type PerimKind } from './config.ts';
+import { ARENA_R, CAMERA, BASE_R, BUILD_MIN, DROP_MAX, ENEMIES, MUNITIONS, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, FANS, GUNS, MG_TIERS, PERIM, PAD_HP, BIG_KILLS, altitude, flightAlt, buildR, type EnemyKind, type PerimKind } from './config.ts';
 import { building as inBuildWindow, emitting, focusBearing, flankArc, radarRange, radarSector, bestSpot, spotNear, selectedPad, coverage, padStats, phase, shownKind, visible, type Enemy, type Shot, type State } from './sim.ts';
 import { heightSampler, treeList, ROCKS, FARMS, WATER_Y, mapSeed } from './terrain.ts';
 import { paintTerrain } from './terrainPaint.ts';
@@ -126,7 +126,7 @@ export function createRenderer() {
   const grade = new ShaderPass(GRADE);
   composer.addPass(grade);
   // Camera: orbits a target point on the ground. yaw turns it, dist zooms, the target pans (RTS style).
-  let yaw = Math.PI / 2, dist = 128, tx = 0, tz = -10;
+  let yaw = Math.PI / 2, dist = CAMERA.dist, tx = 0, tz = -10;
   const PITCH = 0.98;
   // Screen px covered by HUD at the top / bottom (phone portrait): the view centres in the band between them.
   let inTop = 0, inBot = 0, shift = 0;
@@ -757,7 +757,7 @@ export function createRenderer() {
           beam(x, y, z, e.x2, y2, e.z2, 2.2, 0x9fe8ff, 0.4, 0.15);
           beam(x, y, z, e.x2, y2, e.z2, 0.25, 0xffffff, 0.3, 0.8);
           for (let i = 0; i < 6; i++) front(x, y, z, a, i * 0.05, len);
-          gwave(x, z, 4, 0x9fe8ff, 0.3);
+          gwave(x, z, len, 0x9fe8ff, 0.3); // the whole wedge it fries
           break;
         }
         case 'level': gwave(0, 0, 40, 0xffe9a8, 1.2, 1.2); gwave(0, 0, 25, 0xffffff, 0.9); groundFlash = 0.4; break;
@@ -1352,7 +1352,7 @@ export function createRenderer() {
     pick, project,
     rotate: (d: number) => { yaw += d; },
     inset: (top: number, bottom: number) => { inTop = top; inBot = bottom; },
-    zoomBy: (f: number) => { dist = Math.min(150, Math.max(28, dist / f)); },
+    zoomBy: (f: number) => { dist = Math.min(CAMERA.max, Math.max(CAMERA.min, dist / f)); },
     // Pan by screen pixels (drag) or by world metres along the view (keys): the target slides over the ground.
     // Pixels: the ground follows the pointer (dx right, dy down). Metres: dx right, dy forward.
     pan(dx: number, dy: number, pixels = true) {

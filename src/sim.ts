@@ -2,7 +2,7 @@ import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, LEVEL_LEN, BUILD_TIME, BUILD_LOST, ELITE_FROM, PK_GROW, PK_MAX, EW_GROW, EW_MAX,
   TERRAIN, ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, FANS, beltAt, buildR, BUILD_MIN, PAD_GAP, START_PAD, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, VETERANCY, vetRank, deriveStats, difficulty, BACKUP_RADAR,
   BIG_KILLS, BIG_KILL_SHAKE, DROPS, DROP_KINDS, DROP_GRAB, DROP_MAX, DROP_HEAVY, CACHE, REPAIR_DROP, OVERDRIVE, MILESTONE, rank,
-  RADAR_MODES, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
+  HPM_CONE, RADAR_MODES, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   TRAINING, TRAINING_BUILD, TRAINING_SEED, DIVE_SPEED, SHAHED_DIVE, LANCET, HELO, KAB_R, KAB_PAIR, KAB_FIRST, EGRESS_SPEED, TERMINAL, CRUISE_DOGLEG, CRUISE_TERMINAL, KA52, SU25, SEAD, ARM2, ARMS, SWARM, RECON, MASK, IR_SEEKER, horizon, flightAlt, MUNITIONS, AGILITY, HOMING_BOOST, HOMING_SNAP,
   type EnemyKind, type DropKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
 } from './config.ts';
@@ -175,6 +175,7 @@ export type State = ReturnType<typeof newGame>;
 
 const TAU = Math.PI * 2;
 const AESA_SPIN = 1.2; // rad/s, cosmetic
+const HPM_TAN = Math.tan(HPM_CONE); // HPM wedge: half-width grows this much per m out
 const pick = <T>(r: { seed: number }, a: T[]) => a[Math.floor(rand(r) * a.length)];
 export const visible = (s: State, e: Enemy) => e.locked || e.seenUntil > s.t;
 const NO_MOD: Mod = { name: '', desc: '' };
@@ -1329,7 +1330,7 @@ function fire(s: State, dt: number) {
       for (const o of [...s.enemies]) {
         const along = o.x * dx + o.z * dz;
         if (along < 0 || along > w.range) continue;
-        if (Math.abs(o.x * dz - o.z * dx) < o.size + 0.6) damage(s, o, w.dmg, 'HPM');
+        if (Math.abs(o.x * dz - o.z * dx) < o.size + 0.6 + along * HPM_TAN) damage(s, o, w.dmg, 'HPM');
       }
       s.shake = Math.min(1.5, s.shake + 0.25);
     }

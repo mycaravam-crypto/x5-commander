@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
 import { newGame, update, stageInfo, spawnGroupAt, seedCode, parseCode, parseResult, buy, skipBuild, cruiseTarget, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive, noAmmo, spotted, irHit, shownKind, horizonMask } from './sim.ts';
-import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, TERRAIN, AMMO_RELOAD, GUNS, HELO, LANCET, MILESTONE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE, VETERANCY, TRAINING, TRAINING_BUILD, DOCTRINES, RAIDS, EW_MAX, RECON, KA52, SU25, SEAD as SEAD_FTR, ARM2, ARM_STUN, MASK, horizon, flightAlt, KINDS } from './config.ts';
+import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, BUILD_MAX, PAD_GAP, buildR, perimSlots, MG_TIERS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, TERRAIN, AMMO_RELOAD, GUNS, HELO, LANCET, MILESTONE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE, VETERANCY, TRAINING, TRAINING_BUILD, DOCTRINES, RAIDS, EW_MAX, RECON, KA52, SU25, SEAD as SEAD_FTR, ARM2, ARM_STUN, MASK, horizon, flightAlt, KINDS } from './config.ts';
 import { site, PONDS, ROCKS, FARMS, mapSeed, openShare, OPEN_MIN, ground, riverZ, RIVER_W } from './terrain.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
@@ -22,7 +22,7 @@ const ok = (c: unknown, msg: string) => { if (!c) throw new Error('FAIL: ' + msg
     ok(!buildBlock(g, g.perim[0].x, g.perim[0].z, g.perim[0].slot), `starting MG on open ground (seed ${seed})`);
     ok(openShare() >= OPEN_MIN, `enough open ground to build on (seed ${seed})`);
     ok(PONDS.length >= 1 && ROCKS.length >= 3, `ponds and outcrops (seed ${seed})`);
-    for (let x = -36; x <= 36; x += 2) ok(Math.abs(riverZ(x)) - RIVER_W > 36 || Math.hypot(x, riverZ(x)) > 36, `river beyond the build zone (seed ${seed})`);
+    for (let x = -BUILD_MAX; x <= BUILD_MAX; x += 2) ok(Math.abs(riverZ(x)) - RIVER_W > BUILD_MAX || Math.hypot(x, riverZ(x)) > BUILD_MAX, `river beyond the build zone (seed ${seed})`);
     ok(freeSpots(g).length > 10, `the auto-placer finds spots (seed ${seed})`);
   }
 }
