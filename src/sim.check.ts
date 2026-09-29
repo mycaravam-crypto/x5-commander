@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, draft, placePad, rand, dailySeed, type State } from './sim.ts';
-import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC } from './config.ts';
+import { newGame, update, buy, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, draft, placePad, rand, dailySeed, type State } from './sim.ts';
+import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC } from './config.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
 const rng = { seed: 12345 };
@@ -11,20 +11,24 @@ const run = (s: State, secs: number, each?: () => void) => {
   for (let i = 0; i < secs * 60; i++) { update(s, 1 / 60); each?.(); s.events.length = 0; }
 };
 
-// One thing at a time: no random spawns, strike packages or raids.
-const quiet = () => { const g = newGame(); g.phase = 'play'; g.spawnAcc = -1e9; g.nextElite = 1e9; g.nextRaid = 1e9; return g; };
+// A battery that has bought its radar and Patriot, for the checks on what those do.
+const armed = (g: State) => { g.lv.radar = g.lv.pac3 = 1; g.st = deriveStats(g.lv, g.perks, g.level); return g; };
+// One thing at a time: no random spawns, strike packages or raids. Armed, and without the starting MG.
+const quiet = () => { const g = armed(newGame()); g.phase = 'play'; g.spawnAcc = -1e9; g.nextElite = 1e9; g.nextRaid = 1e9; g.perim.length = 0; return g; };
 
 // Level thresholds
 ok([0, 2, 3, 8, 9, 18].map(baseLevel).join() === '1,1,2,2,3,4', 'baseLevel thresholds');
 
 // Cost scaling + max level
 let s = newGame();
+ok(cost(s, 'gen') === Infinity && lockReason(s, 'gen') === 'NEEDS RADAR', 'power needs a radar to feed');
+s.lv.radar = 1;
 ok(cost(s, 'gen') === 50, 'base cost');
 s.lv.gen = 2; ok(cost(s, 'gen') === Math.round(50 * 1.45 ** 2), 'exp cost');
 s.lv.modes = 3; ok(cost(s, 'modes') === Infinity, 'switch upgrades max out');
 s.lv.hp = 60; ok(cost(s, 'hp') < Infinity, 'regular upgrades have no max');
 s.lv.armor = 100; ok(deriveStats(s.lv, []).armor <= 0.85, 'armor diminishes');
-s.level = 9; s.lv.sweep = 8; ok(cost(s, 'sweep') === Infinity && lockReason(s, 'sweep') === 'NEEDS AESA', 'rotating radar scan cap');
+s.level = 9; s.lv.radar = 1; s.lv.sweep = 8; ok(cost(s, 'sweep') === Infinity && lockReason(s, 'sweep') === 'NEEDS AESA', 'rotating radar scan cap');
 s.lv.aesa = 1; ok(cost(s, 'sweep') < Infinity, 'AESA lifts the scan cap');
 
 // Difficulty grows, but slower and slower: the second 30 min add less than the first.
@@ -34,7 +38,7 @@ s.lv.aesa = 1; ok(cost(s, 'sweep') < Infinity, 'AESA lifts the scan cap');
 // Nothing happens before start
 s = newGame(); run(s, 5); ok(s.t === 0, 'start phase frozen');
 
-// Idle base: detects, shoots, earns — then eventually dies
+// Idle base (the starting MG and eyes): sees, shoots, earns — then eventually falls
 s = newGame(); s.phase = 'play';
 let sawVisible = false, invisibleShot = false;
 run(s, 60, () => {
@@ -44,7 +48,7 @@ run(s, 60, () => {
   }
 });
 ok(s.enemies.length > 0 || s.kills > 0, 'enemies spawn');
-ok(sawVisible, 'radar detects');
+ok(sawVisible, 'the idle MG base sees contacts');
 ok(!invisibleShot, 'locks only on visible');
 ok(s.kills > 0 && s.credits > 120, `kills earn credits (kills=${s.kills})`);
 run(s, 900);
@@ -67,17 +71,18 @@ run(s, 6);
 ok(s.stats.kills.tbm === 1, 'PAC-3 kills an Iskander');
 
 // Undetected enemy is never locked
-s = newGame(); s.phase = 'play'; s.st.radarRange = 0;
+s = armed(newGame()); s.phase = 'play'; s.st.radarRange = 0;
 run(s, 20);
-ok(s.enemies.every(e => !e.locked), 'no radar, no locks');
+ok(s.enemies.every(e => !e.locked || Math.hypot(e.x, e.z) < 19), 'radar sees nothing: locks only on what the eyes see');
 
 // Upgrading bot survives longer than idle, triggers perk drafts, grows base
 const bot = () => {
   const g = newGame(); g.phase = 'play';
   run(g, 1200, () => {
     if (g.phase === 'perk') pickPerk(g, 0);
-    const cheapest = UPGRADES.map(u => u.id).sort((a, b) => cost(g, a) - cost(g, b))[0];
-    buy(g, cheapest);
+    // The milestones first: once one opens up, save for it.
+    const goal = ['radar', 'pac3'].find(id => cost(g, id) < Infinity);
+    buy(g, goal ?? UPGRADES.map(u => u.id).sort((a, b) => cost(g, a) - cost(g, b))[0]);
     if (g.phase === 'over') return;
   });
   return g;
@@ -95,31 +100,71 @@ ok(b.level >= 3 && b.perks.length === b.level - 1, `base grows + perks (lv ${b.l
   ok(at(7).maxHp > at(6).maxHp && at(7).armStun < 1, 'lv7 hardened node');
   // TRML-4D keeps contacts coming while an ARM has the MPQ-65 down; lv3 hears raids earlier.
   const seen = (level: number) => { const g = quiet(); g.level = level; g.st = deriveStats(g.lv, [], level); g.radarDownUntil = 1e9;
-    const e = spawnEnemy(g, 'tank', 0, 15); e.hp = 1e9; e.speed = 0; let v = false, l = false;
+    const e = spawnEnemy(g, 'tank', 0, 20); e.hp = 1e9; e.speed = 0; let v = false, l = false; // past eyesight, inside the TRML's reach
     run(g, 10, () => { v ||= visible(g, e); l ||= e.locked; }); return v && !l; };
   ok(seen(4) && !seen(3), 'lv4: TRML-4D searches while the radar is down, without locks');
   const g = quiet(); g.level = 3; g.st = deriveStats(g.lv, [], 3); g.nextRaid = 20; run(g, 20 - RAID_WARN - 4.5);
   ok(g.raid, 'lv3: raids announced earlier');
-  const b = newGame(); b.phase = 'play'; b.credits = 1e6; for (let i = 0; i < 3; i++) buy(b, 'gen');
+  const b = newGame(); b.phase = 'play'; b.credits = 1e6; for (let i = 0; i < 3; i++) buy(b, 'hp');
   ok(b.level === 2 && b.st.gen === deriveStats(b.lv, [], 2).gen, 'level-up refreshes stats');
 }
 
-// Perimeter: gated by base level and pad count; a pad kills things on its own
+// Perimeter: gated by base level and pad count; a pad kills things on its own. The starting MG takes one of lv1's 2.
 s = newGame(); s.phase = 'play'; s.credits = 1e6;
 ok(!buy(s, 'mantis'), 'mantis locked at lv1');
+ok(buy(s, 'mg') && placePad(s, 10, 0) && !buy(s, 'mg'), 'lv1 = 2 pads, the starting MG and one more');
 s.level = 2;
 ok(buy(s, 'mantis') && !buy(s, 'mantis'), 'one pad placed at a time');
-ok(placePad(s, -10, 0) && s.perim[0].slot === 4, 'pad goes to the clicked side');
-ok(buy(s, 'mantis') && placePad(s, -10, 0) && s.perim[1].slot !== 4, 'taken slot skipped');
-ok(!buy(s, 'mantis'), 'lv2 = 2 pads');
-ok(s.perim.length === 2 && Math.hypot(s.perim[0].x, s.perim[0].z) > 10, 'pads on the ring');
+ok(placePad(s, -10, 0) && s.perim[2].slot === 4, 'pad goes to the clicked side');
+ok(buy(s, 'mantis') && placePad(s, -10, 0) && s.perim[3].slot !== 4, 'taken slot skipped');
+ok(!buy(s, 'mantis'), 'lv2 = 4 pads');
+ok(s.perim.length === 4 && s.perim.every(p => Math.hypot(p.x, p.z) > 10), 'pads on the ring');
 { const g = quiet(); g.credits = 1e6; g.level = 2; buy(g, 'mantis'); run(g, 9); ok(g.perim.length === 1 && !g.placing, 'unplaced pad places itself'); }
 s.st.slots = 0; // no main-battery locks: only the pads can shoot
 run(s, 40);
 ok(s.kills > 0, `pads engage without locks (kills=${s.kills})`);
 
-// Manual mark picks nearest visible enemy
-s = newGame(); s.phase = 'play'; run(s, 20);
+// The starting kit: one AA machine gun facing the front, eyes, and no radar or Patriot.
+{
+  const g = newGame(); g.phase = 'play'; g.spawnAcc = -1e9; g.nextRaid = g.nextElite = 1e9;
+  const mg = g.perim[0], off = Math.abs(Math.atan2(mg.z, mg.x) - FRONT);
+  ok(g.perim.length === 1 && mg.k === 'mg' && off < 0.5 && !g.st.radar && !g.st.weapons.cannon && !emitting(g), 'start: one MG on the front, no radar, no Patriot');
+  // Eyes: the base sees VISUAL_R all round, an emplacement sees PAD_EYES round itself; beyond that, nothing.
+  const near = spawnEnemy(g, 'tank', FRONT + Math.PI, VISUAL_R - 2), far = spawnEnemy(g, 'tank', FRONT + Math.PI, VISUAL_R + 4);
+  const fwd = spawnEnemy(g, 'tank', FRONT, Math.hypot(mg.x, mg.z) + PAD_EYES - 2);
+  for (const e of [near, far, fwd]) { e.speed = e.vx = e.vz = 0; e.hp = 1e9; }
+  run(g, 0.5);
+  ok(visible(g, near) && visible(g, fwd) && !visible(g, far), 'eyes: close to the base or to an emplacement');
+  ok(g.enemies.every(e => !e.locked), 'no radar: no locks');
+  // Without a radar there's nothing to silence, switch, mark or intercept with.
+  toggleEmcon(g); cycleRadarMode(g); markAt(g, fwd.x, fwd.z);
+  ok(!g.emcon && g.radarMode === 0 && !g.marked && iBlock(g) === 'NO RADAR', 'no radar: no EMCON, modes, priority or intercept');
+  // The MG takes on what it can see, from its own belt, and reloads when it runs dry.
+  ok(g.stats.dmg.MG > 0 && g.perim[0].belt < MG_BELT.rounds, 'MG fires at a visible contact without a lock');
+  fwd.hp = 1e9; run(g, MG_BELT.rounds / 6 + 0.5);
+  ok(g.perim[0].cd > 1, 'MG reloads when the belt runs out');
+  const pre = g.ammo; run(g, 1); ok(g.ammo >= pre, 'MG ammo is its own, not the interceptor pool');
+}
+{
+  const g = newGame(); g.phase = 'play'; g.spawnAcc = -1e9; g.nextRaid = g.nextElite = 1e9; g.st.maxHp = g.hp = 1e9;
+  const e = spawnEnemy(g, 'drone', FRONT, 40);
+  run(g, 15);
+  ok(!g.enemies.includes(e) && g.kills === 1 && g.hp === g.st.maxHp, 'the MG alone stops a Shahed from the front');
+  const arm = spawnEnemy(g, 'arm', FRONT, 30);
+  run(g, 8);
+  ok(!g.enemies.includes(arm) && g.radarDownUntil === 0 && g.stats.radarHits === 0, 'an ARM has no radar to knock out');
+}
+// Unlock ladder: the radar opens at base level RADAR_REQ; sensors, fire control and the Patriot need it.
+{
+  const g = newGame(); g.phase = 'play'; g.credits = 1e6;
+  ok(lockReason(g, 'radar') === `BASE LV ${RADAR_REQ}` && lockReason(g, 'slots') === 'NEEDS RADAR' && lockReason(g, 'range') === 'NEEDS RADAR', 'radar gated by base level, sensors by the radar');
+  g.level = RADAR_REQ;
+  ok(lockReason(g, 'pac3') === 'NEEDS RADAR' && buy(g, 'radar') && g.st.radar && emitting(g) && !buy(g, 'radar'), 'buying the radar switches it on, once');
+  ok(buy(g, 'pac3') && g.st.weapons.cannon && lockReason(g, 'slots') === '', 'then the Patriot and fire control upgrades');
+}
+
+// Manual mark picks nearest visible enemy (fire control: needs the radar)
+s = armed(newGame()); s.phase = 'play'; run(s, 20);
 const v = s.enemies.find(e => visible(s, e));
 if (v) { markAt(s, v.x, v.z); ok(s.marked === v.id, 'markAt'); }
 
@@ -272,7 +317,7 @@ ok(raidRun(0).includes('raidLeak'), 'leaked raid does not');
   run(g, RAID_WARN);
   ok(g.raidLeft === total && g.raidName === brief.name, `briefing matches the raid (${g.raidLeft}/${total})`);
   let build = 0;
-  run(g, 25, () => { for (const e of g.events) if (e.k === 'build') build = e.n; });
+  run(g, 40, () => { for (const e of g.events) if (e.k === 'build') build = e.n; });
   ok(!g.raidClean && build === BUILD_LOST && g.stage === 1, 'lost objective: short build window, then the next level');
 }
 {
@@ -302,6 +347,9 @@ ok(raidRun(0).includes('raidLeak'), 'leaked raid does not');
   run(g, 1 / 60); g.raid!.g = { arm: 1, drone: 1 }; g.raid!.obj = 'radar';
   run(g, 20);
   ok(!g.raidClean && g.stats.radarHits > 0, 'ARM hit loses PROTECT RADAR');
+  const h = newGame(); h.phase = 'play'; h.spawnAcc = -1e9; h.nextElite = 1e9; h.stage = 3; h.nextRaid = RAID_WARN;
+  for (let i = 0; i < 30 && (!h.raid || h.raid.name !== 'SEAD STRIKE'); i++) { h.raid = null; h.nextRaid = h.t + RAID_WARN; run(h, 1 / 60); }
+  ok(h.raid?.name === 'SEAD STRIKE' && h.raid.obj === 'battery', 'no radar yet: SEAD STRIKE is PROTECT BATTERY');
 }
 
 // Attack packages: turn up in normal waves once their level comes, all from one bearing, escort jamming it.
@@ -459,7 +507,7 @@ const withPerk = (id: string) => { const g = quiet(); g.perks = [id]; g.st = der
 
 // Doctrines: free levels without base-level progress; daily ops ignore them.
 s = newGame(1, '', 'sensor');
-ok(s.lv.range === 2 && s.bought === 0 && s.level === 1 && s.st.radarRange > newGame(1).st.radarRange, 'doctrine loadout');
+ok(s.lv.range === 1 && s.st.radar && s.st.weapons.cannon && !newGame(1).st.radar && s.bought === 0 && s.level === 1 && s.st.radarRange > newGame(1).st.radarRange, 'doctrine loadout: SENSOR NET starts with the radar and Patriot');
 ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies standard');
 
 // Debrief counters add up.

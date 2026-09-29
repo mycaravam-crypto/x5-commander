@@ -53,11 +53,12 @@ export const KINDS = Object.keys(ENEMIES) as EnemyKind[];
 // 1 learn the systems · 2 mixed threats · 3 jammers + decoys · 4 SEAD · 5 heavy coordinated raids ·
 // 6+ conditions on top, with attack packages ever more likely (PK_GROW per loop, up to PK_MAX).
 // Spawn weights per level; the last entry repeats. pk: chance a spawn event is an attack package instead.
+// rate: spawn rate x, so the opening levels can be held by guns alone (default 1).
 // arc: half-width around FRONT that flank threats can come from (default FRONT_ARC; every direction after the last level).
-export const LEVELS: { name: string; w: Partial<Record<EnemyKind, number>>; pk?: number; arc?: number }[] = [
-  { name: 'PROBING', w: { scout: 3, drone: 2 } },
-  { name: 'MIXED THREATS', w: { scout: 2, drone: 3, swarm: 1, tank: 0.5 } },
-  { name: 'EW SCREEN', w: { scout: 2, drone: 3, swarm: 1, tank: 0.7, decoy: 1.5, ew: 0.15 }, pk: 0.05 },
+export const LEVELS: { name: string; w: Partial<Record<EnemyKind, number>>; pk?: number; arc?: number; rate?: number }[] = [
+  { name: 'PROBING', w: { scout: 3, drone: 2 }, rate: 0.45 },
+  { name: 'MIXED THREATS', w: { scout: 2, drone: 3, swarm: 1, tank: 0.5 }, rate: 0.6 },
+  { name: 'EW SCREEN', w: { scout: 2, drone: 3, swarm: 1, tank: 0.7, decoy: 1.5, ew: 0.15 }, pk: 0.05, rate: 0.8 },
   { name: 'SEAD', w: { scout: 1, drone: 3, swarm: 1, tank: 1, decoy: 2, elite: 0.15, arm: 0.3, ew: 0.15 }, pk: 0.07, arc: 60 * DEG },
   { name: 'COORDINATED RAID', w: { scout: 2, drone: 3, swarm: 2, tank: 1.5, elite: 0.3, decoy: 1.5, arm: 0.2, ew: 0.1, tbm: 0.15 }, pk: 0.1, arc: 120 * DEG },
 ];
@@ -185,46 +186,57 @@ export interface Upgrade {
   id: string; name: string; group: string; desc: string;
   base: number; mult: number; max: number;
   req?: number; // base level needed to buy
+  needs?: string; // upgrade that must be owned first (e.g. the radar, for everything that needs a track)
 }
 export const SWEEP_CAP = 8; // Scan Rate levels a rotating radar can take; LTAMDS AESA lifts it
-const U = (group: string, id: string, name: string, base: number, mult: number, max: number, desc: string, req?: number): Upgrade =>
-  ({ group, id, name, base, mult, max, desc, req });
+const U = (group: string, id: string, name: string, base: number, mult: number, max: number, desc: string, req?: number, needs?: string): Upgrade =>
+  ({ group, id, name, base, mult, max, desc, req, needs });
+// The run starts with one AA machine gun and eyes. The search radar and the Patriot are bought, from these base levels.
+export const RADAR_REQ = 3, PAC3_REQ = 3; // the Patriot needs the radar, so it comes right after it
+const R = 'radar';
 
 export const UPGRADES: Upgrade[] = [
   U('BATTERY', 'hp', 'Hardened Shelters', 60, 1.45, Infinity, '+40 max HP'),
   U('BATTERY', 'armor', 'Earth Revetments', 90, 1.6, Infinity, '-12% of the damage still taken'),
   U('BATTERY', 'repair', 'Maintenance Crew', 120, 1.6, Infinity, '+0.6 HP/s'),
-  U('POWER', 'gen', 'EPP-III Generator', 50, 1.45, Infinity, '+3 power/s'),
-  U('POWER', 'cap', 'Battery Banks', 40, 1.4, Infinity, '+40 power storage'),
-  U('SENSORS', 'range', 'LTAMDS Array', 60, 1.5, Infinity, '+7 detection range'),
-  U('SENSORS', 'sweep', 'TRML-4D Scan Rate', 70, 1.5, Infinity, '+20% scan rate (max 8 on a rotating radar)'),
-  U('SENSORS', 'aesa', 'LTAMDS AESA', 600, 1, 1, 'staring 360° array: no sweep · +25% scan rate · uncaps scan rate', 4),
-  U('SENSORS', 'res', 'GaN T/R Modules', 50, 1.5, Infinity, '+15% detection chance · faster decoy ID'),
-  U('SENSORS', 'persist', 'Track Memory', 50, 1.45, Infinity, '+1.5s contact memory'),
-  U('FIRE CONTROL', 'slots', 'ECS Channels', 80, 1.55, Infinity, '+1 simultaneous lock'),
-  U('FIRE CONTROL', 'trange', 'Track Range', 60, 1.5, Infinity, '+6 tracking range'),
-  U('FIRE CONTROL', 'modes', 'Threat Evaluation', 100, 2, 3, 'unlock next auto mode [T]'),
+  U('POWER', 'gen', 'EPP-III Generator', 50, 1.45, Infinity, '+3 power/s', undefined, R),
+  U('POWER', 'cap', 'Battery Banks', 40, 1.4, Infinity, '+40 power storage', undefined, R),
+  U('SENSORS', 'radar', 'AN/MPQ-65 Radar', 200, 1, 1, 'search radar + fire control: detection beyond sight, locks, radar modes', RADAR_REQ),
+  U('SENSORS', 'range', 'LTAMDS Array', 60, 1.5, Infinity, '+7 detection range', undefined, R),
+  U('SENSORS', 'sweep', 'TRML-4D Scan Rate', 70, 1.5, Infinity, '+20% scan rate (max 8 on a rotating radar)', undefined, R),
+  U('SENSORS', 'aesa', 'LTAMDS AESA', 600, 1, 1, 'staring 360° array: no sweep · +25% scan rate · uncaps scan rate', 4, R),
+  U('SENSORS', 'res', 'GaN T/R Modules', 50, 1.5, Infinity, '+15% detection chance · faster decoy ID', undefined, R),
+  U('SENSORS', 'persist', 'Track Memory', 50, 1.45, Infinity, '+1.5s contact memory', undefined, R),
+  U('FIRE CONTROL', 'slots', 'ECS Channels', 80, 1.55, Infinity, '+1 simultaneous lock', undefined, R),
+  U('FIRE CONTROL', 'trange', 'Track Range', 60, 1.5, Infinity, '+6 tracking range', undefined, R),
+  U('FIRE CONTROL', 'modes', 'Threat Evaluation', 100, 2, 3, 'unlock next auto mode [T]', undefined, R),
   U('WEAPONS', 'dmg', 'Lethality Enhancer', 70, 1.45, Infinity, '+25% all weapon damage'),
   U('WEAPONS', 'rate', 'Salvo Doctrine', 80, 1.5, Infinity, '+15% all fire rate'),
-  U('WEAPONS', 'pulse', 'HEL 50kW Laser', 250, 1.7, Infinity, 'power beam · +40%/lv'),
-  U('WEAPONS', 'missile', 'IRIS-T SLX', 400, 1.7, Infinity, 'homing blast-frag · +40%/lv'),
-  U('WEAPONS', 'rail', 'HPM Leonidas', 700, 1.7, Infinity, 'microwave, hits the whole line · +40%/lv'),
-  U('MAGAZINE', 'acap', 'M903 Canisters', 40, 1.4, Infinity, '+25 interceptor capacity'),
-  U('MAGAZINE', 'aprod', 'GMT Reload', 50, 1.45, Infinity, '+1.5 interceptors/s'),
+  U('WEAPONS', 'pac3', 'PAC-3 MSE Battery', 300, 1, 1, 'hit-to-kill interceptors on the locks · the only answer to ballistic missiles', PAC3_REQ, R),
+  U('WEAPONS', 'pulse', 'HEL 50kW Laser', 250, 1.7, Infinity, 'power beam · +40%/lv', undefined, R),
+  U('WEAPONS', 'missile', 'IRIS-T SLX', 400, 1.7, Infinity, 'homing blast-frag · +40%/lv', undefined, R),
+  U('WEAPONS', 'rail', 'HPM Leonidas', 700, 1.7, Infinity, 'microwave, hits the whole line · +40%/lv', undefined, R),
+  U('MAGAZINE', 'acap', 'M903 Canisters', 40, 1.4, Infinity, '+25 interceptor capacity', undefined, 'pac3'),
+  U('MAGAZINE', 'aprod', 'GMT Reload', 50, 1.45, Infinity, '+1.5 interceptors/s', undefined, 'pac3'),
+  U('PERIMETER', 'mg', '12.7mm AA MG', 60, 1.5, Infinity, 'belt-fed gun on what it can see, short range · +1 emplacement'),
   U('PERIMETER', 'mantis', 'MANTIS 35mm C-RAM', 150, 1.35, Infinity, 'fast gun, short range · +1 emplacement', 2),
   U('PERIMETER', 'stinger', 'Stinger Team', 220, 1.35, Infinity, 'MANPADS, mid range homing · +1 emplacement', 3),
   U('PERIMETER', 'jammer', 'EW Jammer', 300, 1.4, Infinity, 'slows contacts nearby, drains power · +1 emplacement', 4),
 ];
 
-// Perimeter emplacements sit on a ring around the battery and engage any radar contact in their own
-// range, without using a lock slot. Each base level opens 2 more pads.
-export type PerimKind = 'mantis' | 'stinger' | 'jammer';
-export const PERIM_KINDS: PerimKind[] = ['mantis', 'stinger', 'jammer'];
+// Perimeter emplacements sit on a ring around the battery and engage any contact in their own range that
+// can be seen (by eye or radar), without using a lock slot. Each base level opens 2 more pads.
+export type PerimKind = 'mg' | 'mantis' | 'stinger' | 'jammer';
+export const PERIM_KINDS: PerimKind[] = ['mg', 'mantis', 'stinger', 'jammer'];
+// Visual spotting, radar or not: anything this close to the base, or to an emplacement, is seen. NIGHT RAID x VISUAL_DARK.
+export const VISUAL_R = 18, PAD_EYES = 15, VISUAL_DARK = 0.6; // m (an emplacement sees as far as the MG reaches)
+export const MG_BELT = { rounds: 40, reload: 3 }; // the MG feeds from its own belt, not the interceptor pool; s to reload
 export const PERIM_R = 13;
 export const PAD_SLOTS = 8; // fixed spots round the ring, between the M903s
 export const PLACE_TIME = 8; // s to click a spot before the pad places itself toward the nearest threat
-export const perimSlots = (level: number) => Math.min(8, 2 * (level - 1));
+export const perimSlots = (level: number) => Math.min(PAD_SLOTS, 2 * level);
 export const PERIM = {
+  mg: { dmg: 1.5, rate: 6, range: 15, ammo: 0, power: 0 },
   mantis: { dmg: 1.2, rate: 10, range: 16, ammo: 0.15, power: 0 },
   stinger: { dmg: 7, rate: 0.8, range: 26, ammo: 1, power: 0 },
   jammer: { dmg: 0, rate: 0, range: 18, ammo: 0, power: 1.2 }, // power/s while anything is in range
@@ -246,32 +258,32 @@ export const COUNTER_SEAD = 0.2; // share of power storage restored per ARM shot
 export const KILL_CHAIN = { every: 5, time: 8 }; // kills per extra lock slot, s it lasts
 export const OVERKILL_R = 8; // m an overkill's excess damage can jump
 export const LAST_STAND = { hp: 0.25, rate: 1.5, gen: 0.6 };
-// `min`: base level before it's offered; `need`: upgrade that must be owned. Rule perks (`rule`) are one-offs
+// `min`: base level before it's offered; `need`: upgrade that must be owned (radar and Patriot perks wait for them). Rule perks (`rule`) are one-offs
 // that change how the game plays; from base level 5 every draft includes one while any are left.
 export const PERKS: { id: string; name: string; desc: string; fx: PerkFx; rule?: boolean; min?: number; need?: string }[] = [
   { id: 'overcharge', name: 'OVERCHARGE', desc: '+50% damage · -30% power gen', fx: { dmg: 1.5, gen: 0.7 } },
-  { id: 'highfreq', name: 'HIGH FREQUENCY', desc: '+40% sweep speed · -15% radar range', fx: { sweep: 1.4, range: 0.85 } },
-  { id: 'logistics', name: 'AUTOMATED LOGISTICS', desc: '+100% ammo production · -15% credits', fx: { aprod: 2, credits: 0.85 } },
+  { id: 'highfreq', name: 'HIGH FREQUENCY', desc: '+40% sweep speed · -15% radar range', fx: { sweep: 1.4, range: 0.85 }, need: 'radar' },
+  { id: 'logistics', name: 'AUTOMATED LOGISTICS', desc: '+100% ammo production · -15% credits', fx: { aprod: 2, credits: 0.85 }, need: 'pac3' },
   { id: 'glass', name: 'GLASS CANNON', desc: '+100% damage · -40% max HP', fx: { dmg: 2, hp: 0.6 } },
   { id: 'salvage', name: 'SALVAGE', desc: '+25% credits · -15% damage', fx: { credits: 1.25, dmg: 0.85 } },
   { id: 'trigger', name: 'HAIR TRIGGER', desc: '+35% fire rate · -20% ammo production', fx: { rate: 1.35, aprod: 0.8 } },
-  { id: 'deepscan', name: 'DEEP SCAN', desc: '+30% radar range · -20% sweep speed', fx: { range: 1.3, sweep: 0.8 } },
+  { id: 'deepscan', name: 'DEEP SCAN', desc: '+30% radar range · -20% sweep speed', fx: { range: 1.3, sweep: 0.8 }, need: 'radar' },
   { id: 'fortress', name: 'FORTRESS', desc: '+50% max HP · +10% armor · -15% fire rate', fx: { hp: 1.5, addArmor: 0.1, rate: 0.85 } },
-  { id: 'signal', name: 'SIGNAL BOOST', desc: 'x2 contact memory · +50% radar power drain', fx: { persist: 2, drain: 1.5 } },
-  { id: 'multilock', name: 'MULTI-LOCK', desc: '+2 lock slots · -15% track range', fx: { addSlots: 2, trange: 0.85 } },
-  { id: 'reactor', name: 'REACTOR', desc: '+60% power gen · -15% max HP', fx: { gen: 1.6, hp: 0.85 } },
+  { id: 'signal', name: 'SIGNAL BOOST', desc: 'x2 contact memory · +50% radar power drain', fx: { persist: 2, drain: 1.5 }, need: 'radar' },
+  { id: 'multilock', name: 'MULTI-LOCK', desc: '+2 lock slots · -15% track range', fx: { addSlots: 2, trange: 0.85 }, need: 'radar' },
+  { id: 'reactor', name: 'REACTOR', desc: '+60% power gen · -15% max HP', fx: { gen: 1.6, hp: 0.85 }, need: 'radar' },
   { id: 'chain', name: 'CHAIN REACTION', desc: 'kills explode for 6 dmg · -10% credits', fx: { addChain: 6, credits: 0.9 } },
-  { id: 'fusion', name: 'TRACK FUSION', desc: 'locks hold while the radar is dark · -1 lock slot', fx: { addFusion: 1, addSlots: -1 }, rule: true, min: 5 },
-  { id: 'lpi', name: 'LPI WAVEFORM', desc: 'LPI mode keeps full detection chance and range · -15% radar range', fx: { addLpi: 1, range: 0.85 }, rule: true, min: 5 },
-  { id: 'overwatch', name: 'OVERWATCH', desc: 'your marked target takes x2 damage · -1 lock slot', fx: { markDmg: 2, addSlots: -1 }, rule: true, min: 5 },
+  { id: 'fusion', name: 'TRACK FUSION', desc: 'locks hold while the radar is dark · -1 lock slot', fx: { addFusion: 1, addSlots: -1 }, rule: true, min: 5, need: 'radar' },
+  { id: 'lpi', name: 'LPI WAVEFORM', desc: 'LPI mode keeps full detection chance and range · -15% radar range', fx: { addLpi: 1, range: 0.85 }, rule: true, min: 5, need: 'radar' },
+  { id: 'overwatch', name: 'OVERWATCH', desc: 'your marked target takes x2 damage · -1 lock slot', fx: { markDmg: 2, addSlots: -1 }, rule: true, min: 5, need: 'radar' },
   { id: 'arc', name: 'ARC LASER', desc: 'laser jumps to 2 more targets at 60% · -10% damage', fx: { addArc: 2, dmg: 0.9 }, rule: true, min: 5, need: 'pulse' },
-  { id: 'scav', name: 'SCAVENGER', desc: 'every kill refunds 2 interceptors · -10% max HP', fx: { addScav: 2, hp: 0.9 }, rule: true, min: 5 },
-  { id: 'blackout', name: 'BLACKOUT PROTOCOL', desc: 'contacts coast x2 as long while the radar is dark · -30% contact memory while radiating', fx: { addBlackout: 1 }, rule: true, min: 3 },
-  { id: 'csead', name: 'COUNTER-SEAD', desc: 'every ARM shot down restores 20% power · -10% credits', fx: { addCounterSead: 1, credits: 0.9 }, rule: true, min: 3 },
-  { id: 'killchain', name: 'KILL CHAIN', desc: 'every 5 kills: +1 lock slot for 8s · -10% damage', fx: { addKillChain: 1, dmg: 0.9 }, rule: true, min: 3 },
+  { id: 'scav', name: 'SCAVENGER', desc: 'every kill refunds 2 interceptors · -10% max HP', fx: { addScav: 2, hp: 0.9 }, rule: true, min: 5, need: 'pac3' },
+  { id: 'blackout', name: 'BLACKOUT PROTOCOL', desc: 'contacts coast x2 as long while the radar is dark · -30% contact memory while radiating', fx: { addBlackout: 1 }, rule: true, min: 3, need: 'radar' },
+  { id: 'csead', name: 'COUNTER-SEAD', desc: 'every ARM shot down restores 20% power · -10% credits', fx: { addCounterSead: 1, credits: 0.9 }, rule: true, min: 3, need: 'radar' },
+  { id: 'killchain', name: 'KILL CHAIN', desc: 'every 5 kills: +1 lock slot for 8s · -10% damage', fx: { addKillChain: 1, dmg: 0.9 }, rule: true, min: 3, need: 'radar' },
   { id: 'overkill', name: 'OVERKILL', desc: 'damage past a kill jumps to the nearest contact within 8m · -10% fire rate', fx: { addOverkill: 1, rate: 0.9 }, rule: true, min: 3 },
   { id: 'laststand', name: 'LAST STAND', desc: 'below 25% HP: +50% fire rate, -40% power gen', fx: { addLastStand: 1 }, rule: true, min: 3 },
-  { id: 'frag', name: 'FRAG WARHEADS', desc: 'PAC-3 hits splash for 50% · -15% fire rate', fx: { addFrag: 0.5, rate: 0.85 }, rule: true, min: 5 },
+  { id: 'frag', name: 'FRAG WARHEADS', desc: 'PAC-3 hits splash for 50% · -15% fire rate', fx: { addFrag: 0.5, rate: 0.85 }, rule: true, min: 5, need: 'pac3' },
 ];
 
 // Doctrines: a starting loadout picked before a normal run (daily ops fly STANDARD). Free upgrade levels that
@@ -279,7 +291,7 @@ export const PERKS: { id: string; name: string; desc: string; fx: PerkFx; rule?:
 export type Records = { time: number; kills: number; level: number; earned: number };
 export const DOCTRINES: { id: string; name: string; desc: string; need: string; lv: Record<string, number>; unlock: (b: Records) => boolean }[] = [
   { id: 'standard', name: 'STANDARD', desc: 'by the book', need: '', lv: {}, unlock: () => true },
-  { id: 'sensor', name: 'SENSOR NET', desc: 'LTAMDS 2 · GaN 2 · Track Memory 1', need: 'survive 5:00', lv: { range: 2, res: 2, persist: 1 }, unlock: b => b.time >= 300 },
+  { id: 'sensor', name: 'SENSOR NET', desc: 'the classic battery: radar and Patriot from the start · LTAMDS 1', need: 'survive 5:00', lv: { radar: 1, pac3: 1, range: 1 }, unlock: b => b.time >= 300 },
   { id: 'logistics', name: 'LOGISTICS', desc: 'Generator 2 · Canisters 2 · Reload 2', need: 'earn 5,000 credits in a run', lv: { gen: 2, acap: 2, aprod: 2 }, unlock: b => b.earned >= 5000 },
   { id: 'strike', name: 'FORWARD STRIKE', desc: 'Lethality 2 · Salvo 1 · +1 ECS channel', need: 'reach base level 6', lv: { dmg: 2, rate: 1, slots: 1 }, unlock: b => b.level >= 6 },
 ];
@@ -294,7 +306,7 @@ export const baseLevel = (bought: number) => {
 // What each base level builds. Every level also adds an M903 launcher (up to 8) and 2 perimeter pads.
 // Stat effects are applied in deriveStats; `desc` is what the level-up card shows.
 export const BASE_LEVELS: { name: string; desc: string }[] = [
-  { name: 'RADAR + ECS', desc: 'AN/MPQ-65 radar and engagement control station' },
+  { name: 'COMMAND POST', desc: 'command post and the first 12.7mm AA gun' },
   { name: 'POWER PLANT', desc: 'EPP-III generators: +2 power/s' },
   { name: 'COMMUNICATIONS', desc: 'OE-349 datalink: raids announced 5s earlier · +1s contact memory' },
   { name: 'SURVEILLANCE RADAR', desc: 'TRML-4D: keeps searching at half range while the MPQ-65 is knocked out' },
@@ -322,7 +334,9 @@ export function deriveStats(lv: Record<string, number>, perks: string[], level =
     return owned ? { ...w, dmg: w.dmg * (1 + 0.25 * L('dmg')) * extra * p.dmg, rate: w.rate * (1 + 0.15 * L('rate')) * p.rate } : null;
   };
   const wlv = (k: string) => 1 + 0.4 * Math.max(0, L(k) - 1);
+  const pad = <T extends { dmg: number; rate: number }>(w: T) => ({ ...w, dmg: w.dmg * (1 + 0.25 * L('dmg')) * p.dmg, rate: w.rate * (1 + 0.15 * L('rate')) * p.rate });
   return {
+    radar: L('radar') > 0, // search radar + fire control; without it: eyes only, no locks
     maxHp: (100 + 40 * L('hp')) * p.hp * (level >= 7 ? 1.25 : 1),
     armor: Math.min(0.85, 0.85 * (1 - 0.88 ** L('armor')) + p.addArmor + (level >= 5 ? 0.1 : 0)),
     repair: 0.6 * L('repair'),
@@ -348,12 +362,13 @@ export function deriveStats(lv: Record<string, number>, perks: string[], level =
     fusion: p.addFusion > 0, lpi: p.addLpi > 0, arc: p.addArc, scav: p.addScav, frag: p.addFrag, markDmg: p.markDmg,
     blackout: p.addBlackout > 0, counterSead: p.addCounterSead > 0, killChain: p.addKillChain > 0, overkill: p.addOverkill > 0, lastStand: p.addLastStand > 0,
     perim: {
-      mantis: { ...PERIM.mantis, dmg: PERIM.mantis.dmg * (1 + 0.25 * L('dmg')) * p.dmg, rate: PERIM.mantis.rate * (1 + 0.15 * L('rate')) * p.rate },
-      stinger: { ...PERIM.stinger, dmg: PERIM.stinger.dmg * (1 + 0.25 * L('dmg')) * p.dmg, rate: PERIM.stinger.rate * (1 + 0.15 * L('rate')) * p.rate },
+      mg: pad(PERIM.mg),
+      mantis: pad(PERIM.mantis),
+      stinger: pad(PERIM.stinger),
       jammer: PERIM.jammer,
     },
     weapons: {
-      cannon: weapon('cannon', true, 1),
+      cannon: weapon('cannon', L('pac3') > 0, 1),
       pulse: weapon('pulse', L('pulse') > 0, wlv('pulse')),
       missile: weapon('missile', L('missile') > 0, wlv('missile')),
       rail: weapon('rail', L('rail') > 0, wlv('rail')),

@@ -9,9 +9,10 @@ const rng = { seed: 9 };
 Math.random = () => rand(rng);
 
 const s = newGame(1); s.phase = 'play'; s.t = 1500; s.nextRaid = s.nextElite = 1e9; s.spawnAcc = -1e9; // load is set by hand below
-Object.assign(s.lv, { slots: 12, pulse: 3, missile: 4, rail: 2, rate: 6, acap: 20, aprod: 20, gen: 20, cap: 10, range: 4 });
+Object.assign(s.lv, { radar: 1, pac3: 1, slots: 12, pulse: 3, missile: 4, rail: 2, rate: 6, acap: 20, aprod: 20, gen: 20, cap: 10, range: 4 });
 s.level = 8; s.st = deriveStats(s.lv, ['chain', 'frag', 'overkill'], 8); s.hp = s.st.maxHp = 1e12; s.ammo = s.st.ammoCap; s.power = s.st.powerCap;
-for (let i = 0; i < 8; i++) s.perim.push({ k: i % 2 ? 'mantis' : 'stinger', x: Math.cos(i) * 13, z: Math.sin(i) * 13, cd: 0, slot: i });
+s.perim.length = 0;
+for (let i = 0; i < 8; i++) s.perim.push({ k: i % 2 ? 'mantis' : 'stinger', x: Math.cos(i) * 13, z: Math.sin(i) * 13, cd: 0, slot: i, belt: 0 });
 const kinds: EnemyKind[] = ['swarm', 'swarm', 'drone', 'scout', 'decoy', 'tank'];
 const top = () => { while (s.enemies.length < N) spawnEnemy(s, kinds[s.enemies.length % kinds.length], rand(rng) * 6.283, 25 + rand(rng) * 40).hp *= 20; };
 

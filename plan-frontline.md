@@ -33,6 +33,7 @@ The game stops being "a 360° Patriot battery from minute one" and becomes a def
 - Raids and packages take their bearing from their **lead element**. A helo assault comes from the front; a Shahed wave or missile salvo can come from a flank. The briefing card and edge arrow already show the sector, which matters even more now.
 
 ## 2. Start small: the AA machine gun
+*Done (step 3).* The MG is a perimeter pad (`mg`): 1.5 dmg, 6 shots/s, 15 m, a 40-round belt with a 3 s reload, and no interceptor stock. Eyes: 18 m round the base, 15 m round every emplacement (x0.6 at night), always on, radar or not. The opening levels spawn slower (`rate` in `LEVELS`: 0.45, 0.6, 0.8), so guns alone can hold them.
 - New weapon `mg` (**12.7 mm AA MG**): short range (about 14 m), high rate, low damage, belt ammo. It aims at **visual contacts** and needs no lock slot.
 - **Visual spotting** replaces the radar at the start: anything inside `VISUAL_R` (about 18 m) is seen. Night Raid shrinks that range, which gives the condition real meaning early on.
 - The starting kit is **one MG emplacement placed on the front**, the command post and nothing else.
@@ -55,13 +56,13 @@ Every slot is fixed, so placement stays a click and it's still deterministic for
 |-------|---------------------------------------------------|-------------------------------------------|
 | 1     | 12.7 mm AA MG                                     | slow drones from the front                |
 | 2     | second MG slot, ZU-23 twin autocannon             | FPV packs, Lancets                        |
-| 3     | forward observer post (+visual range on its belt), Stinger team | Mi-28s outranging the guns  |
-| 4     | **search radar** (sweep, detection, locks, radar modes) | contacts beyond sight, first flank Shaheds |
-| 5     | MANTIS C-RAM, EW jammer, IRIS-T SLM               | flank drones, cruise missiles, jammers    |
-| 6     | **Patriot PAC-3**                                 | Su-34s, Iskander (still PAC-3 only)       |
+| 3     | forward observer post (+visual range on its belt), Stinger team, **search radar**, then **Patriot PAC-3** | Mi-28s outranging the guns; contacts beyond sight |
+| 4     | EW jammer                                         | jammers, first flank Shaheds              |
+| 5     | MANTIS C-RAM upgrades, IRIS-T SLM                 | flank drones, cruise missiles             |
 | 7+    | LTAMDS AESA (360°), HEL laser, HPM                | saturation from every side                |
 
-- The radar arriving at L4 is timed with the **first threats from off the front axis**. That's where FOCUSED mode (front) versus ACTIVE (all round) becomes a real choice, and it gives the AESA a clear job: covering all directions.
+- *Step 3 changed the ladder:* the radar and the Patriot are shop items (`RADAR_REQ` = `PAC3_REQ` = base level 3, 200 and 300 credits; the Patriot needs the radar). In the bot runs, a radar bought a base level before anything could shoot on its locks was dead weight and got the battery killed, so the Patriot now comes right after it. Power and sensor/fire-control upgrades need the radar, and the magazine needs the Patriot, so the early shop only offers what helps then. The same goes for perks (`need`). SENSOR NET is now the classic start (radar + Patriot).
+- The radar arriving around threat level 3–4 lines up with the **first threats from off the front axis**. That's where FOCUSED mode (front) versus ACTIVE (all round) becomes a real choice, and it gives the AESA a clear job: covering all directions.
 - The ECS/lock and power systems only switch on once the radar is built. Before that, the HUD shows just what's relevant (HP, ammo, visual contacts), which also makes onboarding easier.
 
 ## 3b. Placement: making the slots a base-building decision
@@ -151,7 +152,7 @@ Replaces the time-based `PHASES`. Each level sets the spawn weights, the exposur
 Keep the game runnable after each step.
 1. ~~`FRONT` + `flank` + `spawnBearing()`, with the flank arc widening by phase.~~ **Done.** Also: jammers hold the front, the front is drawn on the ground and the mini radar rim, and there's a front/flank spawn check in `npm test`.
 2. ~~The `LEVELS` table replacing `PHASES`, with widening exposure arcs.~~ **Done.** Each level is `LEVEL_LEN` (60 s) of waves, then its raid, then a build window with no spawns (20 s held / 8 s lost, which replaces the old recovery lull and "next raid sooner"). Strike packages come once per level from SEAD on. Packages and raids unlock by level, and raid size goes by level (`raidScale`). The wave stream is reseeded per level, so each level of a daily op sends the same things however long earlier levels took. The balance script reports the level reached. Still to do in step 6: the level card and the slow-motion build state.
-3. The AA MG and visual spotting, with the radar and Patriot moved to the unlock ladder.
+3. ~~The AA MG and visual spotting, with the radar and Patriot moved to the unlock ladder.~~ **Done.** See sections 2 and 3. Balance (`npm run balance -- 12 900`): STANDARD median 5:02, reaching level 4 (it was 4:06 / L3 after step 2); FORTRESS (−15% fire rate) comes out weak with gun-heavy starts.
 4. Belt slots replacing the ring (section 3b), in this order: slots + fans + crossfire + `bestSlot()`, then support units, then unit HP, then tier upgrades in place. After that, the new emplacements (ZU-23, IRIS-T SLM).
 5. The cruise missile and missiles that target emplacements.
 6. Map, mini radar, level card and build window. Then rebalance with `npm run balance`.
