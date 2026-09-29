@@ -332,6 +332,16 @@ export const START_PAD = { x: 0, z: -17 }; // the starting MG: main line, on the
 
 // Field of fire: half-width around the unit's facing (away from the base). Math.PI = all round.
 export const FANS: Record<PerimKind, number> = { mg: 60 * DEG, mantis: Math.PI, stinger: 90 * DEG, iris: Math.PI, jammer: Math.PI, observer: Math.PI, ammo: Math.PI };
+// Veterancy: a gun gets better with the kills it has scored itself. Ranks by kill count; kept through moves and
+// tier upgrades, lost when the unit is sold.
+export const VETERANCY = [
+  { kills: 0, name: 'GREEN', dmg: 1, rate: 1, range: 1 },
+  { kills: 5, name: 'BLOODED', dmg: 1.1, rate: 1.05, range: 1 },
+  { kills: 15, name: 'VETERAN', dmg: 1.2, rate: 1.1, range: 1.05 },
+  { kills: 35, name: 'ELITE', dmg: 1.35, rate: 1.15, range: 1.1 },
+  { kills: 70, name: 'ACE', dmg: 1.5, rate: 1.2, range: 1.15 },
+];
+export const vetRank = (kills: number) => VETERANCY.reduce((r, v, i) => kills >= v.kills ? i : r, 0);
 export const CROSSFIRE = 0.2; // +damage on a target inside another gun's field of fire too
 export const PERIM = {
   mg: { dmg: 1.5, rate: 6, range: 15, ammo: 0, power: 0 },

@@ -151,6 +151,16 @@ Where a unit stands decides its **belt**:
 
 **Fields of fire.** A gun covers a fan pointing away from the base, drawn on the ground: MGs 120°, Stingers 180°, MANTIS all round. It can't shoot what has flown past it. A target inside two guns' fields of fire takes **+20% crossfire damage** from both. Amber ticks on the minimap rim mark bearings in the threat arc that no working gun covers. Press `O` (or the half-circle button on phones) for the coverage map: amber ground in the threat arc that nothing covers, dim green where one gun does, bright green where guns cross their fire.
 
+**Veterancy.** Every gun counts its own kills (shown on its unit card; the debrief lists perimeter kills by unit type) and ranks up as they add up. Ranks carry through moves and MG tier upgrades and are lost when the unit is sold.
+
+| Rank    | Kills | Damage | Fire rate | Range |
+| ------- | ----- | ------ | --------- | ----- |
+| Green   | 0     | —      | —         | —     |
+| Blooded | 5     | +10%   | +5%       | —     |
+| Veteran | 15    | +20%   | +10%      | +5%   |
+| Elite   | 35    | +35%   | +15%      | +10%  |
+| Ace     | 70    | +50%   | +20%      | +15%  |
+
 **Placing.** After buying a unit, a ghost of it follows the pointer with the ground it would cover filled in: green where it can be built, red where it can't. **Click open ground** to build it there (a click on blocked ground snaps to the nearest open spot within 4 m). The pulsing ring marks the spot that covers the most open sky (or, for support units, serves the most guns); if you don't click within 8 seconds, the unit goes there.
 
 **Your units.** Click one to pick it: the card shows its range, damage, field of fire and HP.

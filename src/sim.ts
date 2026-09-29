@@ -1,6 +1,6 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, LEVEL_LEN, BUILD_TIME, BUILD_LOST, ELITE_FROM, PK_GROW, PK_MAX,
-  TERRAIN, ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, FANS, beltAt, buildR, BUILD_MIN, PAD_GAP, START_PAD, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, deriveStats, difficulty, BACKUP_RADAR,
+  TERRAIN, ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, FANS, beltAt, buildR, BUILD_MIN, PAD_GAP, START_PAD, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, VETERANCY, vetRank, deriveStats, difficulty, BACKUP_RADAR,
   DROPS, DROP_KINDS, DROP_LIFE, DROP_GRAB, DROP_MAX, DROP_HEAVY, CACHE, REPAIR_DROP, OVERDRIVE, MILESTONE, rank,
   RADAR_MODES, CRUISE_LOW, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   DIVE_SPEED, SHAHED_DIVE, LANCET, HELO, KAB_R, KAB_PAIR, KAB_FIRST, EGRESS_SPEED, TBM_TERMINAL, CRUISE_DOGLEG, MUNITIONS, AGILITY, HOMING_BOOST, HOMING_SNAP,
@@ -31,6 +31,7 @@ export type Act = 'in' | 'loiter' | 'dive' | 'hover' | 'egress';
 export interface Shot {
   kind: 'shell' | 'missile' | 'tracer'; x: number; z: number; vx: number; vz: number;
   dmg: number; splash: number; life: number; target: number; src: string; // src: weapon, for the debrief
+  pad?: number; // slot of the perimeter pad that fired it, credited with the kill
 }
 export type Ev =
   | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect' | 'arm' | 'tbm' | 'cruise' | 'jam' | 'ident' | 'acquire' | 'lost' | 'release' | 'egress' | 'dud'; x: number; z: number; kind?: EnemyKind; n?: number }
@@ -44,12 +45,12 @@ export type Ev =
   | { k: 'drop'; x: number; z: number; drop: DropKind }
   | { k: 'pickup'; x: number; z: number; drop: DropKind; n: number; id: string } // n: credits (cache); id: upgrade (tech)
   | { k: 'intercept'; x: number; z: number }
-  | { k: 'padHit' | 'padDown' | 'padUp' | 'padSold' | 'padMoved'; x: number; z: number; n: number; kind: PerimKind }
+  | { k: 'padHit' | 'padDown' | 'padUp' | 'padSold' | 'padMoved' | 'padRank'; x: number; z: number; n: number; kind: PerimKind }
   | { k: 'level' | 'warning' | 'buy' | 'placing' | 'lock' | 'over' | 'emcon' | 'radarDown' | 'aesa' | 'radarOnline' | 'pac3' | 'discipline' | 'radarMode' | 'killChain' | 'counterSead' | 'lastStand' };
 
 export type Phase = 'start' | 'play' | 'pause' | 'perk' | 'over';
 export interface Drop { id: number; k: DropKind; x: number; z: number; until: number; v: number } // v: the kill's reward (a cache scales with it)
-export interface Pad { k: PerimKind; x: number; z: number; a: number; slot: number; cd: number; belt: number; hp: number; tier: number; paid: number; down: boolean; site: Site }
+export interface Pad { k: PerimKind; x: number; z: number; a: number; slot: number; cd: number; belt: number; hp: number; tier: number; paid: number; down: boolean; site: Site; kills: number }
 
 // mulberry32: tiny seeded PRNG, so a seed replays the same schedule (daily op, tests).
 export function rand(r: { seed: number }) {
@@ -125,7 +126,7 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     // The raid in the air: its id, aircraft left, objective still held, reward so far, bearing, objective, name.
     raidId: 0, raidLeft: 0, raidClean: true, raidReward: 0, raidA: 0, raidObj: 'battery' as RaidObjective, raidName: '',
     // debrief counters
-    stats: { kills: {} as Partial<Record<EnemyKind, number>>, dmg: {} as Record<string, number>, taken: {} as Partial<Record<EnemyKind, number>>, raids: 0, clean: 0, armsEvaded: 0, radarHits: 0, drops: 0, recovered: 0 },
+    stats: { kills: {} as Partial<Record<EnemyKind, number>>, dmg: {} as Record<string, number>, taken: {} as Partial<Record<EnemyKind, number>>, raids: 0, clean: 0, armsEvaded: 0, radarHits: 0, drops: 0, recovered: 0, perim: {} as Partial<Record<PerimKind, number>> },
     mode: 0,
     marked: 0,
     discipline: 1, // index into DISCIPLINES, BALANCED
@@ -260,7 +261,7 @@ export function draft(s: State) {
 // ---------- emplacements ----------
 
 function putPad(s: State, k: PerimKind, x: number, z: number, paid: number) {
-  s.perim.push({ k, x, z, a: Math.atan2(z, x), slot: s.padSeq++, cd: 0, belt: MG_BELT.rounds, hp: PAD_HP, tier: 0, paid, down: false, site: site(x, z) });
+  s.perim.push({ k, x, z, a: Math.atan2(z, x), slot: s.padSeq++, cd: 0, belt: MG_BELT.rounds, hp: PAD_HP, tier: 0, paid, down: false, site: site(x, z), kills: 0 });
 }
 // Why a unit can't stand at (x, z), or '' if it can. `self`: the unit being moved (its own spot doesn't count).
 export function buildBlock(s: State, x: number, z: number, self = -1) {
@@ -303,8 +304,8 @@ export const covers = (p: { x: number; z: number; a: number; k: PerimKind }, x: 
 const nearAmmo = (s: State, p: Pad) => s.perim.some(q => q.k === 'ammo' && up(q) && (q.x - p.x) ** 2 + (q.z - p.z) ** 2 <= AMMO_R ** 2);
 // What a unit fires with right now: its tier, the battery's weapon upgrades and perks, an ammo point in reach.
 export function padStats(s: State, p: Pad) {
-  const w = p.k === 'mg' ? MG_TIERS[p.tier] : PERIM[p.k];
-  return { ...w, range: w.range * siteRange(p.site), dmg: w.dmg * s.st.padDmg, rate: w.rate * s.st.padRate * (nearAmmo(s, p) ? AMMO_RATE : 1) * (overdrive(s) ? OVERDRIVE.rate : 1) };
+  const w = p.k === 'mg' ? MG_TIERS[p.tier] : PERIM[p.k], v = VETERANCY[vetRank(p.kills)];
+  return { ...w, range: w.range * siteRange(p.site) * v.range, dmg: w.dmg * s.st.padDmg * v.dmg, rate: w.rate * s.st.padRate * v.rate * (nearAmmo(s, p) ? AMMO_RATE : 1) * (overdrive(s) ? OVERDRIVE.rate : 1) };
 }
 // A gun that's up but can't fire: the interceptor pool is short of a round for it (MGs feed from their belts).
 export const noAmmo = (s: State, p: Pad) => GUNS.includes(p.k) && up(p) && s.ammo < padStats(s, p).ammo;
@@ -891,13 +892,13 @@ function perimeter(s: State, dt: number) {
       // 12.7mm / 35mm tracer round, led like the PAC-3 so it actually connects
       const sp = 70, tt = Math.sqrt(bd) / sp;
       const dx = best.x + best.vx * tt - p.x, dz = best.z + best.vz * tt - p.z, d = Math.hypot(dx, dz) || 1;
-      s.shots.push({ kind: 'tracer', x: p.x, z: p.z, vx: dx / d * sp, vz: dz / d * sp, dmg, splash: 0, life: w.range / sp + 0.15, target: best.id, src: p.k === 'mg' ? 'MG' : 'MANTIS' });
+      s.shots.push({ kind: 'tracer', x: p.x, z: p.z, vx: dx / d * sp, vz: dz / d * sp, dmg, splash: 0, life: w.range / sp + 0.15, target: best.id, src: p.k === 'mg' ? 'MG' : 'MANTIS', pad: p.slot });
       best.incoming += dmg;
       s.events.push({ k: 'gun', x: p.x, z: p.z, x2: best.x, z2: best.z });
     } else {
       const d = Math.sqrt(bd) || 1;
       const sp = p.k === 'iris' ? 25 : 15;
-      s.shots.push({ kind: 'missile', x: p.x, z: p.z, vx: (best.x - p.x) / d * sp, vz: (best.z - p.z) / d * sp, dmg, splash: 0, life: 3, target: best.id, src: p.k === 'iris' ? 'IRIS-T SLM' : 'STINGER' });
+      s.shots.push({ kind: 'missile', x: p.x, z: p.z, vx: (best.x - p.x) / d * sp, vz: (best.z - p.z) / d * sp, dmg, splash: 0, life: 3, target: best.id, src: p.k === 'iris' ? 'IRIS-T SLM' : 'STINGER', pad: p.slot });
       best.incoming += dmg;
       s.events.push({ k: 'missile', x: p.x, z: p.z });
     }
@@ -1173,7 +1174,7 @@ function moveShots(s: State, dt: number) {
       if (t) t.incoming = Math.max(0, t.incoming - p.dmg);
       if (hit) {
         if (p.splash) explode(s, p.x, p.z, p.splash, p.dmg, p.src);
-        else damage(s, hit, p.dmg, p.src);
+        else damage(s, hit, p.dmg, p.src, p.pad);
         if (p.kind === 'shell' && s.st.frag) explode(s, p.x, p.z, 2.5, p.dmg * s.st.frag, p.src);
       }
       s.shots[i] = s.shots[s.shots.length - 1];
@@ -1187,7 +1188,8 @@ function explode(s: State, x: number, z: number, r: number, dmg: number, src: st
   for (const e of [...s.enemies]) if ((e.x - x) ** 2 + (e.z - z) ** 2 < (r + e.size) ** 2) damage(s, e, dmg, src);
 }
 
-function damage(s: State, e: Enemy, dmg: number, src: string) {
+// pad: the slot of the perimeter pad that dealt the blow, credited with the kill.
+function damage(s: State, e: Enemy, dmg: number, src: string, pad?: number) {
   if (e.hp <= 0) return; // already dead this frame
   if (ENEMIES[e.kind].pacOnly && src !== 'PAC-3') return;
   if (e.id === s.marked) dmg *= PRIORITY_DMG * s.st.markDmg;
@@ -1203,6 +1205,12 @@ function damage(s: State, e: Enemy, dmg: number, src: string) {
   s.credits += gain; s.earned += gain; s.kills++;
   s.ammo = Math.min(s.st.ammoCap, s.ammo + s.st.scav);
   s.stats.kills[e.kind] = (s.stats.kills[e.kind] ?? 0) + 1;
+  const killer = pad === undefined ? undefined : s.perim.find(p => p.slot === pad);
+  if (killer) {
+    s.stats.perim[killer.k] = (s.stats.perim[killer.k] ?? 0) + 1;
+    const r = vetRank(killer.kills++);
+    if (vetRank(killer.kills) > r) s.events.push({ k: 'padRank', x: killer.x, z: killer.z, n: r + 1, kind: killer.k });
+  }
   s.events.push({ k: 'kill', x: e.x, z: e.z, kind: e.kind, n: gain });
   rollDrop(s, e.kind, e.x, e.z);
   if (s.st.chain) explode(s, e.x, e.z, 4, s.st.chain, 'CHAIN');
@@ -1215,6 +1223,6 @@ function damage(s: State, e: Enemy, dmg: number, src: string) {
       const d = (o.x - e.x) ** 2 + (o.z - e.z) ** 2;
       if (d < bd) { bd = d; next = o; }
     }
-    if (next) { s.events.push({ k: 'beam', x: e.x, z: e.z, x2: next.x, z2: next.z }); damage(s, next, excess, src); }
+    if (next) { s.events.push({ k: 'beam', x: e.x, z: e.z, x2: next.x, z2: next.z }); damage(s, next, excess, src, pad); }
   }
 }
