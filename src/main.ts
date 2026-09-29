@@ -46,6 +46,7 @@ const hud = createHud({
   perk: i => pickPerk(s, i),
   pad: act => { if (act === 'upgrade') upgradePad(s); else if (act === 'move') toggleRelocate(s); else sellPad(s); },
   look: (x, z) => view.lookAt(x, z),
+  resume: () => { if (s.phase === 'pause') s.phase = 'play'; },
   start, restart, doctrine,
 });
 
