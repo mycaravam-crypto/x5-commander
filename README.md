@@ -26,6 +26,15 @@ Other scripts:
 
 The game runs entirely in the browser, with no backend and no asset files. `dist/` can be hosted on any static file server.
 
+### Scoreboard
+
+`npm run dev` and `npm run preview` also serve a leaderboard API at `/api/scores`, backed by a local SQLite file (`data/scores.db`, or wherever `X5_SCORES_DB` points; Node's built-in `node:sqlite`, no extra packages). On the debrief you type a callsign and log the run, and the board shows its rank: ranked by time survived, then kills, with ties sharing a rank. A daily op is ranked on that op's own board as well. The start screen shows the all-time top 10. There are no user accounts yet: a callsign is just a name. A static host has no API, so the board is simply left out.
+
+| Endpoint | |
+|---|---|
+| `GET /api/scores[?daily=YYYY-MM-DD&limit=N]` | `{ rows, total }`: the top runs with their rank |
+| `POST /api/scores` `{ name, time, kills, level, earned, seed?, daily? }` | `{ run, total, daily }`: the logged run and where it placed |
+
 ## Controls
 
 | Input                  | Action                                    |

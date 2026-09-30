@@ -3,6 +3,7 @@ import { play as sound } from './sfx.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import { mapSeed } from './terrain.ts';
 import type { Records } from './config.ts';
+import { fetchBoard, postRun, boardHtml as scoreboardHtml, placedHtml, loadCallsign, saveCallsign, type Board } from './scores.ts';
 import { seedCode, beltOf, stageInfo, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, noAmmo, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const byId = new Map<string, HTMLElement>(); // the HUD's elements are fixed: look each up once
@@ -219,6 +220,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     else if (a?.startsWith('doc')) actions.doctrine(+a.slice(3));
     else if (a === 'restart') actions.restart();
     else if (a === 'share') share();
+    else if (a === 'logRun') logRun();
     else if (a?.startsWith('perk')) actions.perk(+a.slice(4));
     // The pause card covers the on-screen pause button, so a tap off the menu resumes.
     else if (shownPhase.startsWith('pause') && !(e.target as HTMLElement).closest('.card')) actions.resume();
@@ -263,6 +265,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       <p><button class="link" data-a="resetTips">RESET TIPS</button></p>
       <p class="dim">Daily op: same raid for everyone today. ${(d => d.time ? `Your best today · ${clock(d.time)} · ${fmt(d.kills)} kills` : 'Not flown yet today.')(loadDaily(new Date().toISOString().slice(0, 10)))}</p>
       <div class="boardslot"></div>
+      <div class="lbslot"></div>
       <p><button class="link" data-a="code">PLAY A SEED [S]</button> <span class="dim">· a friend's seed code or result line: same map, same raids</span></p></div></div>`;
     else if (s.phase === 'pause') html = `<div class="card menu"><h2>PAUSED</h2>
       <button class="btn" data-a="resume">RESUME [P]</button> <button class="btn" data-a="menu">QUIT TO MENU</button>
@@ -296,6 +299,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       const unlocked = DOCTRINES.filter(d => !d.unlock(best) && d.unlock(merged as Best)).map(d => `<p class="hot">DOCTRINE UNLOCKED · ${d.name}</p>`).join('');
       html = `<div class="card"><h1 class="alert">BATTERY LOST</h1>${daily}${unlocked}
         <div class="score">${row('SURVIVED', 'time', clock)}${row('KILLS', 'kills', fmt)}${row('BASE LEVEL', 'level', String)}${row('CREDITS EARNED', 'earned', fmt)}</div>
+        <div class="lbslot"></div>
         ${debrief(s)}
         <p class="dim">perks: ${s.perks.map(id => PERKS.find(p => p.id === id)!.name).join(' · ') || 'none'}</p>
         <p class="dim">SEED <span class="hot">${seedCode(s)}</span> · the result line carries it: friends fly the same ${s.daily ? 'op' : 'map and raids'}</p>
@@ -303,6 +307,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     }
     overlay.innerHTML = html;
     overlay.classList.toggle('on', !!html);
+    if (s.phase === 'start' || (s.phase === 'over' && !s.training)) showScores(s);
     if (s.phase === 'start') { shownSeed = NaN; showOverlay(s); }
   }
 
@@ -311,6 +316,35 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     if (!lastState) return;
     const text = resultLine(lastState), btn = overlay.querySelector<HTMLElement>('[data-a=share]');
     navigator.clipboard.writeText(text).then(() => { if (btn) btn.textContent = 'COPIED ✓'; }, () => prompt('Copy your result:', text));
+  }
+
+  // ---- scoreboard (server/scores.ts): the all-time board on the start screen; on the debrief, log the run under a
+  // callsign and see where it ranks (a daily op on that op's board). Left out when there's no API. ----
+  let lbShown = 0, logged = false; // lbShown: which overlay draw a fetch belongs to, so a slow one can't land on a later screen
+  const lbTitle = (s: State) => s.phase === 'over' && s.daily ? `DAILY OP ${s.daily} · LEADERBOARD` : 'ALL-TIME LEADERBOARD';
+  async function showScores(s: State) {
+    const n = ++lbShown, daily = s.phase === 'over' ? s.daily : '';
+    logged = false;
+    const b = await fetchBoard(daily);
+    const slot = overlay.querySelector('.lbslot');
+    if (!b || !slot || n !== lbShown) return;
+    slot.innerHTML = (s.phase === 'over' ? `<div class="logrun"><input id="callsign" type="text" maxlength="16" placeholder="CALLSIGN" spellcheck="false" autocomplete="off" value="${loadCallsign().replace(/"/g, '')}">
+      <button class="btn hotbtn" data-a="logRun">LOG RUN [ENTER]</button></div>` : '') + scoreboardHtml(lbTitle(s), b);
+  }
+  async function logRun() {
+    const s = lastState, input = overlay.querySelector<HTMLInputElement>('#callsign');
+    if (!s || s.phase !== 'over' || !input || logged) return;
+    const name = input.value.trim();
+    if (!name) { input.focus(); input.classList.add('bad'); return; }
+    logged = true; saveCallsign(name);
+    const n = lbShown, form = overlay.querySelector('.logrun')!;
+    form.innerHTML = '<p class="dim">LOGGING…</p>';
+    const p = await postRun({ name, time: s.t, kills: s.kills, level: s.level, earned: s.earned, seed: seedCode(s), daily: s.daily });
+    const b: Board | null = p && await fetchBoard(s.daily);
+    if (n !== lbShown) return;
+    if (!p || !b) { form.innerHTML = '<p class="alert">SCOREBOARD OFFLINE · RUN NOT LOGGED</p>'; return; }
+    const mine = p.daily ? { ...p.run, rank: p.daily.rank } : p.run; // a daily op's board ranks it among that op's runs
+    overlay.querySelector('.lbslot')!.innerHTML = placedHtml(p) + scoreboardHtml(lbTitle(s), b, mine);
   }
 
   // ---- tips ----
@@ -920,6 +954,6 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       const bottom = (shop.classList.contains('hidden') ? $('touch') : shop).getBoundingClientRect().top;
       return [$('left').getBoundingClientRect().bottom, innerHeight - bottom];
     },
-    share,
+    share, logRun,
   };
 }

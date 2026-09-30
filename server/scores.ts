@@ -1,0 +1,88 @@
+// The scoreboard: finished runs in a local SQLite file, ranked by time survived, then kills.
+// No accounts yet: a run carries the callsign typed on the debrief. Served at /api/scores by the Vite dev and preview
+// servers (vite.config.ts); a static host has no API, and the game just leaves the board out.
+import { DatabaseSync } from 'node:sqlite';
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+
+export type Run = { name: string; time: number; kills: number; level: number; earned: number; seed: string; daily: string };
+export type Row = Run & { id: number; rank: number; at: string };
+
+export const NAME_MAX = 16, TOP = 10;
+
+export function openScores(file: string) {
+  if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true });
+  const db = new DatabaseSync(file);
+  db.exec(`PRAGMA journal_mode = WAL;
+    CREATE TABLE IF NOT EXISTS scores (
+      id     INTEGER PRIMARY KEY,
+      name   TEXT    NOT NULL,
+      time   REAL    NOT NULL,
+      kills  INTEGER NOT NULL,
+      level  INTEGER NOT NULL,
+      earned INTEGER NOT NULL,
+      seed   TEXT    NOT NULL DEFAULT '',
+      daily  TEXT    NOT NULL DEFAULT '',
+      at     TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS scores_rank ON scores (daily, time DESC, kills DESC);`);
+  // Every run's rank on its board (all-time, or one daily op's), ties sharing a rank. '' as the board means all-time.
+  const ranked = `SELECT *, RANK() OVER (ORDER BY time DESC, kills DESC) AS rank FROM scores WHERE ?1 = '' OR daily = ?1`;
+  const top = db.prepare(`${ranked} ORDER BY rank, id LIMIT ?2`);
+  const one = db.prepare(`SELECT * FROM (${ranked}) WHERE id = ?2`);
+  const count = db.prepare(`SELECT COUNT(*) AS n FROM scores WHERE ?1 = '' OR daily = ?1`);
+  const insert = db.prepare('INSERT INTO scores (name, time, kills, level, earned, seed, daily) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  const board = (daily: string, limit = TOP) => ({ rows: top.all(daily, limit) as Row[], total: (count.get(daily) as { n: number }).n });
+  return {
+    board,
+    // Adds a run; returns it with its rank on the all-time board, and on its daily op's board if it was one.
+    add(r: Run) {
+      const id = Number(insert.run(r.name, r.time, r.kills, r.level, r.earned, r.seed, r.daily).lastInsertRowid);
+      const mine = one.get('', id) as Row;
+      return { run: mine, total: board('').total, daily: r.daily ? { rank: (one.get(r.daily, id) as Row).rank, total: board(r.daily).total } : null };
+    },
+    close: () => db.close(),
+  };
+}
+export type Scores = ReturnType<typeof openScores>;
+
+// A posted run, checked: a callsign of letters, digits, spaces and - _ . and numbers in a sane range. null if it isn't one.
+export function parseRun(b: unknown): Run | null {
+  if (!b || typeof b !== 'object') return null;
+  const o = b as Record<string, unknown>;
+  const num = (v: unknown, max: number) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= max ? v : NaN;
+  const name = typeof o.name === 'string' ? o.name.toUpperCase().replace(/[^A-Z0-9 _.-]/g, '').replace(/\s+/g, ' ').trim().slice(0, NAME_MAX) : '';
+  const time = num(o.time, 1e6), kills = num(o.kills, 1e7), level = num(o.level, 1e3), earned = num(o.earned, 1e10);
+  const seed = typeof o.seed === 'string' && /^X5-[A-Z0-9-]{1,20}$/.test(o.seed) ? o.seed : '';
+  const daily = typeof o.daily === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(o.daily) ? o.daily : '';
+  if (!name || [time, kills, level, earned].some(Number.isNaN)) return null;
+  return { name, time: Math.round(time * 10) / 10, kills: Math.floor(kills), level: Math.floor(level), earned: Math.floor(earned), seed, daily };
+}
+
+// Connect-style middleware for /api/scores:
+//   GET  /api/scores[?daily=YYYY-MM-DD&limit=N]  → { rows, total }
+//   POST /api/scores  { name, time, kills, level, earned, seed?, daily? }  → { run, total, daily }
+export function scoresApi(scores: Scores) {
+  return (req: IncomingMessage, res: ServerResponse, next: () => void) => {
+    const url = new URL(req.url ?? '/', 'http://x');
+    if (url.pathname !== '/api/scores') return next();
+    const send = (code: number, body: unknown) => { res.statusCode = code; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(body)); };
+    if (req.method === 'GET') {
+      const daily = url.searchParams.get('daily') ?? '';
+      const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || TOP));
+      return send(200, scores.board(/^\d{4}-\d{2}-\d{2}$/.test(daily) ? daily : '', limit));
+    }
+    if (req.method !== 'POST') return send(405, { error: 'method' });
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (c: string) => { body += c; if (body.length > 4096) { send(413, { error: 'too large' }); req.destroy(); } });
+    req.on('end', () => {
+      if (res.writableEnded) return;
+      let run: Run | null = null;
+      try { run = parseRun(JSON.parse(body)); } catch { /* not JSON: rejected below */ }
+      if (!run) return send(400, { error: 'bad run' });
+      send(201, scores.add(run));
+    });
+  };
+}

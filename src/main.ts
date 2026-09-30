@@ -182,6 +182,11 @@ function key(code: string) {
 const held = new Set<string>();
 addEventListener('keyup', e => held.delete(e.code));
 addEventListener('keydown', e => {
+  // Typing a callsign on the debrief: the keys are letters, not commands. Enter logs the run.
+  if (e.target instanceof HTMLInputElement && e.target.type === 'text') {
+    if (e.code === 'Enter' || e.code === 'NumpadEnter') hud.logRun();
+    return;
+  }
   held.add(e.code);
   if (e.code === 'Tab' || e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
   if (!e.repeat) key(e.code);

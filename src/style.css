@@ -408,3 +408,28 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   #top { gap: 8px; }
   #top .stat:nth-child(2) small { display: none; }
 }
+/* Scoreboard (src/scores.ts): callsign entry and the ranked leaderboard. Gold / silver / bronze for the top three. */
+.logrun { display: flex; justify-content: center; align-items: center; gap: 10px; margin: 12px 0 4px; pointer-events: auto; }
+.logrun input { font: inherit; font-size: 14px; letter-spacing: 0.2em; text-transform: uppercase; width: 200px; padding: 7px 10px;
+  color: var(--hot); background: rgba(0, 20, 8, 0.8); border: 1px solid var(--mid); outline: none; text-shadow: var(--glow); user-select: text; }
+.logrun input:focus { border-color: var(--hot); box-shadow: 0 0 12px color-mix(in srgb, var(--bright) 40%, transparent); }
+.logrun input.bad { border-color: var(--alert); }
+.placed { letter-spacing: 0.14em; margin: 12px 0 2px; }
+.lb { --gold: #ffd35a; --silver: #d8e6ee; --bronze: #e0935a; display: block; max-width: 560px; margin: 10px auto; padding: 10px 14px; text-align: left; background-color: var(--panel); }
+.lbhead { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.lb table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.lb th { color: var(--mid); font-weight: 400; font-size: 10px; letter-spacing: 0.12em; text-align: right; padding: 0 6px 4px; }
+.lb td { text-align: right; padding: 3px 6px; border-top: 1px solid color-mix(in srgb, var(--mid) 20%, transparent); white-space: nowrap; }
+.lb .nm { text-align: left; width: 100%; overflow: hidden; text-overflow: ellipsis; max-width: 0; }
+.lb th:first-child, .lb .rk { text-align: left; }
+.lb .rk { color: var(--mid); width: 1%; }
+.lb .rk i { display: inline-block; width: 1.4em; font-style: normal; }
+.lb tr.p1 td { color: var(--gold); text-shadow: 0 0 10px color-mix(in srgb, var(--gold) 60%, transparent); }
+.lb tr.p1 td.nm { font-size: 14px; font-weight: 600; }
+.lb tr.p2 td { color: var(--silver); text-shadow: 0 0 8px color-mix(in srgb, var(--silver) 40%, transparent); }
+.lb tr.p3 td { color: var(--bronze); text-shadow: 0 0 8px color-mix(in srgb, var(--bronze) 40%, transparent); }
+.lb tr.me td { background: color-mix(in srgb, var(--bright) 14%, transparent); }
+.lb tr.me td.nm::after { content: ' ◄ YOU'; color: var(--alert); font-size: 10px; }
+@media (prefers-reduced-motion: no-preference) { .lb tr.me td { animation: lbme 1.2s ease-in-out infinite alternate; } }
+@keyframes lbme { to { background: color-mix(in srgb, var(--bright) 30%, transparent); } }
+.lb tr.gap td { text-align: center; color: var(--mid); border: 0; padding: 0; }
