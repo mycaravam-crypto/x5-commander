@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "test": "node src/sim.check.ts",
+    "test": "node src/sim.check.ts && node server/scores.check.ts",
     "balance": "node src/balance.ts",
     "bench": "node src/bench.ts"
   },
@@ -13,6 +13,7 @@
     "three": "^0.186.1"
   },
   "devDependencies": {
+    "@types/node": "^22.20.4",
     "@types/three": "^0.186.0",
     "typescript": "^5.9.3",
     "vite": "^8.3.1"
