@@ -218,7 +218,7 @@ export function createRenderer() {
     }
     drapeOverlays();
     // Whatever was draped over the old ground is redrawn on the new.
-    zoneKey = flankKey = -1; ringR.clear(); baseKey = covKey = ghostKey = hintKey = '';
+    zoneKey = flankKey = -1; ringR.clear(); baseKey = decorKey = covKey = ghostKey = hintKey = '';
   }
   // ---- map overlays on the ground: build zone, the front, eyesight / radar range ----
   const lineMat = (color: number, opacity: number, dashed = false) => dashed
@@ -335,24 +335,151 @@ export function createRenderer() {
     return pack;
   };
   const slot = (i: number, n: number, off = 0) => i / n * TAU + off;
-  // The compound: an earth berm round it, open to the supply road at the rear, and a few tents.
-  const compound = new THREE.Group();
-  for (let i = 0; i < 28; i++) {
-    const a = (i + 0.5) / 28 * TAU;
-    if (Math.abs(((a - Math.PI / 2) % TAU + TAU) % TAU - Math.PI) > Math.PI - 0.25) continue; // the gate
-    const m = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.9, 0.7, 4, 1).rotateY(Math.PI / 4).scale(1, 1, 2.6 / 1.27), mat(0x8a7a55));
-    m.position.set(Math.cos(a) * 10.4, 0.3, Math.sin(a) * 10.4); m.rotation.y = -a; m.castShadow = m.receiveShadow = true;
-    compound.add(m);
+  // ---- the compound: dressing that grows with the base level, merged per paint into a few meshes ----
+  // Perimeter: sandbag positions (lv1-2), a full earth berm (3-4), HESCO bastions (5-6), concrete T-walls (7+), open
+  // to the supply road at the rear (+z). Around it the camp digs in: tents, cables and floodlights, a flag, gate
+  // towers, hardstands under the launchers, then containers and a concrete apron.
+  let decor = new THREE.Group(), decorKey = '';
+  function buildDecor(s: State) {
+    const L = Math.min(7, s.level), nPac = s.st.weapons.cannon ? Math.min(8, s.level + 1) : 0, nIris = Math.min(4, s.lv.missile ?? 0);
+    const key = `${L}${s.st.radar}${nPac}${nIris}`;
+    if (key === decorKey) return;
+    decorKey = key;
+    scene.remove(decor);
+    decor.traverse(o => { if (o instanceof THREE.Mesh) o.geometry.dispose(); });
+    decor = new THREE.Group();
+    const parts = new Map<number, THREE.BufferGeometry[]>();
+    // A part in local space (+x out, z along), turned by ry and set down at (x, y, z).
+    const put = (geo: THREE.BufferGeometry, color: number, x: number, y: number, z: number, ry = 0) => {
+      geo.rotateY(ry).translate(x, y, z);
+      let l = parts.get(color); if (!l) parts.set(color, l = []); l.push(geo);
+    };
+    const polar = (r: number, a: number): [number, number] => [Math.cos(a) * r, Math.sin(a) * r];
+    const pyramid = (w: number, h: number, d: number) => new THREE.CylinderGeometry(0.01, 0.71, 1, 4, 1).rotateY(Math.PI / 4).scale(w, h, d).translate(0, h / 2, 0);
+    const SAND = 0xa08c60, EARTH = 0x8a7a55, HESCO = 0xb09a6a, WOOD = 0x6b5a40, NET = 0x4a5530, TENT = 0x5d6340, CAN = 0x55603a;
+    const gateW = L >= 5 ? 0.2 : 0.25, gate = (a: number) => Math.abs(angDiff(a, Math.PI / 2)) < gateW;
+
+    // Perimeter.
+    const ring = (n: number, f: (a: number, i: number) => void) => { for (let i = 0; i < n; i++) { const a = (i + 0.5) / n * TAU; if (!gate(a)) f(a, i); } };
+    if (L <= 2) ring(28, (a, i) => { // scattered sandbag positions, gaps between
+      if (i % 3 === 2) return;
+      const [x, z] = polar(10.4, a);
+      put(box(0.8, 0.45, 2).translate(0, 0.22, 0), SAND, x, 0, z, -a);
+      if (i % 3 === 0) put(box(0.6, 0.3, 1.4).translate(0, 0.6, 0), SAND, x, 0, z, -a);
+    });
+    else if (L <= 4) ring(28, (a) => {
+      const [x, z] = polar(10.4, a);
+      put(new THREE.CylinderGeometry(0.5, 0.9, 0.7, 4, 1).rotateY(Math.PI / 4).scale(1, 1, 2.6 / 1.27).translate(0, 0.3, 0), EARTH, x, 0, z, -a);
+    });
+    else if (L <= 6) ring(52, (a, i) => { // HESCO: sand-filled mesh cages with concertina wire on top
+      const [x, z] = polar(10.4, a);
+      put(box(1.1, 1.4, 1.2).translate(0, 0.7, 0), HESCO, x, 0, z, -a);
+      put(box(1.14, 0.08, 1.24).translate(0, 1.4, 0), EARTH, x, 0, z, -a);
+      for (const dz of [-0.4, 0, 0.4]) put(new THREE.TorusGeometry(0.2, 0.02, 3, 8).translate(0, 1.65, dz + (i % 2) * 0.1), C.dark, x, 0, z, -a);
+    });
+    else ring(60, (a) => { // T-walls
+      const [x, z] = polar(10.4, a);
+      put(box(1.2, 0.3, 1.05).translate(0, 0.15, 0), C.concrete, x, 0, z, -a);
+      put(box(0.32, 2.3, 1.05).translate(0, 1.4, 0), C.concrete, x, 0, z, -a);
+    });
+
+    // Supply road out through the gate: dirt, then gravel, then asphalt.
+    const road = L >= 7 ? 0x3b3c38 : L >= 6 ? 0x8f8a7c : 0x7a6848;
+    for (let z = 8; z < 30; z += 2) put(box(L >= 6 ? 2.4 : 2, 0.08, 2.05), road, 0, groundY(0, z + 1) + 0.04, z + 1);
+    if (L >= 7) put(new THREE.CylinderGeometry(5, 5, 0.06, 40), 0x9a978d, 0, 0.03, 0); // concrete apron under the radar group
+
+    // Living area either side of the road: tents, then tents and containers, then containers.
+    const tent = (x: number, z: number, ry: number) => {
+      put(pyramid(2.2, 1.4, 1.8), TENT, x, 0, z, ry);
+      put(box(0.05, 0.6, 0.5).translate(1.0, 0.3, 0), C.dark, x, 0, z, ry); // door flap
+    };
+    const container = (x: number, z: number, ry: number, bags: boolean) => {
+      put(box(2.4, 1.1, 1.1).translate(0, 0.55, 0), CAN, x, 0, z, ry);
+      for (let i = -3; i <= 3; i++) put(box(0.04, 1, 1.12).translate(i * 0.33, 0.55, 0), 0x464f30, x, 0, z, ry); // ribs
+      put(box(0.05, 0.9, 0.9).translate(1.21, 0.5, 0), 0x3d452a, x, 0, z, ry); // doors
+      if (bags) put(box(2.2, 0.3, 1).translate(0, 1.25, 0), SAND, x, 0, z, ry);
+    };
+    if (L <= 4) { tent(-4.5, 8.2, 0.2); tent(4.8, 7.8, -0.3); }
+    else if (L <= 5) { tent(-4.5, 8.2, 0.2); container(4.9, 7.7, -0.35, false); }
+    else { container(-4.7, 8, 0.25, true); container(4.9, 7.7, -0.35, true); }
+    if (L >= 3 && L <= 5) tent(-6.3, 5.9, 0.8);
+    else if (L >= 6) container(-6.3, 5.9, 0.8, L >= 7);
+    if (L >= 6) { // satcom dish on the command container
+      put(new THREE.CylinderGeometry(0.05, 0.05, 0.5, 5), C.metal, -4.7, 1.6, 8);
+      put(new THREE.SphereGeometry(0.45, 10, 5, 0, TAU, 0, 1.1).scale(1, 0.5, 1).rotateZ(0.9), C.metal, -4.7, 1.95, 8);
+    }
+
+    // Supply dump behind the radar: crates and jerrycans, a camo net over them once the camp settles.
+    for (const [x, z, y] of [[-0.6, -4.6, 0], [0.4, -4.7, 0], [-0.1, -5.4, 0], [-0.2, -4.7, 0.5]]) put(box(0.7, 0.5, 0.55).translate(0, 0.25, 0), 0x6a5a3a, x, y, z);
+    for (let i = 0; i < 5; i++) put(box(0.18, 0.4, 0.3).translate(0, 0.2, 0), 0x3f4a2c, 0.9, 0, -4.4 - i * 0.24);
+    if (L >= 3) {
+      put(pyramid(3.2, 0.5, 2.6), NET, 0, 1.3, -4.9);
+      for (const [x, z] of [[-1.2, -3.9], [1.2, -3.9], [-1.2, -5.9], [1.2, -5.9]]) put(new THREE.CylinderGeometry(0.03, 0.03, 1.4, 4), WOOD, x, 0.7, z);
+    }
+
+    // Lv2: power cables from the generators out to the radar and every launching station, and fuel for them.
+    if (L >= 2) {
+      const cable = (x0: number, z0: number, x1: number, z1: number) => {
+        const len = Math.hypot(x1 - x0, z1 - z0);
+        put(box(len, 0.05, 0.07), 0x1d1f19, (x0 + x1) / 2, 0.03, (z0 + z1) / 2, -Math.atan2(z1 - z0, x1 - x0));
+      };
+      const [gx, gz] = polar(3.6, slot(1, 6, 0.3));
+      if (s.st.radar) cable(gx, gz, 0, 0);
+      for (let i = 0; i < nPac; i++) { const a = slot(i, 8, TAU / 16), [x, z] = polar(5.1, a); cable(gx * 0.8, gz * 0.8, x, z); }
+      const fuel = L >= 7 ? 0x6a6a60 : 0x2c2e26, [fx, fz] = polar(8.3, -0.61);
+      if (L >= 7) { // bunded tank
+        put(new THREE.CylinderGeometry(0.55, 0.55, 2, 12).rotateZ(Math.PI / 2), fuel, fx, 0.7, fz, 0.61);
+        put(box(2.6, 0.4, 1.6).translate(0, 0.2, 0), C.concrete, fx, 0, fz, 0.61);
+      } else put(new THREE.SphereGeometry(0.85, 12, 6).scale(1.3, 0.3, 1), fuel, fx, 0.2, fz, 0.61);
+      // Floodlight masts (from lv7 the flank towers carry two of them)
+      for (const a of L >= 7 ? [TAU / 16, TAU * 7 / 16] : [TAU / 16, TAU * 7 / 16, TAU * 9 / 16, TAU * 15 / 16]) {
+        const [x, z] = polar(8.8, a);
+        put(new THREE.CylinderGeometry(0.05, 0.08, 3.4, 5), C.metal, x, 1.7, z);
+        put(box(0.25, 0.25, 0.6).translate(-0.15, 3.4, 0), 0xfff1c0, x, 0, z, -a);
+      }
+    }
+    // Lv3: the unit flag by the gate.
+    if (L >= 3) {
+      put(new THREE.CylinderGeometry(0.04, 0.05, 4, 5), C.metal, -1.8, 2, 8.4);
+      put(box(0.9, 0.55, 0.03).translate(0.47, 3.65, 0), 0xa83a2e, -1.8, 0, 8.4);
+    }
+    // Lv4: gate towers and a barrier; hardstands under the launching stations.
+    if (L >= 4) {
+      for (const x of [-2.2, 2.2]) {
+        if (L >= 7) put(box(1.3, 3.2, 1.3).translate(0, 1.6, 0), C.concrete, x, 0, 11);
+        else for (const [dx, dz] of [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]]) put(box(0.1, 3, 0.1).translate(dx, 1.5, dz), WOOD, x, 0, 11);
+        put(box(1.4, 0.15, 1.4).translate(0, 3.1, 0), L >= 7 ? C.concrete : WOOD, x, 0, 11);
+        for (const s2 of [-1, 1]) { put(box(1.4, 0.5, 0.15).translate(0, 3.4, s2 * 0.62), SAND, x, 0, 11); put(box(0.15, 0.5, 1.1).translate(s2 * 0.62, 3.4, 0), SAND, x, 0, 11); }
+        put(pyramid(1.7, 0.5, 1.7), TENT, x, 4.1, 11);
+        for (const [dx, dz] of [[-0.6, -0.6], [0.6, -0.6], [-0.6, 0.6], [0.6, 0.6]]) put(box(0.06, 0.5, 0.06).translate(dx, 3.9, dz), WOOD, x, 0, 11);
+      }
+      put(box(0.2, 1.1, 0.2).translate(0, 0.55, 0), C.dark, -1.35, 0, 10.6);
+      for (let i = 0; i < 6; i++) put(box(0.42, 0.1, 0.1), i % 2 ? 0xe8e4d8 : 0xa83a2e, -1.05 + i * 0.42, 1, 10.6);
+      const pad = L >= 6 ? 0x9a978d : 0x8f8a7c;
+      for (let i = 0; i < nPac; i++) { const a = slot(i, 8, TAU / 16), [x, z] = polar(6.4, a); put(box(4.2, 0.06, 2.2), pad, x, 0.03, z, -a); }
+      for (let i = 0; i < nIris; i++) { const a = slot(i, 4), [x, z] = polar(9, a); put(box(4, 0.06, 2.2), pad, x, 0.03, z, -a); }
+    }
+    // Lv7: two more towers on the flanks.
+    if (L >= 7) for (const a of [TAU * 9 / 16, TAU * 15 / 16]) {
+      const [x, z] = polar(9.3, a);
+      put(box(1.2, 3.4, 1.2).translate(0, 1.7, 0), C.concrete, x, 0, z, -a);
+      put(box(1.4, 0.4, 1.4).translate(0, 3.6, 0), C.concrete, x, 0, z, -a);
+      put(box(0.05, 0.3, 0.8).translate(0.61, 2.9, 0), 0x1c2a33, x, 0, z, -a); // firing slit
+      put(box(0.25, 0.25, 0.6).translate(-0.4, 3.95, 0), 0xfff1c0, x, 0, z, -a);
+    }
+
+    for (const [color, geos] of parts) {
+      const m = new THREE.Mesh(mergeGeometries(geos), mat(color));
+      m.castShadow = m.receiveShadow = true; decor.add(m);
+      for (const g of geos) g.dispose();
+    }
+    scene.add(decor);
   }
-  for (const [x, z, ry] of [[-4.5, 8.2, 0.2], [4.8, 7.8, -0.3]]) {
-    const t = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 1.4, 1.4, 4, 1).rotateY(Math.PI / 4).scale(1.4, 1, 1).translate(0, 0.7, 0), mat(0x5d6340));
-    t.position.set(x, 0, z); t.rotation.y = ry; t.castShadow = t.receiveShadow = true; compound.add(t);
-  }
-  scene.add(compound);
 
   function buildBase(s: State) {
     scene.remove(base);
     base = new THREE.Group(); aimers.length = sweepers.length = 0; pacPts = []; irisPts = []; launchers = [];
+    buildDecor(s);
     const L = s.level, W = s.st.weapons, R1 = 3.6, R2 = 6.4, R3 = 9;
 
     // Before the radar is bought: a dug-in command post with a field mast, center.
