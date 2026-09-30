@@ -1,11 +1,11 @@
-import { KA52, ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, MILESTONE, ARMS, SU25, OVERDRIVE, rank, TRAINING, BIG_KILLS, WARN, PERF, GROUND_FIRE } from './config.ts';
+import { KA52, ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, MILESTONE, ARMS, SU25, OVERDRIVE, rank, TRAINING, BIG_KILLS, WARN, PERF, GROUND_FIRE , BOSS, CAT_NAME, bossOf } from './config.ts';
 import { play as sound } from './sfx.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import { mapSeed } from './terrain.ts';
 import type { Records } from './config.ts';
 import { fetchBoard, fetchMe, fetchProfile, saveProfile, postRun, signup, login, logout, boardHtml as scoreboardHtml, placedHtml, accountHtml, profileHtml, saveCallsign, type Me, type Profile } from './scores.ts';
 import { avatarFor, avatarCode, SHAPES, EMBLEMS, COLORS, type Avatar } from '../server/career.ts';
-import { seedCode, beltOf, stageInfo, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, OTHER_MODE, noAmmo, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
+import { boss, seedCode, beltOf, stageInfo, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, OTHER_MODE, noAmmo, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const byId = new Map<string, HTMLElement>(); // the HUD's elements are fixed: look each up once
 const $ = (id: string) => { let el = byId.get(id); if (!el?.isConnected) byId.set(id, el = document.getElementById(id)!); return el; };
@@ -13,6 +13,7 @@ const fmt = (n: number) => Math.floor(n).toLocaleString('en-US');
 const pad3 = (n: number) => String(Math.round(n)).padStart(3, '0');
 // What it's doing, for the threat board and the target card: ETA inbound, or what it's up to instead.
 const doing = (e: Enemy, dp = 0) => e.kind === 'gunbot' && e.act === 'hover' ? 'FIRING' : e.kind === 'walker' && e.act === 'dive' ? 'CHARGING' : e.kind === 'ew' ? (e.orbit ? 'JAMMING' : 'INBOUND') : e.kind === 'recon' && e.orbit ? 'SPOTTING'
+  : bossOf(e.kind) && e.orbit ? (e.kind === 'mainstay' ? 'COMMANDING' : e.kind === 'okhotnik' && e.pop > 0 ? 'BAY OPEN · EXPOSED' : `ATTACKING · ${e.ammo} LEFT`)
   : e.kind === 'sead' && e.orbit ? `SEAD · ${e.ammo} KH-58` : e.kind === 'su25' && e.act === 'egress' && e.ammo > 0 ? 'BREAK · COMING ROUND'
   : e.act === 'egress' ? 'EGRESS' : e.kind === 'ka52' && e.act === 'hover' ? (e.cd > 0 && e.ammo === KA52.ammo ? `SETTLING ${e.cd.toFixed(dp)}s` : e.pop > 0 ? 'POP-UP · ATGM' : 'MASKED')
   : e.act === 'hover' ? 'HOVER · ATGM' : e.act === 'loiter' ? 'LOITER'
@@ -76,6 +77,7 @@ const TIPS: Record<string, string> = {
   jam: 'Jammer on station: detection drops in the amber sector. The Mi-8 itself shows clearly, so click it and kill it.',
   dud: 'That was a decoy (a Gerbera passing for a Shahed, or a Kh-55 passing for a Kh-101): it hit and did nothing. Decoys look like the real thing until locked for a moment; don\'t waste missiles on them.',
   spot: 'Orlan-10 on station: it spots for everything in its sector, so Lancets and FPVs there find your units from further out and every hit lands harder. Big on radar and slow: kill it and the sector goes blind.',
+  boss: `Boss raid: one heavy aircraft leads it, sized to your battery. It carries countermeasures against the weapons that have done most of your damage (-${Math.round((1 - BOSS.adapt) * 100)}%) and is weak to another family (+${Math.round((BOSS.weak - 1) * 100)}%): the briefing says which. It holds just inside your reach, attacks, then leaves: shoot it down first for a free upgrade.`,
   sead: 'SEAD fighter on station: the Su-35S fires Kh-58s while your radar radiates. They remember where they last heard it, so EMCON only cuts their odds. Kill it on station, or go dark and wait it out.',
   settle: 'Ka-52 settling on the flank: kill it now. Once settled it hides in the trees and only pops up to fire ATGM pairs at your units.',
   ident: 'Decoy classified and released. Decoys look like what they copy until locked for a moment. GaN T/R Modules classify faster.',
@@ -102,6 +104,7 @@ const HELP_SYSTEMS: [string, string][] = [
   ['ARMS', 'home on a radiating radar · [F] EMCON goes silent (locks drop) · LPI mode hides you'],
   ['DECOYS', 'look like Shaheds until locked for a moment, then grey out'],
   ['RAIDS', 'end every level · hold the objective for the bonus and a long build window'],
+  ['BOSSES', 'every 5th level · adapted to your top weapons, weak to another · kill it before it leaves for a free upgrade'],
   ['POWER', 'locks, radar, then ammo and repairs · watch the net flow on the bars'],
   ['SALVAGE', 'click crates to recover them: credits, refills, repairs, free tech'],
 ];
@@ -143,6 +146,10 @@ const LESSONS: Record<keyof typeof ENEMIES, string> = {
   rocket: 'kill the Su-25 before its attack run: its rockets come in salvos, too many to shoot down.',
   sead: 'the Su-35S does no damage itself.',
   arm2: 'Kh-58s remember where your radar was: go dark early, or shoot the Su-35S down on station before it fires.',
+  halo: 'the Mi-26 does no damage itself: kill it before it has dropped all its FPV packs.',
+  backfire: 'the Tu-22M3 does no damage itself: its Kh-101s do. Mark it the moment it arrives.',
+  okhotnik: 'the S-70 does no damage itself: its glide bombs do. Hit it hard while its bay is open.',
+  mainstay: 'the A-50U does no damage itself, but everything it commands is harder to kill.',
   walker: 'light walkers come in packs: wire slows them in front of your guns, Claymores and the Mk 19 take out a whole pack.',
   gunbot: 'combat walkers stop to shoot: keep two guns on every approach so they die before they settle, and a Javelin reaches them first.',
   mech: 'heavy walkers are armoured: Javelins, the mortar and Claymores go through it, machine guns do half.',
@@ -918,11 +925,18 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       cls = 'on build';
     } else if (on && s.raid) {
       const r = s.raid, comp = (Object.entries(r.n) as [keyof typeof ENEMIES, number][]).map(([k, n]) => `${n} × ${ENEMIES[k].code}`).join(' &nbsp; ');
-      h = `<small>INCOMING RAID · SECTOR ${pad3(bearing(Math.cos(r.a), Math.sin(r.a)))}° · T-${Math.max(0, r.at - s.t).toFixed(0)}s</small><b>${r.name}</b>${comp}<br>
-        <small>OBJECTIVE</small> <span class="obj">${OBJECTIVES[r.obj]}</span> &nbsp; <small>BONUS</small> <span class="obj">+${fmt(r.bonus * s.st.credits)} CR</span>`;
+      const b = r.boss;
+      h = `<small>${b ? 'BOSS RAID' : 'INCOMING RAID'} · SECTOR ${pad3(bearing(Math.cos(r.a), Math.sin(r.a)))}° · T-${Math.max(0, r.at - s.t).toFixed(0)}s</small><b>${r.name}</b>`
+        + (b ? `${ENEMIES[b.kind].name.toUpperCase()}: ${bossOf(b.kind)!.skill.toUpperCase()}<br>`
+          + (b.adapt ? `<small>COUNTERS YOUR</small> <span class="alert">${CAT_NAME[b.adapt]} -${Math.round((1 - BOSS.adapt) * 100)}%</span> &nbsp; ` : '')
+          + `<small>WEAK TO</small> <span class="obj">${CAT_NAME[b.weak]} +${Math.round((BOSS.weak - 1) * 100)}%</span><br>` : '')
+        + `${comp}<br>
+        <small>OBJECTIVE</small> <span class="obj">${OBJECTIVES[r.obj]}</span> &nbsp; <small>BONUS</small> <span class="obj">+${fmt(r.bonus * s.st.credits)} CR</span>${b ? ' <span class="obj">+ TECH</span>' : ''}`;
       cls = 'on brief';
     } else if (on && s.raidLeft) {
-      h = `<small>${s.raidName} · ${s.raidLeft} LEFT · ${OBJECTIVES[s.raidObj]}</small> ${s.raidClean ? '<span class="obj">HELD</span>' : 'LOST'}`;
+      const b = boss(s);
+      h = `<small>${s.raidName} · ${s.raidLeft} LEFT · ${OBJECTIVES[s.raidObj]}</small> ${s.raidClean ? `<span class="obj">${s.raidObj === 'boss' ? (b ? 'IN PROGRESS' : 'DONE') : 'HELD'}</span>` : 'LOST'}`
+        + (b ? `<div class="boss"><small>${ENEMIES[b.kind].code} · ${doing(b)}${b.adapt ? ` · COUNTERS ${CAT_NAME[b.adapt]}` : ''}${b.weak ? ` · WEAK TO ${CAT_NAME[b.weak]}` : ""}</small><b class="seg" style="--r:${Math.max(0, b.hp / b.maxHp)}"></b></div>` : '');
       cls = 'on';
     } else if (on && building(s)) { // level card: how it went, what's next, and how long to build
       const next = stageInfo(s.stage + 1, s.ground), arc = flankArc(s.stage + 1, s.ground), wider = arc > flankArc(s.stage, s.ground);
@@ -957,6 +971,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
           else if (e.kind === 'su25') log('SU-25 SPLASHED');
           else if (e.kind === 'sead') log('SU-35S SPLASHED · SEAD THREAT DOWN');
           else if (e.kind === 'recon') log(`ORLAN-10 DOWN BRG ${pad3(bearing(e.x, e.z))} · SECTOR BLIND`);
+          else if (bossOf(e.kind!)) log(`BOSS DOWN · ${ENEMIES[e.kind!].code} · SALVAGED TECH ON THE GROUND`);
         }
         else if (e.k === 'lost' && s.phase === 'play' && emitting(s)) log(`LOCK LOST${e.n! > 1 ? ` x${e.n}` : ''} BRG ${pad3(bearing(e.x, e.z))}`, 'alert');
         else if (e.k === 'lost' && e.n! > 0 && !emitting(s)) log(`${e.n} LOCK${e.n! > 1 ? 'S' : ''} DROPPED · RADAR DARK`, 'alert'); else if (e.k === 'warning') { say('⚠ STRIKE AIRCRAFT', 'warn'); log('SU-34 PACKAGE INBOUND', 'alert'); }
@@ -974,6 +989,11 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
           log(`CRUISE MISSILE BRG ${pad3(bearing(e.x, e.z))} · TARGET ${u ? `${padName(u)} ${pad3(bearing(u.x, u.z))}°` : 'BATTERY'}`, 'alert');
           if (s.t - cruiseSaid > 4) { cruiseSaid = s.t; say('⚠ CRUISE MISSILE · IT GOES FOR YOUR UNITS', 'warn'); }
         }
+        else if (e.k === 'bossOn') { say(`⚠ ${ENEMIES[e.kind!].code} ON STATION`, 'warn'); log(`${ENEMIES[e.kind!].code} ON STATION BRG ${pad3(bearing(e.x, e.z))} · ${bossOf(e.kind!)!.skill.toUpperCase()}`, 'alert'); }
+        else if (e.k === 'bossLeft') { say('BOSS ESCAPED', 'warn'); log(`${ENEMIES[e.kind!].code} ESCAPED · NO TECH`, 'alert'); }
+        else if (e.k === 'release' && e.kind === 'swarm') { if (s.t - rocketSaid > 1) { rocketSaid = s.t; log(`MI-26 DEPLOYS FPV PACK BRG ${pad3(bearing(e.x, e.z))}`, 'alert'); } }
+        else if (e.k === 'release' && e.kind === 'cruise') {} // announced by its own launch warning
+        else if (e.k === 'release' && e.kind === 'kab' && (b => b?.kind === 'okhotnik' && Math.hypot(b.x - e.x, b.z - e.z) < 3)(boss(s))) log(`S-70 BAY OPEN · GLIDE BOMB BRG ${pad3(bearing(e.x, e.z))} · HIT IT NOW`, 'alert');
         else if (e.k === 'release' && e.kind === 'rocket') { if (s.t - rocketSaid > 1) { rocketSaid = s.t; const u = e.n !== undefined && e.n >= 0 ? s.perim.find(p => p.slot === e.n) : undefined; log(`SU-25 ROCKET SALVO BRG ${pad3(bearing(e.x, e.z))} · TARGET ${u ? padName(u) : 'BATTERY'}`, 'alert'); } }
         else if (e.k === 'release') {
           const u = e.n !== undefined && e.n >= 0 ? s.perim.find(p => p.slot === e.n) : undefined;

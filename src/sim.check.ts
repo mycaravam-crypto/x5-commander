@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, stageInfo, spawnGroupAt, seedCode, parseCode, parseResult, buy, skipBuild, cruiseTarget, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive, noAmmo, spotted, irHit, shownKind, horizonMask } from './sim.ts';
-import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, START_PADS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, TERRAIN, AMMO_RELOAD, GUNS, HELO, LANCET, MILESTONE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE, VETERANCY, TRAINING, TRAINING_BUILD, DOCTRINES, RAIDS, EW_MAX, RECON, KA52, SU25, SEAD as SEAD_FTR, ARM2, ARM_STUN, MASK, horizon, flightAlt, KINDS } from './config.ts';
+import { newGame, update, stageInfo, spawnGroupAt, seedCode, parseCode, parseResult, buy, skipBuild, cruiseTarget, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive, noAmmo, spotted, irHit, shownKind, horizonMask, boss, bossHp, bossReach, bossStandoff, upkeep } from './sim.ts';
+import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, START_PADS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, TERRAIN, AMMO_RELOAD, GUNS, HELO, LANCET, MILESTONE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE, VETERANCY, TRAINING, TRAINING_BUILD, DOCTRINES, RAIDS, EW_MAX, RECON, KA52, SU25, SEAD as SEAD_FTR, ARM2, ARM_STUN, ARM_LIFE, MASK, horizon, flightAlt, KINDS, ARENA_R, BOSS, bossLevel, bossFor, resupply, RESUPPLY, UPKEEP, type DmgCat } from './config.ts';
 import { site, PONDS, ROCKS, FARMS, mapSeed, openShare, OPEN_MIN, ground, riverZ, RIVER_W } from './terrain.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
@@ -369,7 +369,7 @@ const addPad = (g: State, k: string, slot: number) => { g.credits += 1e6; ok(buy
   mg.kills = VETERANCY[VETERANCY.length - 1].kills; ok(padStats(g, mg).range > green.range, 'an ace reaches further');
   mg.kills = VETERANCY[1].kills;
   const arm = spawnEnemy(g, 'arm', FRONT, 30);
-  run(g, 8);
+  run(g, ARM_LIFE + 1); // blind, it veers off: shot down on the way, or out of motor
   ok(!g.enemies.includes(arm) && g.radarDownUntil === 0 && g.stats.radarHits === 0, 'an ARM has no radar to knock out');
 }
 // Unlock ladder: the radar opens at base level RADAR_REQ; sensors, fire control and the Patriot need it.
@@ -797,7 +797,7 @@ const withPerk = (id: string) => { const g = quiet(); g.perks = [id]; g.st = der
   ok(left > 0 && Math.abs(e.seenUntil - g.t - 2 * left) < 0.1, 'BLACKOUT PROTOCOL: tracks coast twice as long in EMCON');
 }
 { // COUNTER-SEAD: an ARM shot down refills power
-  const g = withPerk('csead'); g.power = 0; g.st.gen = 0; const a = spawnEnemy(g, 'arm', 0, 20); a.hp = 1e9; g.ammo = 1e9;
+  const g = withPerk('csead'); g.power = 0; g.st.gen = g.st.upkeep = 0; const a = spawnEnemy(g, 'arm', 0, 20); a.hp = 1e9; g.ammo = 1e9;
   update(g, 1 / 60); a.hp = 0.1; a.seenUntil = g.t + 5; markAt(g, a.x, a.z); run(g, 2);
   ok(g.stats.kills.arm === 1 && g.power >= g.st.powerCap * 0.15, `COUNTER-SEAD restores power (${g.power.toFixed(0)})`);
 }
@@ -1031,6 +1031,88 @@ ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies stan
   ok(unitKills === Object.values(b.stats.perim).reduce((a, x) => a + x, 0), `unit kills match perimeter kills (${unitKills})`);
 }
 
+// The war escalates from about level 5: kills pay more as it does, so upgrades keep coming.
+{
+  ok(difficulty(SURGE.from * 60).pay === 1 && difficulty((SURGE.from + 10) * 60).pay > 1.5, 'kills pay more once the war escalates');
+  const g = quiet(); g.t = (SURGE.from + 10) * 60;
+  ok(spawnEnemy(g, 'drone', 0, 60).reward > ENEMIES.drone.reward, 'a late Shahed is worth more');
+  ok(difficulty((SURGE.from + 10) * 60).hp > 2 * difficulty((SURGE.from + 5) * 60).hp / 1.5, 'the threat compounds past the surge');
+}
+
+// Resupply: the generators and the reload line work harder the emptier their store; every system has a standby draw.
+{
+  ok(resupply(0) === RESUPPLY.empty && resupply(1) === RESUPPLY.full && resupply(0) > 1 && resupply(1) < 1, 'resupply eases off as the store fills');
+  const made = (from: number) => { const q = quiet(); q.emcon = true; q.ammo = from; run(q, 1); return q.ammo - from; };
+  ok(made(0) > 1.8 * made(30), `the reload line works harder with the racks empty (${made(0).toFixed(1)} vs ${made(30).toFixed(1)}/s)`);
+  const gen = (from: number) => { const q = quiet(); q.emcon = true; q.st.ammoProd = 0; q.power = from; run(q, 1); return q.power - from; };
+  ok(gen(0) > 2 * gen(50), 'the generators work harder with the banks empty');
+  const q = quiet(), u0 = upkeep(q);
+  ok(u0 === UPKEEP.pac3, 'the Patriot draws standby power');
+  q.lv.pulse = 2; q.st = deriveStats(q.lv, []); ok(Math.abs(upkeep(q) - u0 - 2 * UPKEEP.pulse!) < 1e-9, 'weapons draw standby power per level');
+  placePad(Object.assign(q, { placing: { k: 'mantis', since: q.t, paid: 0 } }), 0, -17);
+  ok(q.perim.length === 1 && Math.abs(upkeep(q) - u0 - 2 * UPKEEP.pulse! - UPKEEP.mantis!) < 1e-9, 'powered units draw standby power');
+  q.perim[0].down = true; ok(Math.abs(upkeep(q) - u0 - 2 * UPKEEP.pulse!) < 1e-9, 'a unit that is down draws nothing');
+}
+
+// Bosses: every 5th level's raid is led by one, sized and matched to the battery.
+{
+  ok(!bossLevel(3) && bossLevel(4) && bossLevel(9) && !bossLevel(10), 'a boss every 5th level');
+  ok(bossFor(4).kind === 'halo' && bossFor(9).kind === 'backfire' && bossFor(14).kind === 'okhotnik' && bossFor(19).kind === 'mainstay' && bossFor(24).kind === 'halo', 'bosses in order, looping');
+  // The L5 raid: briefed with its traits, then one boss arrives with them.
+  const g = armed(newGame(3)); g.phase = 'play'; g.spawnAcc = -1e9; g.nextElite = 1e9; g.stage = 4; g.nextRaid = RAID_WARN; // briefed right away
+  g.stats.dmg = { MG: 500, 'PAC-3': 100 };
+  run(g, 0.5);
+  ok(g.raid?.obj === 'boss' && g.raid.boss?.kind === 'halo', 'the L5 raid is led by a boss');
+  // The Mi-26 is weak to SAMs, but this battery has none: its weakness falls on the family it has used least.
+  ok(g.raid!.boss!.adapt === 'GUNS' && g.raid!.boss!.weak === 'PAC', `countermeasures against the top family, weakness where it can be used (${g.raid!.boss!.adapt}/${g.raid!.boss!.weak})`);
+  run(g, RAID_WARN + 1);
+  const b = boss(g)!;
+  ok(b && g.enemies.filter(e => e.kind === 'halo').length === 1 && b.adapt === 'GUNS' && b.weak === 'PAC' && g.raidObj === 'boss', 'one boss arrives, traits as briefed');
+  const hp0 = bossHp(g, 'halo', FRONT); g.lv.dmg = 10; g.st = deriveStats(g.lv, g.perks, g.level);
+  ok(bossHp(g, 'halo', FRONT) > 2 * hp0, 'a stronger battery meets a tougher boss');
+  ok(bossHp(newGame(4), 'halo', FRONT) >= ENEMIES.halo.hp, 'never below its type\'s HP');
+}
+{ // It holds just inside your reach: in close on a gun line, at its full standoff for a Patriot.
+  const g = newGame(5), e = spawnEnemy(g, 'backfire', FRONT, 60);
+  ok(bossStandoff(g, e) < 30 && bossStandoff(g, e) <= bossReach(g, FRONT) - BOSS.inside + 1e-9, `a boss holds inside the guns' reach (${bossStandoff(g, e).toFixed(1)}m)`);
+  const h = armed(newGame(5)), f = spawnEnemy(h, 'backfire', FRONT, 60);
+  ok(bossStandoff(h, f) === 50, 'and at its standoff when the Patriot reaches it');
+}
+{ // Its countermeasures and weakness: x BOSS.adapt from one family, x BOSS.weak from another.
+  const dealt = (adapt: DmgCat | '', weak: DmgCat | '') => {
+    const q = quiet(); const e = spawnEnemy(q, 'halo', 0, 30); e.hp = e.maxHp = 1e9; e.adapt = adapt; e.weak = weak; e.cd = e.hold = 1e9;
+    q.ammo = 1e9; run(q, 8); return q.stats.dmg['PAC-3'] ?? 0;
+  };
+  const none = dealt('', ''), resisted = dealt('PAC', ''), weak = dealt('', 'PAC'), other = dealt('GUNS', 'SAM');
+  ok(none > 0 && resisted < none * 0.6 && weak > none * 1.4 && Math.abs(other - none) < none * 0.15, `boss countermeasures and weakness (${resisted.toFixed(0)} / ${none.toFixed(0)} / ${weak.toFixed(0)})`);
+}
+{ // Objective: shoot it down. It gets away: lost, no tech. Shot down: a SALVAGED TECH drop.
+  const q = quiet(), e = spawnEnemy(q, 'halo', 0, ARENA_R + 3.9);
+  q.raidId = e.raid = 1; q.raidLeft = 1; q.raidObj = 'boss'; q.bossId = e.id; e.act = 'egress'; e.vx = e.speed; // on its way out
+  let left = false; run(q, 1, () => { left ||= q.events.some(v => v.k === 'bossLeft'); });
+  ok(left && !q.raidClean && !q.enemies.includes(e) && q.bossId === 0 && !q.drops.length, 'a boss that gets away loses the objective');
+  const k = quiet(), f = spawnEnemy(k, 'halo', 0, 20); f.hp = 1; f.cd = f.hold = 1e9;
+  run(k, 6);
+  ok(k.stats.kills.halo === 1 && k.drops.some(d => d.k === 'tech'), 'a boss shot down leaves tech behind');
+}
+{ // Mi-26: drops FPV packs · Tu-22M3: Kh-101s at your units and jams its sector · S-70: bay open, exposed, glide bomb.
+  const q = quiet(), h = spawnEnemy(q, 'halo', 0, 20); h.hp = 1e9; h.cd = 0.05;
+  run(q, 0.2); ok(q.enemies.filter(e => e.kind === 'swarm').length === ENEMIES.swarm.pack && h.orbit, 'the Mi-26 drops an FPV pack');
+  const w = quiet(), t = spawnEnemy(w, 'backfire', 0, 45); t.hp = 1e9; t.cd = 0.05;
+  run(w, 0.2); ok(w.enemies.filter(e => e.kind === 'cruise').length === 2, 'the Tu-22M3 fires a Kh-101 pair');
+  ok(jamFactor(w, { x: Math.cos(0) * 30, z: Math.sin(0) * 30 }) < 1 && jamFactor(w, t) === 1, 'the Tu-22M3 jams its own sector, not itself');
+  const o = quiet(), s70 = spawnEnemy(o, 'okhotnik', 0, 20); s70.hp = 1e9; s70.cd = 0.05; s70.seenUntil = -1;
+  run(o, 0.2); ok(o.enemies.some(e => e.kind === 'kab') && s70.pop > 0 && visible(o, s70), 'the S-70 opens its bay: a glide bomb, and it shows');
+}
+{ // A-50U: while it commands, every other raider takes less damage.
+  const dealt = (link: boolean) => {
+    const q = quiet(), e = spawnEnemy(q, 'tank', 0, 30); e.hp = e.maxHp = 1e9; e.cd = 1e9;
+    if (link) { const m = spawnEnemy(q, 'mainstay', Math.PI, 70); m.orbit = true; m.hp = 1e9; m.hold = 1e9; }
+    run(q, 1); e.seenUntil = 1e9; markAt(q, e.x, e.z); q.ammo = 1e9; const h0 = e.hp; run(q, 6); return h0 - e.hp; // what the tank took
+  };
+  const off = dealt(false), on = dealt(true);
+  ok(on < off * (BOSS.link + 0.1) && on > off * (BOSS.link - 0.15), `the A-50U datalink (${on.toFixed(0)} vs ${off.toFixed(0)})`);
+}
 // GROUND ASSAULT: walkers on foot, and only the perimeter can engage them.
 {
   const gq = () => { const g = newGame(1, '', 'standard', false, true); Object.assign(g, { phase: 'play', spawnAcc: -1e9, nextRaid: 1e9, level: 5 }); g.perim.length = 0; g.st.maxHp = g.hp = 1e9; return g; };

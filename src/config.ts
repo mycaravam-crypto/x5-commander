@@ -27,7 +27,7 @@ const DEG = Math.PI / 180;
 export const bearing = (x: number, z: number) => ((Math.atan2(z, x) * 180 / Math.PI) % 360 + 360) % 360;
 
 export type EnemyKind = 'scout' | 'drone' | 'swarm' | 'tank' | 'elite' | 'decoy' | 'arm' | 'ew' | 'tbm' | 'cruise' | 'atgm' | 'kab'
-  | 'recon' | 'ka52' | 'hyper' | 'mald' | 'su25' | 'rocket' | 'sead' | 'arm2'
+  | 'recon' | 'ka52' | 'hyper' | 'mald' | 'su25' | 'rocket' | 'sead' | 'arm2' | 'halo' | 'backfire' | 'okhotnik' | 'mainstay'
   | 'walker' | 'gunbot' | 'mech'; // GROUND ASSAULT: bipedal robots on foot
 
 export interface EnemyType {
@@ -91,6 +91,12 @@ export const ENEMIES: Record<EnemyKind, EnemyType> = {
   // Kh-58UShKE: heavier, longer-burning ARM with a memory seeker. Going dark doesn't make it veer off: it flies on at
   // where it last heard the radar, off by up to ARM2.scatter to the side, so EMCON cuts its odds instead of making it miss (ARM2).
   arm2: { name: 'Kh-58UShKE anti-radiation missile', code: 'KH-58', hp: 6, speed: 11, dmg: 8, reward: 25, size: 0.9, sig: 0.5, ir: 1.4, alt: 8, glow: 1.3, pack: 1, wobble: 0, drop: 0.04 },
+  // Bosses (BOSSES): one leads the raid every BOSS_EVERY levels. HP here is a floor: the real figure comes from your
+  // firepower (sim.bossHp). `dmg` is what their weapons carry, for the threat board; they hold off and never ram.
+  halo: { name: 'Mi-26T2 heavy assault helicopter (FPV carrier)', code: 'MI-26', hp: 150, speed: 1.7, dmg: 20, reward: 300, size: 3.4, sig: 2, ir: 2, alt: 6, glow: 1.4, pack: 1, wobble: 0, drop: 0 },
+  backfire: { name: 'Tu-22M3M long-range bomber', code: 'TU-22M3', hp: 200, speed: 3.6, dmg: 30, reward: 450, size: 3.6, sig: 1.8, ir: 2, alt: 12, glow: 1.6, pack: 1, wobble: 0, drop: 0 },
+  okhotnik: { name: 'S-70 Okhotnik-B stealth UCAV', code: 'S-70', hp: 200, speed: 2.8, dmg: 40, reward: 550, size: 3.2, sig: 0.08, ir: 0.8, alt: 8, glow: 1.2, pack: 1, wobble: 0, drop: 0 },
+  mainstay: { name: 'A-50U Mainstay airborne command post', code: 'A-50U', hp: 250, speed: 2.6, dmg: 10, reward: 700, size: 4, sig: 2.5, ir: 1.8, alt: 13, glow: 1.6, pack: 1, wobble: 0, drop: 0 },
   // GROUND ASSAULT only. Bipedal robots walking in over the ground: under every radar horizon, seen by eye, and
   // out of reach of the battery's air-defence weapons. Only the perimeter can stop them.
   // Light walker: comes in packs, charges the nearest unit it sees with a demolition charge (GROUND.seek), else the base.
@@ -101,7 +107,8 @@ export const ENEMIES: Record<EnemyKind, EnemyType> = {
   mech: { name: 'Heavy assault walker (bipedal robot)', code: 'MECH', hp: 110, speed: 1.3, dmg: 30, reward: 90, size: 2.1, sig: 1.3, ir: 1.3, alt: 0, glow: 1.3, pack: 1, wobble: 0, flank: true, ground: true, armour: 0.5, drop: 0.3 },
 };
 // Kills that matter get a bigger blast, a camera shake, a banner and a sound of their own (hud, render, sfx).
-export const BIG_KILLS: Partial<Record<EnemyKind, string>> = { elite: 'SU-34 SPLASHED', ew: 'JAMMER DOWN', tbm: 'BALLISTIC INTERCEPTED', hyper: 'KINZHAL INTERCEPTED', ka52: 'ALLIGATOR DOWN', su25: 'SU-25 SPLASHED', sead: 'SU-35S SPLASHED', mech: 'HEAVY WALKER DOWN' };
+export const BIG_KILLS: Partial<Record<EnemyKind, string>> = { elite: 'SU-34 SPLASHED', ew: 'JAMMER DOWN', tbm: 'BALLISTIC INTERCEPTED', hyper: 'KINZHAL INTERCEPTED', ka52: 'ALLIGATOR DOWN', su25: 'SU-25 SPLASHED', sead: 'SU-35S SPLASHED', mech: 'HEAVY WALKER DOWN',
+  halo: 'MI-26 DOWN', backfire: 'BACKFIRE SPLASHED', okhotnik: 'OKHOTNIK SPLASHED', mainstay: 'MAINSTAY SPLASHED' };
 export const BIG_KILL_SHAKE = 0.5;
 // Critical-state warnings on the HUD (hud.warnings): shares of capacity a resource is critical below. sweep: radar
 // speed share while power starves it; waiting: contacts in tracking range waiting for a lock while every slot is
@@ -218,6 +225,7 @@ export const AGILITY: Record<EnemyKind, { turn: number; acc: number; hover?: boo
   tbm: { turn: 1.6, acc: 3 }, cruise: { turn: 2.4, acc: 2.5 }, atgm: { turn: 4, acc: 4 }, kab: { turn: 1.2, acc: 1.5 },
   recon: { turn: 0.8, acc: 1 }, ka52: { turn: 0, acc: 1.8, hover: true }, hyper: { turn: 1.2, acc: 3 }, mald: { turn: 2.4, acc: 2.5 },
   su25: { turn: 1.1, acc: 1.5 }, rocket: { turn: 3, acc: 4 }, sead: { turn: 0.8, acc: 1.2 }, arm2: { turn: 0, acc: 0 }, // arm2: flies its own seeker
+  halo: { turn: 0, acc: 1, hover: true }, backfire: { turn: 0.7, acc: 1 }, okhotnik: { turn: 1.1, acc: 1.4 }, mainstay: { turn: 0.5, acc: 0.8 },
   walker: { turn: 0, acc: 5, hover: true }, gunbot: { turn: 0, acc: 3, hover: true }, mech: { turn: 0, acc: 1.5, hover: true }, // on foot: they stop and sidestep
 };
 export const HOMING_BOOST = 3, HOMING_SNAP = 2;
@@ -360,8 +368,8 @@ export const RAID_WARN = 10; // s
 export const RAID_BONUS = 0.5; // share of the raid's total reward, + 25 flat
 export const RAID_SPAWN = 0.4; // spawn x during the attack
 export const raidScale = (level: number) => grow(level * 1.5, 0.7); // ~1.5 min of play per level
-export type RaidObjective = 'battery' | 'radar';
-export const OBJECTIVES: Record<RaidObjective, string> = { battery: 'PROTECT BATTERY', radar: 'PROTECT RADAR' };
+export type RaidObjective = 'battery' | 'radar' | 'boss';
+export const OBJECTIVES: Record<RaidObjective, string> = { battery: 'PROTECT BATTERY', radar: 'PROTECT RADAR', boss: 'SHOOT DOWN THE BOSS' };
 export const RAIDS: { name: string; from: number; g: Partial<Record<EnemyKind, number>>; obj?: RaidObjective }[] = [
   { name: 'SHAHED WAVE', from: 0, g: { drone: 6 } },
   { name: 'LANCET PACK', from: 0, g: { scout: 7 } },
@@ -381,6 +389,41 @@ export const RAIDS: { name: string; from: number; g: Partial<Record<EnemyKind, n
   { name: 'GROUND ATTACK', from: 6, g: { su25: 2, scout: 3 } },
   { name: 'SEAD SWEEP', from: 8, g: { sead: 1, elite: 1, arm: 1, decoy: 2, drone: 2 }, obj: 'radar' },
 ];
+
+// Bosses: every BOSS_EVERY-th level (L5, L10, L15...) the raid is led by one, in this order, looping (stronger each
+// time round, like everything else). Objective: shoot it down before it leaves; it goes home once it has used up
+// its `ammo` attacks (one every `every` s) or spent `time` s on station. Killing it pays its reward, the raid bonus
+// and a SALVAGED TECH drop (a free upgrade level).
+// It holds at `standoff` m, or just inside the reach of your weapons on its bearing if that's shorter (sim.bossReach),
+// so there's always something that can hit it. It's matched to your battery:
+//  · HP: `fight` s of the firepower that can reach where it holds (sim.firepower: paper DPS x `lands`, the share
+//    of it that really lands per weapon family: guns spray and reload), never below its type's HP x the level's
+//    difficulty (so a battery that stops building meets bosses it can't finish); x `tough` for the ones that arrive
+//    quickly or sit where your best weapons reach them anyway;
+//  · countermeasures against the weapon family that has done the most of your damage this run: x`adapt` from it;
+//  · a weakness: its own `weak` family takes x`weak`; if you have nothing in that family, whichever you own and
+//    have used least. So a boss rewards the upgrades you've neglected.
+export type DmgCat = 'GUNS' | 'SAM' | 'PAC' | 'DEW';
+export const DMG_CAT: Record<string, DmgCat> = { MG: 'GUNS', MANTIS: 'GUNS', STINGER: 'SAM', 'IRIS-T SLM': 'SAM', 'IRIS-T': 'SAM', 'PAC-3': 'PAC', HEL: 'DEW', HPM: 'DEW' };
+export const CAT_NAME: Record<DmgCat, string> = { GUNS: 'GUNS', SAM: 'SAMS', PAC: 'PATRIOT', DEW: 'LASER + HPM' };
+export const BOSS_EVERY = 5;
+export const BOSS = { fight: 60, lands: { GUNS: 0.25, SAM: 0.5, PAC: 0.5, DEW: 0.5 } as Record<DmgCat, number>, adapt: 0.5, weak: 1.6, inside: 3, minR: 12, exposed: 1.5, open: 2.5, link: 0.7, linkSpeed: 1.15 };
+// halo: hovers and drops an FPV pack (`n`) on your units each attack · backfire: circles, fires `n` Kh-101s at your
+// most valuable units each attack, and its own ECM jams its sector like a Mi-8 · okhotnik: circles, stealthy (tiny
+// radar return), and for BOSS.open s each attack its bay is open: seen by any radar, takes x BOSS.exposed, and drops
+// a KAB on the battery · mainstay: circles and commands: while it's on station every other raider takes x BOSS.link
+// damage and flies x BOSS.linkSpeed faster.
+export interface Boss { kind: EnemyKind; name: string; skill: string; weak: DmgCat; tough: number; standoff: number; orbit: boolean; every: number; ammo: number; n: number; time: number; g: Partial<Record<EnemyKind, number>> }
+export const BOSSES: Boss[] = [
+  { kind: 'halo', name: 'CARRIER ASSAULT', skill: 'drops FPV packs on your units', weak: 'SAM', tough: 1, standoff: 22, orbit: false, every: 6, ammo: 6, n: 1, time: 50, g: { scout: 2, drone: 3 } },
+  { kind: 'backfire', name: 'BOMBER STRIKE', skill: 'fires Kh-101 pairs at your units · jams its own sector', weak: 'PAC', tough: 1.8, standoff: 50, orbit: true, every: 8, ammo: 4, n: 2, time: 45, g: { mald: 2, decoy: 2, drone: 3 } },
+  { kind: 'okhotnik', name: 'STEALTH HUNT', skill: 'radar barely sees it · exposed while its bay is open to drop a glide bomb', weak: 'GUNS', tough: 1, standoff: 26, orbit: true, every: 7, ammo: 6, n: 1, time: 55, g: { scout: 3, swarm: 2 } },
+  { kind: 'mainstay', name: 'COMMAND NODE', skill: 'datalink: every other raider takes 30% less damage and flies faster', weak: 'SAM', tough: 1.4, standoff: 46, orbit: true, every: 0, ammo: 0, n: 0, time: 55, g: { sead: 1, ew: 1, drone: 4, cruise: 1, su25: 1 } },
+];
+const BOSS_OF: Partial<Record<EnemyKind, Boss>> = Object.fromEntries(BOSSES.map(b => [b.kind, b]));
+export const bossOf = (k: EnemyKind) => BOSS_OF[k]; // runs per contact per tick: a lookup, not a search
+export const bossLevel = (stage: number) => (stage + 1) % BOSS_EVERY === 0; // stage: 0-based level index
+export const bossFor = (stage: number) => BOSSES[(Math.floor((stage + 1) / BOSS_EVERY) - 1) % BOSSES.length];
 
 // Radar threats. ARMs home on the radar while it radiates, and a hit takes it offline. EMCON [F] silences it:
 // no sweep, no locks, no radar power drain, and ARMs lose the emitter and veer off course.
@@ -405,13 +448,13 @@ export const EW_ORBIT = 48; // Mi-8 jammers stand off at this range and circle (
 export const EW_ARC = 0.4; // rad half-width of each jammed sector
 export const EW_JAM = 0.35; // detection chance multiplier inside a jammed sector
 
-// Logarithmic growth: every doubling of play time adds about the same threat, so upgrades (whose costs grow
-// exponentially) can keep up and a run has no built-in end. m = minutes played.
+// Logarithmic growth: every doubling of play time adds about the same threat. m = minutes played.
 export const grow = (m: number, k: number) => 1 + k * Math.log1p(m / 4);
-// Past SURGE.from minutes the war escalates: HP and damage grow exponentially, numbers linearly, on top of the
-// gentle curve. Upgrades cost more with every level, so a battery's strength grows about with the log of its
-// income; the surge outruns it, and every run ends. Per minute past `from`.
-export const SURGE = { from: 12, hp: 0.12, dmg: 0.06, spawn: 0.05 };
+// Past SURGE.from minutes (about level 5) the war escalates: HP and damage grow exponentially, numbers linearly,
+// on top of the gentle curve, so a battery that stops building falls behind within a few levels. Kills pay more
+// as it goes (reward x the HP surge ^ `pay`), so income keeps upgrades coming, but slower than the threat grows:
+// every run ends. Per minute past `from`.
+export const SURGE = { from: 6, hp: 0.16, dmg: 0.07, spawn: 0.04, pay: 0.65 };
 const surge = (m: number, k: number) => Math.exp(k * Math.max(0, m - SURGE.from));
 const surgeLin = (m: number, k: number) => 1 + k * Math.max(0, m - SURGE.from);
 export function difficulty(t: number) {
@@ -420,8 +463,9 @@ export function difficulty(t: number) {
     // Composition carries most of the difficulty (see LEVELS), so raw numbers grow gently, until the surge.
     spawnRate: 0.6 * grow(m, 1.4) * surgeLin(m, SURGE.spawn), // spawn events / s
     hp: grow(m, 0.75) * surge(m, SURGE.hp),
-    speed: 1 + 0.025 * Math.min(m, 20),
+    speed: 1 + 0.02 * Math.min(m, 30),
     dmg: grow(m, 0.6) * surge(m, SURGE.dmg),
+    pay: surge(m, SURGE.hp * SURGE.pay), // kill reward x
   };
 }
 
@@ -454,6 +498,15 @@ export const DISCIPLINES = [
 export const PRIORITY_DMG = 1.25, PRIORITY_POWER = 1.2; // damage multiplier, power/s
 // Holding a fire control lock costs power too, so more ECS channels in use means less for the radar sweep.
 export const LOCK_POWER = 0.25; // power/s per lock held
+// Resupply: the generators and the GMT reload line work harder the emptier their store is: output x `empty` with
+// nothing left, easing to x `full` at capacity. So power and interceptors settle at a level that shows how supply
+// compares to demand (short of it: low, but still firing; well ahead: near full), instead of sitting pinned at empty
+// or at full; and as the war grows, a surplus bought once wears away.
+export const RESUPPLY = { empty: 1.6, full: 0.4 };
+export const resupply = (fill: number) => { const f = Math.min(1, Math.max(0, fill)); return RESUPPLY.empty * (1 - f) + RESUPPLY.full * f; };
+// Standby power (power/s) a system draws just to stay ready, radar or not: per level for the battery's weapons, per
+// working unit for the powered emplacements. A bigger battery needs a bigger plant.
+export const UPKEEP: Partial<Record<string, number>> = { pac3: 0.5, pulse: 0.6, missile: 0.4, rail: 1, mantis: 0.2, iris: 0.3, observer: 0.1 };
 // Maintenance Crew repairs run on surplus power above 20%, like interceptor production.
 export const REPAIR_POWER = 0.8; // power per HP repaired
 // Emergency intercept [Space]: every weapon (and every pad in range) fires only at the priority target (or the
@@ -495,7 +548,7 @@ export const UPGRADES: Upgrade[] = [
   U('WEAPONS', 'missile', 'IRIS-T SLX', 400, 1.7, Infinity, 'homing blast-frag · +40%/lv', undefined, R),
   U('WEAPONS', 'rail', 'HPM Leonidas', 700, 1.7, Infinity, 'microwave cone, fries everything within 7 m of it · +40%/lv', undefined, R),
   U('MAGAZINE', 'acap', 'M903 Canisters', 40, 1.4, Infinity, '+25 interceptor capacity', undefined, 'pac3'),
-  U('MAGAZINE', 'aprod', 'GMT Reload', 50, 1.45, Infinity, '+1.5 interceptors/s', undefined, 'pac3'),
+  U('MAGAZINE', 'aprod', 'GMT Reload', 50, 1.45, Infinity, '+1.1 interceptors/s', undefined, 'pac3'),
   U('PERIMETER', 'mg', '12.7mm AA MG', 60, 1.5, Infinity, 'belt-fed gun on what it can see, short range · +1 emplacement'),
   U('PERIMETER', 'mantis', 'MANTIS 35mm C-RAM', 150, 1.35, Infinity, 'fast gun, short range · +1 emplacement', 2),
   U('PERIMETER', 'stinger', 'Stinger Team', 220, 1.35, Infinity, 'MANPADS, mid range homing · +1 emplacement', 3),
@@ -727,8 +780,9 @@ export function deriveStats(lv: Record<string, number>, perks: string[], level =
     trackRange: (62 + 6 * L('trange')) * p.trange, // just past PAC-3 reach
     modes: 1 + L('modes'),
     ammoCap: 40 + 25 * L('acap'),
-    ammoProd: (3 + 1.5 * L('aprod')) * p.aprod,
+    ammoProd: (3 + 1.1 * L('aprod')) * p.aprod,
     ammoPower: 0.5, // power per round produced
+    upkeep: (['pac3', 'pulse', 'missile', 'rail'] as const).reduce((a, k) => a + (UPKEEP[k] ?? 0) * (lv[k] ?? 0), 0), // standby power/s of the weapons (units: sim.upkeep)
     credits: p.credits,
     chain: p.addChain,
     fusion: p.addFusion > 0, lpi: p.addLpi > 0, arc: p.addArc, scav: p.addScav, frag: p.addFrag, markDmg: p.markDmg,

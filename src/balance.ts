@@ -1,6 +1,6 @@
 // `npm run balance` — headless bots over many seeds. Median survival (and level reached) per doctrine, and per perk when the bot
 // always takes that perk if offered. A perk far above the rest is a balance problem.
-import { newGame, update, buy, collectDrop, cost, pickPerk, toggleEmcon, emitting, rand, padUpgradeCost, upgradePad, bestSpot, placePad, type State, type Pad } from './sim.ts';
+import { newGame, update, buy, collectDrop, cost, pickPerk, toggleEmcon, emitting, rand, padUpgradeCost, upgradePad, bestSpot, placePad, boss, markAt, visible, type State, type Pad } from './sim.ts';
 import { DOCTRINES, PERKS, UPGRADES, PERIM_KINDS, perimSlots, ENEMIES, ARMS, type PerimKind, type EnemyKind } from './config.ts';
 
 declare const process: { argv: string[] }; // node, without pulling in @types/node
@@ -11,7 +11,7 @@ Math.random = () => rand(rng);
 // Plays like an attentive beginner: buys a milestone (radar, then Patriot) the moment it can afford it, fills
 // every free unit slot (cheapest gun, plus one observer post and one ammo point once there are guns to serve) and
 // builds at once on bestSpot, saves for an open milestone, and otherwise buys the cheapest of a sensible core.
-// Uses EMCON against ARMs, prefers `perk` in drafts.
+// Uses EMCON against ARMs, marks a boss as the priority target once it's on the scope, prefers `perk` in drafts.
 const CORE = UPGRADES.map(u => u.id).filter(id => !['cap', 'modes', 'trange', 'jammer'].includes(id) && !PERIM_KINDS.includes(id as PerimKind));
 const GUNS = ['mg', 'mantis', 'stinger', 'iris'];
 const cheapest = (s: State, ids: string[]) => ids.reduce((a, b) => cost(s, b) < cost(s, a) ? b : a);
@@ -40,6 +40,8 @@ function play(seed: number, doctrine: string, perk = '') {
     if (s.phase === 'perk') pickPerk(s, Math.max(0, s.perkChoices.indexOf(perk)));
     shop(s);
     for (const d of [...s.drops]) collectDrop(s, d.x, d.z); // an attentive player recovers every drop
+    const b = boss(s);
+    if (b && visible(s, b) && s.marked !== b.id) markAt(s, b.x, b.z);
     const arm = s.enemies.some(e => ARMS.includes(e.kind) && e.x * e.x + e.z * e.z < 30 * 30);
     if (arm === emitting(s) && (arm || s.emcon)) toggleEmcon(s);
     update(s, 1 / 20);

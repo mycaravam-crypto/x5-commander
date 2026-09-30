@@ -47,6 +47,9 @@ b { font-weight: 600; }
 #raidcard b { display: block; font-size: 20px; letter-spacing: 0.25em; margin: 2px 0; }
 #raidcard small { color: var(--alert); opacity: 0.8; }
 #raidcard .obj { color: var(--hot); text-shadow: var(--glow); }
+#raidcard .alert { color: var(--alert); }
+#raidcard .boss { min-width: 260px; margin-top: 4px; }
+#raidcard .boss b.seg { height: 8px; margin: 3px 0 0; font-size: 0; letter-spacing: 0; }
 #raidcard.brief { animation: raidpulse 0.8s steps(1) infinite; }
 @keyframes raidpulse { 50% { border-color: var(--alert); } }
 #raidcard.build { --c: var(--hot); border-color: color-mix(in srgb, var(--hot) 45%, transparent); color: var(--bright); pointer-events: auto; }

@@ -2,8 +2,9 @@ import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, LEVEL_LEN, BUILD_TIME, BUILD_LOST, ELITE_FROM, PK_GROW, PK_MAX, EW_GROW, EW_MAX,
   TERRAIN, ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, FANS, beltAt, buildR, BUILD_MIN, PAD_GAP, START_PADS, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, VETERANCY, vetRank, deriveStats, difficulty, BACKUP_RADAR,
   BIG_KILLS, BIG_KILL_SHAKE, DROPS, DROP_KINDS, DROP_GRAB, DROP_MAX, DROP_HEAVY, CACHE, REPAIR_DROP, OVERDRIVE, MILESTONE, rank,
-  RADAR_MODES, HPM_CONE, POINT_DEFENCE, SPOT_RINGS, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
+  type Stats, RADAR_MODES, resupply, UPKEEP, HPM_CONE, POINT_DEFENCE, SPOT_RINGS, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   GROUND, GROUND_LEVELS, GROUND_MODS, GROUND_RAIDS, GROUND_FIRE, AIR_ONLY, GROUND_ONLY, AIR_GUNS, GROUND_GUNS, ANTI_ARMOUR,
+  BOSS, BOSSES, DMG_CAT, bossOf, bossLevel, bossFor, type DmgCat,
   TRAINING, TRAINING_BUILD, TRAINING_SEED, DIVE_SPEED, SHAHED_DIVE, LANCET, HELO, KAB_R, KAB_PAIR, KAB_FIRST, EGRESS_SPEED, TERMINAL, CRUISE_DOGLEG, CRUISE_TERMINAL, KA52, SU25, SEAD, ARM2, ARMS, SWARM, RECON, MASK, IR_SEEKER, horizon, flightAlt, MUNITIONS, AGILITY, HOMING_BOOST, HOMING_SNAP,
   type EnemyKind, type DropKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
 } from './config.ts';
@@ -25,7 +26,8 @@ export interface Enemy {
   pkg: number; // id of the attack package or raid group it flies with, 0 = none
   hold: number; // Mi-8 jammer: bearing it holds station on (its own, or its package's) · Su-35S: s it waits on station
   tgt: number; // cruise missile, Ka-52's ATGM: slot of the unit it's going for, -1 = the base
-  pop: number; // Ka-52: s left exposed (settling, or popped up to fire), masked in the trees otherwise · Su-25: s left of its pop-up, flares out
+  pop: number; // Ka-52: s left exposed (settling, or popped up to fire), masked in the trees otherwise · Su-25: s left of its pop-up, flares out · S-70: s its bay stays open
+  adapt: DmgCat | ''; weak: DmgCat | ''; // boss: the weapon family it has countermeasures against, and the one it's weak to
 }
 // in: inbound · loiter: Lancet circling, searching · dive: terminal dive (a cruise missile's pop-up) · hover: Mi-28 or
 // Ka-52 firing from standoff ·
@@ -40,7 +42,7 @@ export interface Shot {
   fly?: number; apex?: number;
 }
 export type Ev =
-  | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect' | 'arm' | 'tbm' | 'cruise' | 'jam' | 'ident' | 'acquire' | 'lost' | 'release' | 'egress' | 'dud' | 'spot' | 'settle'; x: number; z: number; kind?: EnemyKind; n?: number }
+  | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect' | 'arm' | 'tbm' | 'cruise' | 'jam' | 'ident' | 'acquire' | 'lost' | 'release' | 'egress' | 'dud' | 'spot' | 'settle' | 'bossOn' | 'bossLeft'; x: number; z: number; kind?: EnemyKind; n?: number }
   | { k: 'beam' | 'rail' | 'gun' | 'robotFire'; x: number; z: number; x2: number; z2: number } // robotFire: a walker shooting at a unit
   | { k: 'raid'; x: number; z: number; name: string }
   | { k: 'package'; x: number; z: number; name: string }
@@ -154,9 +156,11 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     nextElite: Infinity, // this level's Su-34 strike package
     nextRaid: LEVEL_LEN, // this level's raid arrives (Infinity once announced)
     // Announced, not yet here: composition (in aircraft) and the bonus it pays if the objective holds.
-    raid: null as null | { name: string; a: number; at: number; g: Partial<Record<EnemyKind, number>>; obj: RaidObjective; n: Partial<Record<EnemyKind, number>>; bonus: number },
+    raid: null as null | { name: string; a: number; at: number; g: Partial<Record<EnemyKind, number>>; obj: RaidObjective; n: Partial<Record<EnemyKind, number>>; bonus: number; boss?: { kind: EnemyKind; adapt: DmgCat | ''; weak: DmgCat } },
     // The raid in the air: its id, aircraft left, objective still held, reward so far, bearing, objective, name.
     raidId: 0, raidLeft: 0, raidClean: true, raidReward: 0, raidA: 0, raidObj: 'battery' as RaidObjective, raidName: '',
+    bossId: 0, // the boss leading the raid in the air (enemy id), 0 = none
+    link: false, // an A-50U is on station this frame: every other raider is harder to kill (BOSS.link)
     // debrief counters
     stats: { kills: {} as Partial<Record<EnemyKind, number>>, dmg: {} as Record<string, number>, taken: {} as Partial<Record<EnemyKind, number>>, raids: 0, clean: 0, armsEvaded: 0, radarHits: 0, drops: 0, recovered: 0, perim: {} as Partial<Record<PerimKind, number>>,
       // Every unit that scored, by id (kept after it's sold), and how each level went: time, kills, HP lost, result.
@@ -231,7 +235,7 @@ const angDiff = (a: number, b: number) => ((a - b + Math.PI) % TAU + TAU) % TAU 
 type Jams = { j: Enemy; a: number }[];
 function jamBearings(s: State): Jams {
   const out: Jams = [];
-  for (const j of s.enemies) if (j.kind === 'ew' && j.orbit) out.push({ j, a: Math.atan2(j.z, j.x) });
+  for (const j of s.enemies) if ((j.kind === 'ew' || j.kind === 'backfire') && j.orbit && j.act !== 'egress') out.push({ j, a: Math.atan2(j.z, j.x) });
   return out;
 }
 // Detection multiplier at `e`: every Mi-8 on station blanks a sector around its own bearing (but not itself).
@@ -646,16 +650,17 @@ export function update(s: State, dt: number) {
 }
 
 export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2, rnd = Math.random) {
-  const T = ENEMIES[kind], d = difficulty(s.t);
-  const hp = T.hp * d.hp * (phase(s).mod.hp ?? 1), speed = T.speed * d.speed * (0.9 + rnd() * 0.2);
+  const T = ENEMIES[kind], d = difficulty(s.t), B = bossOf(kind);
+  const hp = T.hp * d.hp * (B ? 1 : phase(s).mod.hp ?? 1), speed = T.speed * d.speed * (0.9 + rnd() * 0.2);
   const x = Math.cos(a) * r, z = Math.sin(a) * r;
   s.enemies.push({
     id: s.nextId++, kind, x, z, vx: -Math.cos(a) * speed, vz: -Math.sin(a) * speed,
     hp, maxHp: hp, speed, dmg: T.dmg * d.dmg,
-    reward: T.reward, size: T.size, seenUntil: -1, locked: false, incoming: 0, wob: rnd() * TAU,
+    reward: Math.round(T.reward * d.pay), size: T.size, seenUntil: -1, locked: false, incoming: 0, wob: rnd() * TAU,
     born: s.t, cd: kind === 'tank' ? 1 : kind === 'scout' ? LANCET.time : kind === 'recon' ? RECON.time : 3, act: 'in',
-    ammo: kind === 'tank' ? HELO.ammo : kind === 'ka52' ? KA52.ammo : kind === 'su25' ? SU25.passes : kind === 'sead' ? SEAD.ammo : kind === 'elite' ? (s.stage <= ELITE_FROM ? KAB_FIRST : KAB_PAIR) : 0,
-    wx: NaN, wz: NaN, aim: NaN, lockT: 0, ided: false, orbit: false, raid: 0, pkg: 0, hold: kind === 'ew' ? a : kind === 'sead' ? SEAD.time : NaN, tgt: -1, pop: 0,
+    ammo: B ? B.ammo : kind === 'tank' ? HELO.ammo : kind === 'ka52' ? KA52.ammo : kind === 'su25' ? SU25.passes : kind === 'sead' ? SEAD.ammo : kind === 'elite' ? (s.stage <= ELITE_FROM ? KAB_FIRST : KAB_PAIR) : 0,
+    wx: NaN, wz: NaN, aim: NaN, lockT: 0, ided: false, orbit: false, raid: 0, pkg: 0, hold: B ? B.time : kind === 'ew' ? a : kind === 'sead' ? SEAD.time : NaN, tgt: -1, pop: 0,
+    adapt: '', weak: '',
   });
   const e = s.enemies[s.enemies.length - 1];
   if (flies(kind) === 'cruise') {
@@ -672,7 +677,7 @@ export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2
 }
 
 // Packs of `kind` a group of `n` brings at `scale`. One escort jammer is enough, however big the group.
-export const groupCount = (kind: EnemyKind, n: number, scale: number) => kind === 'ew' ? n : Math.max(1, Math.round(n * scale));
+export const groupCount = (kind: EnemyKind, n: number, scale: number) => kind === 'ew' || bossOf(kind) ? n : Math.max(1, Math.round(n * scale));
 
 // A group flying in together from bearing `a`, in rows, counts in packs. Escort jammers hold its bearing.
 function spawnGroup(s: State, g: Partial<Record<EnemyKind, number>>, a: number, scale: number, rw: () => number) {
@@ -741,6 +746,68 @@ function drill(s: State) {
   s.events.push({ k: 'trained' });
 }
 
+// ---------- bosses ----------
+
+// Firepower on a point: damage per second of every weapon and working gun that can reach (x, z), flat out, x the
+// share of it that really lands (BOSS.lands). A boss's HP is sized off what can hit it where it holds.
+const WEAPON_CAT: Record<WeaponKind, DmgCat> = { cannon: 'PAC', pulse: 'DEW', missile: 'SAM', rail: 'DEW' };
+const PAD_CAT: Partial<Record<PerimKind, DmgCat>> = { mg: 'GUNS', mantis: 'GUNS', stinger: 'SAM', iris: 'SAM' };
+export function firepower(s: State, x: number, z: number) {
+  let f = 0;
+  const d2 = x * x + z * z;
+  for (const [k, w] of Object.entries(s.st.weapons) as [WeaponKind, Stats['weapons'][WeaponKind]][]) if (w && w.range * w.range >= d2) f += w.dmg * w.rate * BOSS.lands[WEAPON_CAT[k]];
+  for (const p of s.perim) {
+    const c = PAD_CAT[p.k]; // ground weapons can't reach an aircraft
+    if (!c || p.down) continue;
+    const w = padStats(s, p);
+    if (covers(p, x, z, w.range)) f += w.dmg * w.rate * BOSS.lands[c];
+  }
+  return f;
+}
+// How far out along bearing `a` anything of yours can hit: the battery's own weapons, or a gun whose reach the
+// bearing's line crosses (its field of fire aside). A boss holds just inside this.
+export function bossReach(s: State, a: number) {
+  const ux = Math.cos(a), uz = Math.sin(a);
+  let r = 0;
+  for (const w of Object.values(s.st.weapons)) if (w) r = Math.max(r, w.range);
+  for (const p of s.perim) {
+    if (!PAD_CAT[p.k] || p.down) continue;
+    const R = padStats(s, p).range, along = p.x * ux + p.z * uz, off = p.x * uz - p.z * ux;
+    if (Math.abs(off) < R) r = Math.max(r, along + Math.sqrt(R * R - off * off));
+  }
+  return r;
+}
+export const bossStandoff = (s: State, e: Enemy) => Math.max(BOSS.minR, Math.min(bossOf(e.kind)!.standoff, bossReach(s, Math.atan2(e.z, e.x)) - BOSS.inside));
+// Weapon families you field right now, and how much damage each has done this run.
+export function ownedCats(s: State) {
+  const W = s.st.weapons, has = (k: string) => s.perim.some(p => p.k === k);
+  const out: DmgCat[] = [];
+  if (has('mg') || has('mantis')) out.push('GUNS');
+  if (has('stinger') || has('iris') || W.missile) out.push('SAM');
+  if (W.cannon) out.push('PAC');
+  if (W.pulse || W.rail) out.push('DEW');
+  return out;
+}
+export function catDamage(s: State) {
+  const out: Record<DmgCat, number> = { GUNS: 0, SAM: 0, PAC: 0, DEW: 0 };
+  for (const [src, n] of Object.entries(s.stats.dmg)) { const c = DMG_CAT[src]; if (c) out[c] += n; }
+  return out;
+}
+// What a boss of `kind` brings against this battery: countermeasures against the family that has done the most of
+// your damage, and its weakness (its own, or if you have nothing in it, the family you own and have used least).
+export function bossTraits(s: State, kind: EnemyKind) {
+  const B = bossOf(kind)!, owned = ownedCats(s), dmg = catDamage(s);
+  const weak = owned.includes(B.weak) ? B.weak : owned.filter(c => c !== B.weak).sort((a, b) => dmg[a] - dmg[b])[0] ?? B.weak;
+  const top = owned.filter(c => c !== weak && dmg[c] > 0).sort((a, b) => dmg[b] - dmg[a])[0];
+  return { adapt: (top ?? '') as DmgCat | '', weak };
+}
+// Sized on arrival from bearing `a`: the firepower that reaches the spot it will hold at.
+export function bossHp(s: State, kind: EnemyKind, a: number) {
+  const B = bossOf(kind)!, r = Math.max(BOSS.minR, Math.min(B.standoff, bossReach(s, a) - BOSS.inside));
+  return B.tough * Math.max(ENEMIES[kind].hp * difficulty(s.t).hp, BOSS.fight * firepower(s, Math.cos(a) * r, Math.sin(a) * r));
+}
+export const boss = (s: State) => s.bossId ? s.enemies.find(e => e.id === s.bossId) : undefined;
+
 function spawn(s: State, dt: number) {
   if (building(s)) { if (s.t >= s.buildUntil) nextStage(s); else return; }
   if (s.training) return drill(s);
@@ -771,7 +838,11 @@ function spawn(s: State, dt: number) {
   }
   if (!s.raid && s.t >= s.nextRaid - RAID_WARN - s.st.raidWarn) {
     // Pool, bearing and size go by the level, not the clock, so pacing can't change them.
-    const r = pick(s.raidRng, (s.ground ? GROUND_RAIDS : RAIDS).filter(r => s.stage >= r.from)), a = spawnBearing(s.stage, Object.keys(r.g) as EnemyKind[], rand(s.raidRng), s.ground);
+    // Every BOSS_EVERY-th level a boss leads it instead (the draws are made all the same, to keep the stream in step).
+    // Air war only: GROUND ASSAULT keeps its own raids.
+    const drawn = pick(s.raidRng, (s.ground ? GROUND_RAIDS : RAIDS).filter(r => s.stage >= r.from)), B = !s.ground && bossLevel(s.stage) ? bossFor(s.stage) : undefined;
+    const r = B ? { name: B.name, g: { [B.kind]: 1, ...B.g } as Partial<Record<EnemyKind, number>>, obj: 'boss' as RaidObjective } : drawn;
+    const a = spawnBearing(s.stage, Object.keys(r.g) as EnemyKind[], rand(s.raidRng), s.ground);
     // Same rounding spawnGroup will use at arrival, so the briefing matches what shows up.
     const scale = raidScale(s.stage), n: Partial<Record<EnemyKind, number>> = {};
     let reward = 0;
@@ -779,17 +850,24 @@ function spawn(s: State, dt: number) {
       n[k] = groupCount(k, c, scale) * ENEMIES[k].pack;
       if (k !== 'ew') reward += n[k]! * ENEMIES[k].reward;
     }
+    reward *= difficulty(s.t).pay;
     // No radar yet: there's nothing to protect but the battery.
-    s.raid = { name: r.name, a, at: s.nextRaid, g: r.g, obj: r.obj === 'radar' && !s.st.radar ? 'battery' : r.obj ?? 'battery', n, bonus: Math.round(reward * RAID_BONUS) + 25 };
+    s.raid = { name: r.name, a, at: s.nextRaid, g: r.g, obj: r.obj === 'radar' && !s.st.radar ? 'battery' : r.obj ?? 'battery', n, bonus: Math.round(reward * RAID_BONUS) + 25,
+      boss: B && { kind: B.kind, ...bossTraits(s, B.kind) } };
     s.nextRaid = Infinity; // one raid per level
     s.events.push({ k: 'raid', x: Math.cos(a) * ARENA_R, z: Math.sin(a) * ARENA_R, name: r.name });
   }
   if (s.raid && s.t >= s.raid.at) {
-    const { a, g, name, obj } = s.raid, scale = raidScale(s.stage);
+    const { a, g, name, obj, boss: bt } = s.raid, scale = raidScale(s.stage);
     s.raid = null;
     s.raidId++; s.raidLeft = 0; s.raidClean = true; s.raidReward = 0; s.raidA = a; s.raidObj = obj; s.raidName = name;
     // The escort jammer flies with the raid but doesn't count: the raid is over once the strikers are gone.
-    for (const e of spawnGroup(s, g, a, scale, () => rand(s.raidRng))) if (e.kind !== 'ew') { e.raid = s.raidId; s.raidLeft++; s.raidReward += e.reward; }
+    for (const e of spawnGroup(s, g, a, scale, () => rand(s.raidRng))) {
+      if (bt && e.kind === bt.kind) { // sized to the battery as it is now, traits as briefed
+        e.hp = e.maxHp = bossHp(s, e.kind, a); e.adapt = bt.adapt; e.weak = bt.weak; e.cd = 2; s.bossId = e.id;
+      }
+      if (e.kind !== 'ew') { e.raid = s.raidId; s.raidLeft++; s.raidReward += e.reward; }
+    }
     s.events.push({ k: 'raidStart', x: Math.cos(a) * ARENA_R, z: Math.sin(a) * ARENA_R, name });
   }
 }
@@ -818,6 +896,7 @@ function moveEnemies(s: State, dt: number) {
   for (const r of s.enemies) if (r.kind === 'recon' && r.orbit) spots.push(Math.atan2(r.z, r.x));
   const inSpot = (e: Enemy) => { if (!spots.length) return false; const a = Math.atan2(e.z, e.x); return spots.some(b => Math.abs(angDiff(a, b)) < RECON.arc); };
   let iso: Map<number, number> | null = null; // worked out once a frame, only if an FPV is looking
+  s.link = s.enemies.some(e => e.kind === 'mainstay' && e.orbit && e.act !== 'egress');
   for (let i = s.enemies.length - 1; i >= 0; i--) {
     const e = s.enemies[i];
     const d = Math.hypot(e.x, e.z) || 1;
@@ -846,13 +925,17 @@ function moveEnemies(s: State, dt: number) {
       const sp = e.speed * EGRESS_SPEED;
       e.vx = -nx * sp; e.vz = -nz * sp;
       if (e.kind === 'su25' && e.ammo > 0 && d > SU25.turn) e.act = 'in';
-      else if (d > ARENA_R + 4) { removeAt(s, i); continue; }
+      else if (d > ARENA_R + 4) {
+        if (e.id === s.bossId) { s.events.push({ k: 'bossLeft', x: e.x, z: e.z, kind: e.kind, n: Math.round(e.hp / e.maxHp * 100) }); if (s.raidClean && s.raidLeft) raidLost(s); } // it got away
+        removeAt(s, i); continue;
+      }
     } else {
       // Ballistic missiles fly a straight path, then jink hard (and a Kinzhal speeds up) on the way down.
       const T = TERMINAL[e.kind], term = !!T && d < T.r;
       const wobble = T ? (term ? T.jink : 0) : ENEMIES[e.kind].wobble;
       const wob = weave(s.t, T ? 5 : 2, e.wob) * wobble * Math.min(1, d / 20);
-      let sp = e.speed * (e.kind !== 'elite' && jammed(s, e) ? JAM_SLOW : 1) * (term ? T.boost : 1);
+      const B = bossOf(e.kind);
+      let sp = e.speed * (e.kind !== 'elite' && !B && jammed(s, e) ? JAM_SLOW : 1) * (term ? T.boost : 1) * (s.link && !B ? BOSS.linkSpeed : 1);
       // Shaheds pitch over into a dive for the last stretch; a Gerbera flies the same profile, so it doesn't give itself away.
       if (fk === 'drone' && d < SHAHED_DIVE) e.act = 'dive';
       if (e.act === 'dive' && fk !== 'cruise') sp *= DIVE_SPEED;
@@ -919,6 +1002,22 @@ function moveEnemies(s: State, dt: number) {
       if (e.kind === 'elite' && e.ammo > 0 && d <= KAB_R) {
         for (; e.ammo > 0; e.ammo--) launch(s, e, 'kab', d, (e.ammo - 1.5) * 0.06);
         e.act = 'egress'; s.events.push({ k: 'egress', x: e.x, z: e.z, kind: e.kind });
+      }
+      // Boss: holds at its standoff (just inside your reach), hovering or circling, and uses its skill every
+      // B.every s; home once it's out of attacks or time on station (BOSSES).
+      if (B && (e.orbit || d <= bossStandoff(s, e))) {
+        const R = bossStandoff(s, e);
+        if (!e.orbit) { e.orbit = true; s.events.push({ k: 'bossOn', x: e.x, z: e.z, kind: e.kind }); }
+        if (B.orbit) {
+          const dir = e.wob < Math.PI ? 1 : -1, pull = (d - R) * 0.5;
+          e.vx = -nz * dir * sp + nx * pull; e.vz = nx * dir * sp + nz * pull;
+        } else {
+          const drift = weave(s.t, 0.5, e.wob) * sp * 0.3, pull = (R - d) * 0.5;
+          e.vx = -nz * drift - nx * pull; e.vz = nx * drift - nz * pull;
+        }
+        if (B.every && (e.cd -= dt) <= 0 && e.ammo > 0) { e.cd = B.every; e.ammo--; bossSkill(s, e, d); }
+        if (e.pop > 0) e.seenUntil = Math.max(e.seenUntil, s.t + 0.3); // the S-70 with its bay open shows on any radar
+        if ((e.hold -= dt) <= 0 || B.every && e.ammo <= 0 && e.cd <= 0) { e.act = 'egress'; e.orbit = false; s.events.push({ k: 'egress', x: e.x, z: e.z, kind: e.kind }); }
       }
       // Lancet: circles a while out there, searching, then dives on the battery (or on a unit it spots, below).
       if (e.kind === 'scout' && e.act !== 'dive' && d <= LANCET.loiter) {
@@ -991,7 +1090,7 @@ function moveEnemies(s: State, dt: number) {
     e.x += e.vx * dt; e.z += e.vz * dt;
     if (d < BASE_R + e.size * 0.5) {
       // Objective lost: PROTECT BATTERY by anything of the raid landing, PROTECT RADAR by any ARM hit while it's on.
-      if (s.raidClean && s.raidLeft && (s.raidObj === 'radar' ? arm : e.raid === s.raidId && e.dmg > 0)) raidLost(s);
+      if (s.raidClean && s.raidLeft && (s.raidObj === 'radar' ? arm : s.raidObj === 'battery' && e.raid === s.raidId && e.dmg > 0)) raidLost(s);
       if (arm && s.st.radar) {
         const stun = ARM_STUN * s.st.armStun * (e.kind === 'arm2' ? ARM2.stun : 1);
         s.radarDownUntil = Math.min(Math.max(s.radarDownUntil, s.t) + stun, s.t + 2 * stun);
@@ -1116,6 +1215,17 @@ function launch(s: State, e: Enemy, kind: EnemyKind, d: number, off = 0, tgt = -
   return m;
 }
 
+// A boss's attack (BOSSES): FPV packs from the Mi-26, Kh-101s from the Tu-22M3, a glide bomb from the S-70's open bay.
+function bossSkill(s: State, e: Enemy, d: number) {
+  const B = bossOf(e.kind)!;
+  if (e.kind === 'halo') for (let i = 0; i < B.n; i++) {
+    const n = ENEMIES.swarm.pack;
+    for (let j = 0; j < n; j++) launch(s, e, 'swarm', d, (j - (n - 1) / 2) * 0.06);
+  }
+  else if (e.kind === 'backfire') for (let i = 0; i < B.n; i++) launch(s, e, 'cruise', d, (i - (B.n - 1) / 2) * 0.08, cruiseTarget(s, e)?.slot ?? -1);
+  else if (e.kind === 'okhotnik') { e.pop = BOSS.open; for (let i = 0; i < B.n; i++) launch(s, e, 'kab', d, (i - (B.n - 1) / 2) * 0.06); }
+}
+
 function jammed(s: State, e: Enemy) {
   if (!s.jamming) return false;
   const r2 = PERIM.jammer.range ** 2;
@@ -1219,6 +1329,7 @@ function raidLost(s: State) {
 function removeAt(s: State, i: number) {
   const e = s.enemies[i];
   if (s.marked === e.id) s.marked = 0;
+  if (s.bossId === e.id) s.bossId = 0;
   s.enemies[i] = s.enemies[s.enemies.length - 1];
   s.enemies.pop();
   if (e.raid && e.raid === s.raidId && --s.raidLeft === 0) {
@@ -1232,19 +1343,22 @@ function removeAt(s: State, i: number) {
   }
 }
 
+// Standby power/s: the battery's weapons, plus every powered unit that's up.
+export const upkeep = (s: State) => s.perim.reduce((a, p) => a + (p.down ? 0 : UPKEEP[p.k] ?? 0), s.st.upkeep);
 function powerAndAmmo(s: State, dt: number) {
   const st = s.st;
-  s.power = Math.min(st.powerCap, s.power + st.gen * (lastStand(s) ? LAST_STAND.gen : 1) * dt);
-  // Radar gets what's left; starving it slows the sweep (floor 25%). Silent radar draws nothing.
-  // Fire control first: painting the priority target and holding locks. The radar gets what's left.
+  // Generators run harder the emptier the banks (RESUPPLY). Standby comes off the top, then fire control: painting
+  // the priority target and holding locks. The radar gets what's left; starving it slows the sweep (floor 25%).
+  // Silent radar draws nothing.
   let locks = 0;
   for (const e of s.enemies) if (e.locked) locks++;
-  s.power = Math.max(0, s.power - ((s.marked ? PRIORITY_POWER : 0) + locks * LOCK_POWER) * dt);
+  const gen = st.gen * resupply(s.power / st.powerCap) * (lastStand(s) ? LAST_STAND.gen : 1);
+  s.power = Math.max(0, Math.min(st.powerCap, s.power + (gen - upkeep(s) - (s.marked ? PRIORITY_POWER : 0) - locks * LOCK_POWER) * dt));
   const on = emitting(s), want = on ? st.drain * radarMode(s).drain * dt : 0, got = Math.min(want, s.power);
   s.power -= got;
   s.sweepSpeed = on ? st.sweep * Math.max(0.25, got / want) : 0;
-  // Ammo fab only runs on surplus above 20% so weapons keep a reserve.
-  const room = Math.min(st.ammoCap - s.ammo, st.ammoProd * dt);
+  // Ammo fab only runs on surplus above 20% so weapons keep a reserve, and works harder the emptier the racks.
+  const room = Math.min(st.ammoCap - s.ammo, st.ammoProd * resupply(s.ammo / st.ammoCap) * dt);
   const spare = Math.max(0, s.power - st.powerCap * 0.2) / st.ammoPower;
   const made = Math.max(0, Math.min(room, spare));
   s.ammo += made; s.power -= made * st.ammoPower;
@@ -1536,6 +1650,10 @@ function damage(s: State, e: Enemy, dmg: number, src: string, pad?: number) {
   // Armour: guns and grenades do part; the Javelin, the mortar and mines go through it.
   if (T.armour && !ANTI_ARMOUR.includes(s.perim.find(p => p.slot === pad)?.k as PerimKind)) dmg *= T.armour;
   if (e.id === s.marked) dmg *= PRIORITY_DMG * s.st.markDmg;
+  if (bossOf(e.kind)) {
+    const c = DMG_CAT[src];
+    dmg *= (c && c === e.adapt ? BOSS.adapt : 1) * (c && c === e.weak ? BOSS.weak : 1) * (e.kind === 'okhotnik' && e.pop > 0 ? BOSS.exposed : 1);
+  } else if (s.link) dmg *= BOSS.link;
   s.stats.dmg[src] = (s.stats.dmg[src] ?? 0) + Math.min(dmg, e.hp);
   e.hp -= dmg;
   if (e.hp > 0) { s.events.push({ k: 'hit', x: e.x, z: e.z }); return; }
@@ -1557,7 +1675,8 @@ function damage(s: State, e: Enemy, dmg: number, src: string, pad?: number) {
   }
   if (BIG_KILLS[e.kind]) s.shake = Math.min(1.5, s.shake + BIG_KILL_SHAKE);
   s.events.push({ k: 'kill', x: e.x, z: e.z, kind: e.kind, n: gain });
-  rollDrop(s, e.kind, e.x, e.z);
+  if (bossOf(e.kind)) { spawnDrop(s, 'tech', e.x, e.z, e.reward); spawnDrop(s, 'cache', e.x + 3, e.z, ENEMIES[e.kind].reward); } // a boss always leaves tech behind
+  else rollDrop(s, e.kind, e.x, e.z);
   if (s.st.chain) explode(s, e.x, e.z, 4, s.st.chain, 'CHAIN');
   if (s.st.counterSead && ARMS.includes(e.kind)) { s.power = Math.min(s.st.powerCap, s.power + s.st.powerCap * COUNTER_SEAD); s.events.push({ k: 'counterSead' }); }
   if (s.st.killChain && ++s.chainKills >= KILL_CHAIN.every) { s.chainKills = 0; s.chainUntil = s.t + KILL_CHAIN.time; s.events.push({ k: 'killChain' }); }

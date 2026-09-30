@@ -186,6 +186,36 @@ export function enemyGeos(): Record<EnemyKind, THREE.BufferGeometry> {
         wing([[-0.55, 0.1], [-0.72, 0.34], [-0.82, 0.34], [-0.82, 0.1]], 0.02).rotateX(a),
       ]),
     ),
+    // Mi-26: huge boxy cabin, rear clamshell doors, long tail boom (the eight-blade rotor is ROTORS), stubby sponsons.
+    halo: merge(
+      box(1.1, 0.42, 0.44, 0.05, 0), nose(0.22, 0.2, 0.6, 0.02, 8), box(0.25, 0.14, 0.3, 0.55, 0.2),
+      box(0.4, 0.18, 0.4, 0.05, 0.3), new THREE.CylinderGeometry(0.05, 0.06, 0.16, 6).translate(0.05, 0.46, 0),
+      box(0.18, 0.3, 0.4, -0.55, -0.02), tube(0.11, 0.05, 0.75, -0.95, 0.12),
+      fin([[-1.25, 0.1], [-1.38, 0.5], [-1.28, 0.5], [-1.16, 0.1]], 0.03), box(0.12, 0.02, 0.45, -1.2, 0.18),
+      ...[-1, 1].map(sd => box(0.35, 0.14, 0.12, 0.1, -0.16, sd * 0.28)),
+    ),
+    // Tu-22M3: long needle nose, big intakes, swing wings swept back, tall single fin.
+    backfire: merge(
+      tube(0.1, 0.13, 1.7, -0.05), nose(0.1, 0.35, 0.8), box(0.25, 0.1, 0.16, 0.6, 0.1),
+      ...[-1, 1].map(sd => box(0.8, 0.16, 0.14, -0.3, 0, sd * 0.16)),
+      wing([[0.15, 0.2], [-0.35, 0.85], [-0.5, 0.85], [-0.35, 0.2]], 0.03),
+      wing([[-0.65, 0.12], [-0.85, 0.42], [-0.95, 0.42], [-0.92, 0.12]], 0.02),
+      fin([[-0.55, 0.05], [-0.88, 0.5], [-1.0, 0.5], [-0.92, 0.05]], 0.03),
+    ),
+    // S-70 Okhotnik: a flying wing, no fin, a single buried engine: a flat arrowhead.
+    okhotnik: merge(
+      wing([[0.75, 0], [-0.25, 0.85], [-0.4, 0.8], [-0.3, 0.3], [-0.55, 0.12], [-0.5, 0]], 0.05),
+      new THREE.ConeGeometry(0.16, 0.7, 4).rotateZ(-Math.PI / 2).scale(1, 0.4, 1).translate(0.3, 0.05, 0),
+      box(0.35, 0.06, 0.14, -0.3, 0.04),
+    ),
+    // A-50U: Il-76 airframe (high swept wing, four engines, T-tail) with the big rotodome on struts.
+    mainstay: merge(
+      tube(0.13, 0.13, 1.6, -0.05, 0, 0, 8), nose(0.13, 0.25, 0.75, 0, 8), tube(0.13, 0.06, 0.35, -1.02, 0.03, 0, 8),
+      wing([[0.2, 0.1], [-0.05, 0.95], [-0.18, 0.95], [-0.18, 0.1]], 0.03, 0.1),
+      ...[0.35, 0.65].flatMap(z => [tube(0.05, 0.05, 0.25, 0.08 - z * 0.3, 0.02, z), tube(0.05, 0.05, 0.25, 0.08 - z * 0.3, 0.02, -z)]),
+      fin([[-0.8, 0.1], [-1.05, 0.5], [-1.15, 0.5], [-1.0, 0.1]], 0.03), box(0.15, 0.02, 0.6, -1.08, 0.5),
+      ...[-0.1, -0.4].map(x => box(0.04, 0.2, 0.04, x, 0.22)), new THREE.CylinderGeometry(0.42, 0.42, 0.08, 16).translate(-0.25, 0.36, 0),
+    ),
     // Light assault walker: spindly reverse-knee legs, a small hull with a sensor head, a demolition charge on its back.
     walker: merge(
       ...legs(1, 0.8, 0.12),
@@ -221,7 +251,7 @@ export function enemyGeos(): Record<EnemyKind, THREE.BufferGeometry> {
 }
 
 // Main rotors: hub height and blade radius in model units, for the kinds that have one.
-export const ROTORS: Partial<Record<EnemyKind, { y: number; r: number }>> = { tank: { y: 0.43, r: 0.85 }, ew: { y: 0.5, r: 0.95 }, ka52: { y: 0.5, r: 0.8 } };
+export const ROTORS: Partial<Record<EnemyKind, { y: number; r: number }>> = { tank: { y: 0.43, r: 0.85 }, ew: { y: 0.5, r: 0.95 }, ka52: { y: 0.5, r: 0.8 }, halo: { y: 0.55, r: 1.05 } };
 // Five blades as outlines (xyz segment pairs, radius 1), for an instanced line pool.
 export function rotorPts() {
   const p: number[] = [];
