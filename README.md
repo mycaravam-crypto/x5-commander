@@ -147,7 +147,7 @@ The first time you meet each threat or mechanic, a short tip explains it. Tips d
 
 **Training.** A first-run drill of four short scripted waves on a fixed map, each with its lesson on screen: **eyesight** (guns fire at what they can see; build a third gun), **radar** (the radar and Patriot are handed over: see far, lock, mark a priority target), **ARMs and EMCON** (ARM salvos: go silent with `F`, then radiate again) and **decoys** (Gerberas among Shaheds, classified and greyed out once locked). The battery can't fall in training and no records are kept. The start screen offers it first until you've finished it once; `T` there starts it any time.
 
-**Ground assault.** A mode of its own (`A` on the start screen, on the map shown there): instead of aircraft, swarms of **bipedal robots** walk in over the ground, and **only perimeter defenses can engage them**. The radar, the Patriot, the laser and the HPM are out of the shop (and wouldn't touch a walker: fire control doesn't lock them and the battery's weapons can't hurt them), and so are the Stinger and IRIS-T SLM, which only shoot at aircraft. Walkers are seen by eye (base, guns, observer posts, a Javelin's thermal sight). Rivers, ponds, woods and rock slow them down. See *Ground assault* under Gameplay. Its records are kept apart from the air war's, unlock no doctrines and aren't logged on the leaderboard; its seed code ends in `-G`.
+**Ground assault.** A mode of its own (`A` on the start screen, on the map shown there): instead of aircraft, swarms of **bipedal robots** walk in over the ground, and **only perimeter defenses can engage them**. The radar, the Patriot, the laser and the HPM are out of the shop (and wouldn't touch a walker: fire control doesn't lock them and the battery's weapons can't hurt them), and so are the Stinger and IRIS-T SLM, which only shoot at aircraft. Walkers are seen by eye (base, guns, observer posts, a Javelin's thermal sight). Rivers, ponds, woods and rock slow them down. See *Ground assault* under Gameplay. The HUD drops the radar, fire-control and intercept readouts and touch buttons, which have nothing to do here. Its records are kept apart from the air war's, unlock no doctrines and aren't logged on the leaderboard; its seed code ends in `-G`.
 
 **Pause menu.** Resume or quit to the menu, SFX and music volumes, the coverage overlay mode, RESET TIPS, and a compact help panel: the key systems in a line each, and every hotkey.
 
@@ -431,6 +431,7 @@ This section replaces the old `plan-mvp.md`, `plan.md` and `plan-frontline.md`; 
 - **Front line, steps 1–5:** the front and widening flank arcs, levels with raids and build windows, the AA MG start with the radar and Patriot as milestones, belt slots with fields of fire, crossfire, support units and unit HP, the coverage overlay (`O`), and Kh-101 cruise missiles with the IRIS-T SLM to stop them.
 - **Threat realism:** Orlan-10 spotter, Ka-52, Su-25 attack runs with S-8 rockets, Su-35S SEAD with memory-seeker Kh-58s, Kinzhal and the Kh-55 decoy; per-type height, RCS and heat signature, a radar horizon by height, FPV swarms that hunt isolated units, and salvage that stays until clicked.
 - **Defence layers:** reaches in the real order (HPM 7, MG 10, HEL 11, MANTIS 15, Stinger 24, IRIS-T SLM 40, SLX 50, PAC-3 58, radar 68 m) on a 75 m arena; the laser and HPM are self-cueing point defence; a two-gun start with crossing fields of fire.
+- **Ground assault:** a second mode (`A` on the start screen): bipedal robot swarms on foot that only the perimeter can engage, five new perimeter defenses (concertina wire, Claymores, Mk 19, Javelin, M120 mortar), its own levels, raids and records, and a HUD without the radar and fire-control controls.
 - **Performance pass:** a fixed 1/60 s sim step, throttled HUD text, lighter effects on LITE, bloom that switches itself off under slow frames, and `npm run bench` with p95 and worst-case timings.
 
 ### Next: finish the front line (step 6)
@@ -470,6 +471,7 @@ src/sim.ts        pure game state + update(dt), no Three.js (testable in Node)
 src/terrain.ts    the map, generated from the run's seed: ground types, heights, trees (pure, the sim uses it for building)
 src/terrainPaint.ts paints the map for the 3D ground and the minimap
 src/render.ts     Three.js scene, reads state only
+src/models.ts     low-poly enemy models: airframes and the ground assault's walkers
 src/hud.ts        DOM HUD, minimap, shop, overlays
 src/sfx.ts        WebAudio sound effects, no audio files
 src/main.ts       boot, input, main loop

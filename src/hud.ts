@@ -770,7 +770,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const M = radarMode(s), scan = !st.radar ? 'VISUAL' : s.radarMode === 0 ? M.name : `<span class="hot">${M.name}${radarSector(s) ? ` ${pad3(bearing(Math.cos(focusBearing(s)), Math.sin(focusBearing(s))))}°` : ''}</span>`;
     // Grouped by what you're deciding: what the radar sees, what fire control does, the battery's state.
     const lockBar = `<b class="seg lk" style="--r:${slots(s) ? Math.min(1, locks / slots(s)) : 0}"></b>`;
-    const html = [
+    // A ground assault has no radar or fire control to report: eyes, and the perimeter.
+    const air = s.ground ? [['// SENSORS', ''], ['SCAN', 'VISUAL'], ['RANGE', `${VISUAL_R}m`], ['TRACKS', contacts]] : [
       ['// SENSORS', ''],
       ['SCAN <kbd>[V]</kbd>', scan], ['RADAR <kbd>[F]</kbd>', st.radar ? radar : noRadar], ['RANGE', `${Math.round(st.radar ? radarRange(s) : VISUAL_R)}m`], ['TRACKS', contacts],
       ['// FIRE CONTROL', ''],
@@ -778,6 +779,9 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       ['FIRE <kbd>[G]</kbd>', s.discipline === 1 ? DISCIPLINES[1].name : `<span class="hot">${DISCIPLINES[s.discipline].name}</span>`],
       ['MODE <kbd>[T]</kbd>', MODES[s.mode]],
       ['INTERCEPT <kbd>[SPC]</kbd>', interceptActive(s) ? '<span class="hot">ENGAGING</span>' : (w => w ? `<span class="${w.endsWith('s') ? 'dim' : 'alert'}">${w}</span>` : '<span class="hot">READY</span>')(interceptBlock(s))],
+    ];
+    const html = [
+      ...air,
       ['// BATTERY', ''],
       ['PERIMETER', `${s.perim.length} / ${perimSlots(s.level)} pads`],
       ...overdrive(s) ? [['OVERDRIVE', `<span class="hot">+${Math.round((OVERDRIVE.rate - 1) * 100)}% RATE ${Math.ceil(s.overdriveUntil - s.t)}s</span>`]] : [],
@@ -802,6 +806,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     touch('KeyX', '', ffSpeed > 1); touch('KeyP', '', s.phase === 'pause');
     raidCard(s);
     padCard(s);
+    document.body.classList.toggle('ground', s.ground); // hides the air-defence controls (style.css)
     const live = s.phase === 'play' || s.phase === 'pause', down = live && s.t < s.radarDownUntil, silent = live && !down && s.emcon;
     document.body.classList.toggle('blind', down);
     document.body.classList.toggle('silent', silent);
