@@ -60,7 +60,7 @@ function loadDaily(date: string): Daily {
 
 // One-time tips, shown the first time each thing happens (remembered across runs).
 const TIPS: Record<string, string> = {
-  startMg: `You start with one 12.7mm AA machine gun and your own eyes: the gun fires by itself at whatever gets close enough to see. Buy more guns in the shop [Tab]. The search radar and the Patriot open up at base level ${RADAR_REQ}.`,
+  startMg: `You start with two 12.7mm AA machine guns and your own eyes: they fire by themselves at whatever gets close enough to see, and their fields of fire cross on the front axis. Buy more guns in the shop [Tab]. The search radar and the Patriot open up at base level ${RADAR_REQ}.`,
   radarOnline: 'Radar online: contacts far beyond sight, and fire control locks them for the Patriot. Click a contact to make it the priority target: engaged first, +25% damage, costs power while held.',
   pac3: 'Patriot online: PAC-3 interceptors fire at every lock. They use the interceptor stock, the only weapon that can hit a ballistic missile.',
   discipline: 'Fire discipline [G]: CONSERVE saves interceptors and fires late, MAXIMUM fires fast and overkills.',
@@ -251,11 +251,12 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     if (s.phase === 'start') html = `<div class="card"><h1 class="logo"><b>X5</b> COMMANDER</h1><p class="byline">by CDS</p>
       <div class="boot">${BOOT.map((l, i) => `<p style="--n:${l.length + 2};--d:${i * D}s">&gt; ${l}</p>`).join('')}</div>
       <div class="later" style="--d:${BOOT.length * D}s"><p class="dim">SCAN · DETECT · LOCK · ENGAGE · EXPAND</p><br>
-      <p>You start with <b>one machine gun</b> and your eyes. Guns fire by themselves at whatever they can see.</p>
+      <p>You start with <b>two machine guns</b> and your eyes. Guns fire by themselves at whatever they can see, and hit harder where their fields of fire cross.</p>
       <p><b class="hot">Build more guns</b> from the PERIMETER shop on the right, then <b>click open ground</b> to place them. Cover the <span class="alert">front</span> first.</p>
       <p>Every few purchases the battery levels up: a bigger build zone, new units and a <b class="hot">perk</b>.</p>
-      <p>From battery level 3, build the <b>radar</b> to see further and lock targets, then the <b>Patriot</b>.</p>
-      <p>Anti-radiation missiles <span class="alert">home on your radar</span>. <b>[F] EMCON</b> goes silent so they miss, but you lose every lock.</p>
+      <p>From battery level 3, build the <b>radar</b> to see further and lock targets, then the <b>Patriot</b>. The radar outranges every weapon; the <b>laser</b> and <b>HPM</b> guard the last few metres.</p>
+      <p>Anti-radiation missiles <span class="alert">home on your radar</span>. <b>[F] EMCON</b> goes silent so they miss, but you lose every lock. A Su-35S's Kh-58 remembers where it heard you: kill the launcher.</p>
+      <p class="dim">LATER · Orlan-10 spotters · Ka-52s in the trees · Su-25 rocket runs · Kh-55 decoys · Kinzhal</p>
       <p class="dim mapline"></p>
       ${best.time ? `<p class="dim">BEST · ${clock(best.time)} · ${fmt(best.kills)} kills · base lv ${best.level}</p>` : ''}
       <p class="dim">DOCTRINE · starting loadout, unlocked by your records</p><div class="perks docs">${docsHtml(s, best)}</div>
@@ -278,7 +279,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     else if (s.phase === 'over' && s.training) {
       store('x5-trained', '1');
       html = `<div class="card"><h1>TRAINING COMPLETE</h1><p class="hot">EYES · RADAR · ARMS AND EMCON · DECOYS</p>
-        <p>The real war starts with one gun and no radar, and doesn't stop. Build across the front, get the radar at battery level 3, and watch for ARMs.</p>
+        <p>The real war starts with two guns and no radar, and doesn't stop. Build across the front, get the radar at battery level 3, and watch for ARMs.</p>
         <button class="btn hotbtn" data-a="menu">TO THE FRONT [ENTER]</button> <button class="btn" data-a="restart">AGAIN [R]</button></div>`;
     }
     else if (s.phase === 'over') {
