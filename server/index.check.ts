@@ -1,7 +1,8 @@
 // `npm test` — the production server (server/index.ts) on a real port, over a throwaway dist/. Throws on the first broken rule.
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { request } from 'node:http';
 import { createApp } from './index.ts';
@@ -34,6 +35,19 @@ try {
   ok((await (await fetch(base + '/healthz')).text()) === 'ok', 'health check answers');
   const p = await fetch(base + '/api/scores', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'HOTEL', time: 60, kills: 30, level: 2, earned: 500 }) });
   ok(p.status === 201 && (await (await fetch(base + '/api/scores')).json()).rows[0].name === 'HOTEL', 'the API is mounted and persists');
-} finally { await app.close(); rmSync(dir, { recursive: true, force: true }); }
+} finally { await app.close(); }
+
+// Started the way deploy/ starts it, through a symlinked release dir: it must still run (not just import) and listen.
+symlinkSync(resolve('server'), join(dir, 'current'));
+const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', join(dir, 'current', 'index.ts')],
+  { env: { ...process.env, PORT: '0', HOST: '127.0.0.1', X5_DIST: dist, X5_SCORES_DB: join(dir, 'data', 'link.db') }, stdio: ['ignore', 'pipe', 'inherit'] });
+try {
+  const line = await new Promise<string>((res, rej) => {
+    child.stdout.on('data', d => res(String(d)));
+    child.on('exit', c => rej(new Error(`server started through a symlink exited (${c}) instead of listening`)));
+    setTimeout(() => rej(new Error('server started through a symlink never listened')), 5000);
+  });
+  ok(line.includes('x5-commander on http://'), 'starts through a symlinked release dir');
+} finally { child.kill('SIGTERM'); rmSync(dir, { recursive: true, force: true }); }
 
 console.log('ok · server');

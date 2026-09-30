@@ -64,6 +64,22 @@ docker run -p 8080:8080 -v x5-data:/data x5-commander
 
 Run it behind HTTPS (a reverse proxy or your platform's load balancer). SQLite needs one instance on a persistent disk, so don't scale it out. Back the database up with `sqlite3 scores.db ".backup backup.db"`.
 
+#### Deploying to x5.vi0lins.de
+
+Deployed the same way as vanspace3d, on the same server: atomic releases under `/var/www/x5-commander/releases/<timestamp>` with a `current` symlink, behind Caddy (HTTPS automatic). The difference is the Node server, which runs as a systemd user service (`x5-commander`) on `127.0.0.1:8095` with Caddy proxying to it. The scoreboard lives in `shared/scores.db`, outside the releases, and is backed up to `shared/backups/` before every deploy (the last 10 are kept).
+
+1. One-time server setup (sudo): Node 24, the directories, `loginctl enable-linger` and the Caddy block. The commands are in the header of [`deploy/Caddyfile`](deploy/Caddyfile). Also add a DNS record for `x5.vi0lins.de`.
+2. Repository secrets: `X5_DEPLOY_SSH_KEY` (the deploy key; vanspace3d's `VANSPACE_DEPLOY_SSH_KEY` works) and `X5_DEPLOY_HOST` (`mycaravam@vi0lins.de`). `X5_DEPLOY_PATH` is optional.
+3. Every push to `main` that touches the game or server then deploys (`.github/workflows/deploy.yml`, or run it by hand from the Actions tab). Until the secrets are set, the workflow skips with a warning.
+
+Each deploy runs the tests and build, uploads the release, installs the service, flips `current` and restarts the service. If `/healthz` doesn't answer within 30 s, it flips back to the previous release. By hand:
+
+```sh
+X5_DEPLOY_HOST=mycaravam@vi0lins.de ./deploy/deploy.sh
+X5_DEPLOY_HOST=mycaravam@vi0lins.de ./deploy/rollback.sh [--list | <release>]
+ssh mycaravam@vi0lins.de journalctl --user -u x5-commander -f    # logs
+```
+
 The GitHub Pages build is static. To give it a scoreboard, run the server somewhere, set the repository variable `SCORES_API` to its `…/api/scores` URL, and put the Pages origin in that server's `X5_CORS_ORIGINS`.
 
 ## Controls

@@ -4,6 +4,7 @@
 //   X5_POST_LIMIT (20 runs per client per 10 min)
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
@@ -86,7 +87,9 @@ export function createApp(o: AppOptions) {
   return { server, close };
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) { // run directly, not imported
+// Run directly, not imported. Compared as real paths: started through a symlink (deploy's current/), argv keeps the
+// link while import.meta.url has the file it points to.
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
   const env = process.env;
   const app = createApp({
     dist: env.X5_DIST ?? 'dist',

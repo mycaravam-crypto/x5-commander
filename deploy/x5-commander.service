@@ -1,0 +1,22 @@
+# systemd user service for the X5 Commander server. deploy/deploy.sh fills in the @…@ values and installs it as
+# ~/.config/systemd/user/x5-commander.service on every deploy; don't install it by hand.
+[Unit]
+Description=X5 Commander (game + scoreboard)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=@PATH@/current
+ExecStart=@NODE@ --disable-warning=ExperimentalWarning @PATH@/current/server/index.ts
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=@PORT@
+Environment=X5_DIST=@PATH@/current/dist
+Environment=X5_SCORES_DB=@PATH@/shared/scores.db
+Environment=X5_TRUST_PROXY=1
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=15
+
+[Install]
+WantedBy=default.target
