@@ -26,14 +26,18 @@ document.querySelector('canvas')!.addEventListener('webglcontextlost', e => {
 });
 
 const today = () => new Date().toISOString().slice(0, 10);
-const start = (mode?: 'daily' | 'training') => {
+const start = (mode?: 'daily' | 'training' | 'ground') => {
   if (s.phase !== 'start') return;
   sfx.unlock();
   if (mode === 'daily') s = newGame(dailySeed(today()), today());
   if (mode === 'training') s = newGame(undefined, '', 'standard', true);
+  if (mode === 'ground') s = newGame(s.seed, '', 'standard', false, true); // same map, walkers instead of aircraft
   s.phase = 'play';
 };
-const restart = () => { s = s.training ? newGame(undefined, '', 'standard', true) : s.daily ? newGame(dailySeed(s.daily), s.daily) : newGame(undefined, '', s.doctrine); s.phase = 'play'; };
+const restart = () => {
+  s = s.training ? newGame(undefined, '', 'standard', true) : s.daily ? newGame(dailySeed(s.daily), s.daily) : s.ground ? newGame(undefined, '', 'standard', false, true) : newGame(undefined, '', s.doctrine);
+  s.phase = 'play';
+};
 // Back to the start screen: a fresh map, the last doctrine picked.
 const menu = () => { if (s.phase === 'pause' || s.phase === 'over') s = newGame(undefined, '', openDoc(savedDoctrine())); };
 const doctrine = (i: number) => {
@@ -49,7 +53,7 @@ function playCode() {
   const text = prompt('Paste a seed code (X5-…) or a friend\'s result line:');
   const c = text ? parseCode(text) : null;
   if (!c) { if (text) alert('No seed code found in that.'); return; }
-  if (c.kind === 'run') { s = newGame(c.seed, '', openDoc(c.doctrine)); return; }
+  if (c.kind === 'run') { s = newGame(c.seed, '', openDoc(c.doctrine), false, c.ground); return; } // a ground assault's code loads that mode
   const r = parseResult(text!);
   if (r) boardAdd(c.daily, { time: r.time, kills: r.kills, who: 'RIVAL' });
   s = newGame(dailySeed(c.daily), c.daily);
@@ -159,6 +163,7 @@ function key(code: string) {
     case 'KeyB': toggleRelocate(s); break;
     case 'Delete': case 'Backspace': sellPad(s); break;
     case 'KeyD': start('daily'); break;
+    case 'KeyA': start('ground'); break; // start screen only (in play, A pans)
     case 'KeyP': case 'Escape': if (s.phase === 'play') s.phase = 'pause'; else if (s.phase === 'pause') s.phase = 'play'; break;
     case 'KeyT': if (s.phase === 'start') start('training'); else cycleMode(s); break;
     case 'KeyF': toggleEmcon(s); break;

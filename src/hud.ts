@@ -1,17 +1,18 @@
-import { KA52, ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, MILESTONE, ARMS, SU25, OVERDRIVE, rank, TRAINING, BIG_KILLS, WARN, PERF, BOSS, CAT_NAME, bossOf } from './config.ts';
+import { KA52, ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, MILESTONE, ARMS, SU25, OVERDRIVE, rank, TRAINING, BIG_KILLS, WARN, PERF, GROUND_FIRE , BOSS, CAT_NAME, bossOf } from './config.ts';
 import { play as sound } from './sfx.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import { mapSeed } from './terrain.ts';
 import type { Records } from './config.ts';
-import { fetchBoard, fetchMe, postRun, signup, login, logout, boardHtml as scoreboardHtml, placedHtml, accountHtml, saveCallsign, type Me } from './scores.ts';
-import { boss, seedCode, beltOf, stageInfo, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, noAmmo, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
+import { fetchBoard, fetchMe, fetchProfile, saveProfile, postRun, signup, login, logout, boardHtml as scoreboardHtml, placedHtml, accountHtml, profileHtml, saveCallsign, type Me, type Profile } from './scores.ts';
+import { avatarFor, avatarCode, SHAPES, EMBLEMS, COLORS, type Avatar } from '../server/career.ts';
+import { boss, seedCode, beltOf, stageInfo, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, OTHER_MODE, noAmmo, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const byId = new Map<string, HTMLElement>(); // the HUD's elements are fixed: look each up once
 const $ = (id: string) => { let el = byId.get(id); if (!el?.isConnected) byId.set(id, el = document.getElementById(id)!); return el; };
 const fmt = (n: number) => Math.floor(n).toLocaleString('en-US');
 const pad3 = (n: number) => String(Math.round(n)).padStart(3, '0');
 // What it's doing, for the threat board and the target card: ETA inbound, or what it's up to instead.
-const doing = (e: Enemy, dp = 0) => e.kind === 'ew' ? (e.orbit ? 'JAMMING' : 'INBOUND') : e.kind === 'recon' && e.orbit ? 'SPOTTING'
+const doing = (e: Enemy, dp = 0) => e.kind === 'gunbot' && e.act === 'hover' ? 'FIRING' : e.kind === 'walker' && e.act === 'dive' ? 'CHARGING' : e.kind === 'ew' ? (e.orbit ? 'JAMMING' : 'INBOUND') : e.kind === 'recon' && e.orbit ? 'SPOTTING'
   : bossOf(e.kind) && e.orbit ? (e.kind === 'mainstay' ? 'COMMANDING' : e.kind === 'okhotnik' && e.pop > 0 ? 'BAY OPEN · EXPOSED' : `ATTACKING · ${e.ammo} LEFT`)
   : e.kind === 'sead' && e.orbit ? `SEAD · ${e.ammo} KH-58` : e.kind === 'su25' && e.act === 'egress' && e.ammo > 0 ? 'BREAK · COMING ROUND'
   : e.act === 'egress' ? 'EGRESS' : e.kind === 'ka52' && e.act === 'hover' ? (e.cd > 0 && e.ammo === KA52.ammo ? `SETTLING ${e.cd.toFixed(dp)}s` : e.pop > 0 ? 'POP-UP · ATGM' : 'MASKED')
@@ -26,8 +27,9 @@ const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60))
 
 type Project = (x: number, z: number, y?: number) => readonly [number, number];
 type Best = Records;
-export function loadBest(): Best {
-  try { return JSON.parse(localStorage.getItem('x5-best')!) ?? { time: 0, kills: 0, level: 0, earned: 0 }; }
+// Ground assault records are kept apart (x5-best-ground): a different war, and they unlock no doctrines.
+export function loadBest(ground = false): Best {
+  try { return JSON.parse(localStorage.getItem(ground ? 'x5-best-ground' : 'x5-best')!) ?? { time: 0, kills: 0, level: 0, earned: 0 }; }
   catch { return { time: 0, kills: 0, level: 0, earned: 0 }; }
 }
 
@@ -84,6 +86,11 @@ const TIPS: Record<string, string> = {
   padDown: 'Lancets dive on units they fly close to; FPVs go for isolated ones, so keep guns covering each other. Ka-52s and cruise missiles hunt units too. A unit that is down repairs to half before it fights again; the build window repairs everything.',
   drop: `Salvage: a kill left something behind. Click it to recover it (it stays until you do): credits, a refill, a repair, overdrive, or a free upgrade from the heavy kills.`,
   level: 'Base level up: every level builds something that changes what the battery can do, plus a launcher and 2 perimeter pads. Pads fire on their own, without lock slots.',
+  // GROUND ASSAULT: in that mode, a `g:` tip stands in for the air one of the same name.
+  'g:startMg': 'GROUND ASSAULT: bipedal robots walk in over the ground, and only your perimeter can fight them: no radar, no Patriot. Guns fire at what they see. Build Concertina Wire to slow them, Claymores to blast packs, a Mk 19 for splash, and later Javelins for the armoured walkers and a mortar for range. Observer posts and Javelin sights see further.',
+  'g:robotFire': 'Combat walkers stop and shoot up the unit in front of them; heavy walkers shoot on the move. Keep guns covering each other, and kill the gunners first. The build window repairs every unit.',
+  'g:padDown': 'Light walkers charge the nearest unit they see and blow their charge on it. Wire in front of your guns slows them in the kill zone; Claymores face out from the base and take out a whole pack.',
+  'g:level': 'Base level up: a bigger build zone, more pads and a perk. Heavy walkers are armoured: small arms and grenades do half, the Javelin, the mortar and mines go through.',
 };
 const seenTips = (() => { try { return new Set<string>(JSON.parse(localStorage.getItem('x5-tips') ?? '[]')); } catch { return new Set<string>(); } })();
 const store = (k: string, v: string | null) => { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* storage blocked: skip */ } };
@@ -110,7 +117,7 @@ const helpHtml = () => `<div class="help"><div><small>SYSTEMS</small><dl>${HELP_
   <div><small>KEYS</small><dl>${HELP_KEYS.map(([k, v]) => `<dt><kbd>${k}</kbd></dt><dd>${v}</dd>`).join('')}</dl></div></div>`;
 
 // One line to paste in a chat.
-export const resultLine = (s: State) => `X5 COMMANDER · ${s.training ? 'TRAINING' : s.daily ? `DAILY OP ${s.daily}` : `${DOCTRINES.find(d => d.id === s.doctrine)!.name} RUN`} · ${clock(s.t)} · ${fmt(s.kills)} kills · lv ${s.level} · ${s.stats.clean}/${s.stats.raids} clean raids${s.training ? '' : ` · ${seedCode(s)}`}`;
+export const resultLine = (s: State) => `X5 COMMANDER · ${s.training ? 'TRAINING' : s.daily ? `DAILY OP ${s.daily}` : s.ground ? 'GROUND ASSAULT' : `${DOCTRINES.find(d => d.id === s.doctrine)!.name} RUN`} · ${clock(s.t)} · ${fmt(s.kills)} kills · lv ${s.level} · ${s.stats.clean}/${s.stats.raids} clean raids${s.training ? '' : ` · ${seedCode(s)}`}`;
 
 const docsHtml = (s: State, best: Best) => DOCTRINES.map((d, i) => {
   const open = d.unlock(best);
@@ -143,8 +150,12 @@ const LESSONS: Record<keyof typeof ENEMIES, string> = {
   backfire: 'the Tu-22M3 does no damage itself: its Kh-101s do. Mark it the moment it arrives.',
   okhotnik: 'the S-70 does no damage itself: its glide bombs do. Hit it hard while its bay is open.',
   mainstay: 'the A-50U does no damage itself, but everything it commands is harder to kill.',
+  walker: 'light walkers come in packs: wire slows them in front of your guns, Claymores and the Mk 19 take out a whole pack.',
+  gunbot: 'combat walkers stop to shoot: keep two guns on every approach so they die before they settle, and a Javelin reaches them first.',
+  mech: 'heavy walkers are armoured: Javelins, the mortar and Claymores go through it, machine guns do half.',
 };
-const PERIM_NAMES = { mg: 'AA MG', mantis: 'MANTIS', stinger: 'STINGER', iris: 'IRIS-T SLM', jammer: 'JAMMER', observer: 'OBSERVER', ammo: 'AMMO' };
+const PERIM_NAMES = { mg: 'AA MG', mantis: 'MANTIS', stinger: 'STINGER', iris: 'IRIS-T SLM', jammer: 'JAMMER', observer: 'OBSERVER', ammo: 'AMMO',
+  wire: 'WIRE', mines: 'CLAYMORE', gmg: 'MK 19', javelin: 'JAVELIN', mortar: 'MORTAR' };
 function debrief(s: State) {
   const S = s.stats, total = Object.values(S.dmg).reduce((a, b) => a + b, 0) || 1;
   const kills = (Object.entries(S.kills) as [keyof typeof ENEMIES, number][]).sort((a, b) => b[1] - a[1])
@@ -170,7 +181,7 @@ function debrief(s: State) {
     ${levels ? `<div class="levels"><small>LEVEL BY LEVEL</small><table><tr><th>LEVEL</th><th>TIME</th><th>KILLS</th><th>HP LOST</th><th></th></tr>${levels}</table></div>` : ''}`;
 }
 
-export function createHud(actions: { buy(id: string): void; perk(i: number): void; pad(act: string): void; start(mode?: 'daily' | 'training'): void; restart(): void; resume(): void; menu(): void; doctrine(i: number): void; look(x: number, z: number): void;
+export function createHud(actions: { buy(id: string): void; perk(i: number): void; pad(act: string): void; start(mode?: 'daily' | 'training' | 'ground'): void; restart(): void; resume(): void; menu(): void; doctrine(i: number): void; look(x: number, z: number): void;
   setting(k: string, v: number): void; settings(): { sfx: number; music: number; cov: number }; code(): void }) {
   for (const [k, v] of Object.entries(PAL)) document.documentElement.style.setProperty(`--${k}`, rgba(v));
 
@@ -200,9 +211,10 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       if (first) shop.prepend(perim); else shop.append(perim);
     }
     for (const sec of groups.values()) {
-      let open = 0, need = '';
-      sec.querySelectorAll('button').forEach(b => { if (b.classList.contains('needs')) need ||= b.children[2].textContent ?? ''; else open++; });
+      let open = 0, need = '', any = 0;
+      sec.querySelectorAll('button').forEach(b => { if (b.classList.contains('off')) return; any++; if (b.classList.contains('needs')) need ||= b.children[2].textContent ?? ''; else open++; });
       sec.classList.toggle('shut', !open);
+      sec.classList.toggle('off', !any); // nothing this mode uses
       const i = sec.querySelector('h4 i')!, t = open ? '' : ` · ${need}`;
       if (i.textContent !== t) i.textContent = t;
     }
@@ -215,10 +227,16 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   // ---- overlay ----
   const overlay = $('overlay');
   overlay.onclick = e => {
-    const a = (e.target as HTMLElement).closest<HTMLElement>('[data-a]')?.dataset.a;
+    const el = e.target as HTMLElement;
+    const pilot = el.closest<HTMLElement>('[data-p]')?.dataset.p;
+    if (pilot) return openProfile(pilot);
+    if (el.classList.contains('pfmodal')) return closeProfile(); // a tap beside the card
+    const a = el.closest<HTMLElement>('[data-a]')?.dataset.a;
+    if (a?.startsWith('pf-')) return profileAction(a);
     if (a === 'start') actions.start();
     else if (a === 'daily') actions.start('daily');
     else if (a === 'training') actions.start('training');
+    else if (a === 'ground') actions.start('ground');
     else if (a === 'code') actions.code();
     else if (a === 'menu') actions.menu();
     else if (a === 'resume') actions.resume();
@@ -240,14 +258,14 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const v = actions.settings(), range = (k: 'sfx' | 'music', label: string) => `<label>${label} <input type="range" min="0" max="100" value="${Math.round(v[k] * 100)}" data-set="${k}"></label>`;
     return `<div class="settings">${range('sfx', 'SFX')}${range('music', 'MUSIC')}<span>COVERAGE [O] ${['OFF', 'FAINT', 'FULL'].map((n, i) => `<button class="link${v.cov === i ? ' sel' : ''}" data-a="cov${i}">${n}</button>`).join(' ')}</span></div>`;
   };
-  let shownPhase = '', shownDoc = '', shownSeed = NaN;
+  let shownPhase = '', shownDoc = '', shownSeed = '';
   function showOverlay(s: State) {
     const key = s.phase + s.perkChoices.join();
     // Doctrine picks only redraw their row, so the boot text doesn't replay.
     if (key === shownPhase && s.phase === 'start' && s.doctrine !== shownDoc) { shownDoc = s.doctrine; overlay.querySelector('.docs')!.innerHTML = docsHtml(s, loadBest()); }
-    if (s.phase === 'start' && s.seed !== shownSeed) {
-      shownSeed = s.seed; const m = overlay.querySelector('.mapline');
-      if (m) m.textContent = s.daily ? `DAILY OP ${s.daily} LOADED · ${seedCode(s)} · [SPACE] TO FLY IT` : `MAP ${mapName(s.seed)} · SEED ${seedCode(s)} · [N] NEW MAP`;
+    if (s.phase === 'start' && seedCode(s) !== shownSeed) {
+      shownSeed = seedCode(s); const m = overlay.querySelector('.mapline');
+      if (m) m.textContent = s.daily ? `DAILY OP ${s.daily} LOADED · ${seedCode(s)} · [SPACE] TO FLY IT` : s.ground ? `GROUND ASSAULT ${seedCode(s)} LOADED · [SPACE] TO FIGHT IT` : `MAP ${mapName(s.seed)} · SEED ${seedCode(s)} · [N] NEW MAP`;
       const b = overlay.querySelector('.boardslot'); // a loaded op shows its own day's board
       if (b) b.innerHTML = boardHtml(s.daily || new Date().toISOString().slice(0, 10));
     }
@@ -270,7 +288,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       ${best.time ? `<p class="dim">BEST · ${clock(best.time)} · ${fmt(best.kills)} kills · base lv ${best.level}</p>` : ''}
       <p class="dim">DOCTRINE · starting loadout, unlocked by your records</p><div class="perks docs">${docsHtml(s, best)}</div>
       ${trained() ? '' : '<p class="hot">NEW HERE? A 3-MINUTE DRILL: EYES, RADAR, ARMS, DECOYS</p><button class="btn hotbtn" data-a="training">TRAINING [T]</button><br>'}
-      <button class="btn" data-a="start">DEPLOY [SPACE]</button> <button class="btn" data-a="daily">DAILY OP [D]</button>${trained() ? ' <button class="btn" data-a="training">TRAINING [T]</button>' : ''}
+      <button class="btn" data-a="start">DEPLOY [SPACE]</button> <button class="btn" data-a="daily">DAILY OP [D]</button> <button class="btn" data-a="ground">GROUND ASSAULT [A]</button>${trained() ? ' <button class="btn" data-a="training">TRAINING [T]</button>' : ''}
+      <p class="dim">Ground assault: swarms of bipedal robots on foot. No radar, no Patriot: only the perimeter can stop them, with wire, Claymores, grenade launchers, Javelins and mortars. ${(b => b.time ? `Best · ${clock(b.time)} · ${fmt(b.kills)} kills` : 'Not fought yet.')(loadBest(true))}</p>
       <p><button class="link" data-a="resetTips">RESET TIPS</button></p>
       <p class="dim">Daily op: same raid for everyone today. ${(d => d.time ? `Your best today · ${clock(d.time)} · ${fmt(d.kills)} kills` : 'Not flown yet today.')(loadDaily(new Date().toISOString().slice(0, 10)))}</p>
       <div class="boardslot"></div>
@@ -292,10 +311,11 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         <button class="btn hotbtn" data-a="menu">TO THE FRONT [ENTER]</button> <button class="btn" data-a="restart">AGAIN [R]</button></div>`;
     }
     else if (s.phase === 'over') {
+      const best = loadBest(s.ground);
       const now = { time: s.t, kills: s.kills, level: s.level, earned: s.earned };
       const rec = (k: keyof Best) => now[k] > best[k];
       const merged = Object.fromEntries(Object.keys(now).map(k => [k, Math.max(now[k as keyof Best], best[k as keyof Best])]));
-      try { localStorage.setItem('x5-best', JSON.stringify(merged)); } catch { /* storage blocked: skip */ }
+      try { localStorage.setItem(s.ground ? 'x5-best-ground' : 'x5-best', JSON.stringify(merged)); } catch { /* storage blocked: skip */ }
       const row = (label: string, k: keyof Best, f: (n: number) => string) =>
         `<small>${label}</small><b class="${rec(k) ? 'new' : ''}">${f(now[k])}${rec(k) ? ' ★' : ''}</b><span class="dim">best ${f(Math.max(now[k], best[k]))}</span>`;
       let daily = '';
@@ -305,8 +325,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         daily = `<p class="${rec ? 'hot' : 'dim'}">DAILY OP ${s.daily} · ${rec ? 'NEW BEST TODAY ★' : `today's best ${clock(d.time)}`}</p>`;
         daily += boardHtml(s.daily, boardAdd(s.daily, { time: s.t, kills: s.kills, who: 'YOU' }));
       }
-      const unlocked = DOCTRINES.filter(d => !d.unlock(best) && d.unlock(merged as Best)).map(d => `<p class="hot">DOCTRINE UNLOCKED · ${d.name}</p>`).join('');
-      html = `<div class="card"><h1 class="alert">BATTERY LOST</h1>${daily}${unlocked}
+      const unlocked = s.ground ? '' : DOCTRINES.filter(d => !d.unlock(best) && d.unlock(merged as Best)).map(d => `<p class="hot">DOCTRINE UNLOCKED · ${d.name}</p>`).join('');
+      html = `<div class="card"><h1 class="alert">${s.ground ? 'BASE OVERRUN' : 'BATTERY LOST'}</h1>${s.ground ? '<p class="dim">GROUND ASSAULT · not logged on the leaderboard</p>' : ''}${daily}${unlocked}
         <div class="score">${row('SURVIVED', 'time', clock)}${row('KILLS', 'kills', fmt)}${row('BASE LEVEL', 'level', String)}${row('CREDITS EARNED', 'earned', fmt)}</div>
         <div class="lbslot"></div>
         ${debrief(s)}
@@ -315,9 +335,10 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         <button class="btn" data-a="restart">REDEPLOY [R]</button> <button class="btn" data-a="share">COPY RESULT [C]</button></div>`;
     }
     overlay.innerHTML = html;
+    pf = null; // a new screen closes any profile card
     overlay.classList.toggle('on', !!html);
-    if (s.phase === 'start' || (s.phase === 'over' && !s.training)) showScores(s);
-    if (s.phase === 'start') { shownSeed = NaN; showOverlay(s); }
+    if (s.phase === 'start' || (s.phase === 'over' && !s.training && !s.ground)) showScores(s);
+    if (s.phase === 'start') { shownSeed = ''; showOverlay(s); }
   }
 
   let lastState: State | null = null;
@@ -342,11 +363,11 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const [b, who] = await Promise.all([fetchBoard(daily), fetchMe()]);
     if (!b || who === undefined || !slot() || n !== lbShown) return;
     me = who;
-    if (s.phase === 'over' && me && loggedRun !== runKey(s)) return logRun(s);
+    if (s.phase === 'over' && me && loggedRun !== runKey(s) && !s.ground) return logRun(s);
     slot()!.innerHTML = `<div class="acctslot">${accountHtml(me, why(s))}</div>` + scoreboardHtml(lbTitle(s), b, me ? { name: me.name, row: me.best } : undefined);
   }
   async function logRun(s: State) {
-    if (loggedRun === runKey(s) || s.phase !== 'over') return;
+    if (loggedRun === runKey(s) || s.phase !== 'over' || s.ground) return;
     loggedRun = runKey(s);
     const n = lbShown;
     slot()!.innerHTML = '<p class="dim placed">LOGGING RUN…</p>';
@@ -379,9 +400,48 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     saveCallsign(r.data.user.name);
     showScores(s); // signed in: a debrief logs its run now, the start screen shows the player
   }
+  // ---- pilot profiles: a card over the overlay; your own has the patch picker and motto ----
+  let pf: { profile: Profile; edit?: { draft: Avatar; motto: string; msg?: string } } | null = null;
+  function drawProfile() {
+    let m = overlay.querySelector<HTMLElement>('.pfmodal');
+    if (!pf) { m?.remove(); return; }
+    if (!m) { m = document.createElement('div'); m.className = 'pfmodal'; overlay.appendChild(m); }
+    m.innerHTML = profileHtml(pf.profile, pf.edit);
+  }
+  async function openProfile(name: string) {
+    const p = await fetchProfile(name);
+    if (!p) return;
+    const own = me?.name === p.name;
+    pf = { profile: p, edit: own ? { draft: avatarFor(p.name, p.avatar), motto: p.motto } : undefined };
+    drawProfile();
+  }
+  const closeProfile = () => { pf = null; drawProfile(); };
+  async function profileAction(a: string) {
+    if (a === 'pf-close') return closeProfile();
+    const edit = pf?.edit;
+    if (!pf || !edit) return;
+    const motto = overlay.querySelector<HTMLInputElement>('.pfedit input[name=motto]');
+    if (motto) edit.motto = motto.value;
+    const step = /^pf-(shape|emblem|color)([+-]1)$/.exec(a);
+    if (step) {
+      const k = step[1] as keyof Avatar, n = { shape: SHAPES, emblem: EMBLEMS, color: COLORS }[k].length;
+      edit.draft = { ...edit.draft, [k]: (edit.draft[k] + +step[2] + n) % n };
+      edit.msg = '';
+      return drawProfile();
+    }
+    if (a === 'pf-save') {
+      const r = await saveProfile({ avatar: avatarCode(edit.draft), motto: edit.motto });
+      if (!pf) return;
+      if (!r.ok) { edit.msg = r.status === 0 ? 'SCOREBOARD OFFLINE' : r.error; return drawProfile(); }
+      pf = { profile: r.data.profile, edit: { draft: avatarFor(r.data.profile.name, r.data.profile.avatar), motto: r.data.profile.motto, msg: 'SAVED ✓' } };
+      drawProfile();
+      if (lastState) showScores(lastState); // the new patch on the board and your line
+    }
+  }
+
   async function signOut() {
     await logout();
-    me = null;
+    me = null; pf = null;
     if (lastState) showScores(lastState);
   }
 
@@ -389,6 +449,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   const tipEl = $('tip');
   let tipUntil = 0, drillTip = -1;
   function tip(k: string, t: number) {
+    if (lastState?.ground && TIPS[`g:${k}`]) k = `g:${k}`;
     if (!TIPS[k] || seenTips.has(k)) return;
     seenTips.add(k);
     store('x5-tips', JSON.stringify([...seenTips]));
@@ -477,13 +538,13 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     for (let r = 20; r <= ARENA_R; r += 20) ring(0, 0, r, rgba(PAL.bright, 0.18)); // range rings
     const play = s.phase === 'play' || s.phase === 'pause';
     // The front, and the wider arc long-range drones and missiles can come from right now.
-    if (flankArc(s.stage) > FRONT_ARC) rimArc(Math.min(Math.PI, flankArc(s.stage)), rgba(PAL.alert, 0.6), 2);
+    if (flankArc(s.stage, s.ground) > FRONT_ARC) rimArc(Math.min(Math.PI, flankArc(s.stage, s.ground)), rgba(PAL.alert, 0.6), 2);
     rimArc(FRONT_ARC, 'rgba(255,90,68,0.95)', 3);
     ring(0, 0, buildR(s.level), s.placing || s.relocating ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.35)', 1, [3, 3]);
     // Gaps: bearings in the threat arc that no working gun covers, 22m out, as amber ticks on the rim.
     if (play) {
       const guns = s.perim.filter(p => GUNS.includes(p.k) && !p.down).map(p => ({ p, r: padStats(s, p).range }));
-      const arc = Math.min(Math.PI, Math.max(FRONT_ARC, flankArc(s.stage))), R = ARENA_R + 1;
+      const arc = Math.min(Math.PI, Math.max(FRONT_ARC, flankArc(s.stage, s.ground))), R = ARENA_R + 1;
       g.strokeStyle = rgba(PAL.alert, 0.95); g.lineWidth = 2; g.beginPath();
       for (let i = 0; i <= 36; i++) {
         const a = FRONT + (i / 18 - 1) * arc, c = Math.cos(a), sn = Math.sin(a);
@@ -659,7 +720,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
 
   // ---- what to buy: the one shop row that fixes today's bottleneck ----
   const cheaper = (s: State, a: string, b: string) => cost(s, a) <= cost(s, b) ? a : b;
-  const GUN_IDS = ['mg', 'mantis', 'stinger', 'iris'];
+  const GUN_IDS = ['mg', 'mantis', 'stinger', 'iris', 'gmg', 'javelin', 'mortar'];
   function suggest(s: State) {
     const st = s.st;
     if (s.phase !== 'play') return '';
@@ -690,6 +751,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     set('pwTxt', `${fmt(s.power)} / ${fmt(st.powerCap)}${rate(flow.dp, s.power >= st.powerCap - 0.5)}`);
     bar('amBar', s.ammo / st.ammoCap, s.ammo < 3);
     set('amTxt', `${fmt(s.ammo)} / ${fmt(st.ammoCap)}${rate(flow.da, s.ammo >= st.ammoCap - 0.5)}`);
+    const amLabel = $('amTxt').previousElementSibling as HTMLElement, amName = s.ground ? 'AMMUNITION' : 'INTERCEPTORS'; // on the ground the pool feeds the perimeter
+    if (amLabel.textContent !== amName) amLabel.textContent = amName;
     warnings(s);
     const crit = s.phase === 'play' && s.hp / st.maxHp < 0.3;
     if (document.body.classList.contains('crit') !== crit) document.body.classList.toggle('crit', crit);
@@ -714,7 +777,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const M = radarMode(s), scan = !st.radar ? 'VISUAL' : s.radarMode === 0 ? M.name : `<span class="hot">${M.name}${radarSector(s) ? ` ${pad3(bearing(Math.cos(focusBearing(s)), Math.sin(focusBearing(s))))}°` : ''}</span>`;
     // Grouped by what you're deciding: what the radar sees, what fire control does, the battery's state.
     const lockBar = `<b class="seg lk" style="--r:${slots(s) ? Math.min(1, locks / slots(s)) : 0}"></b>`;
-    const html = [
+    // A ground assault has no radar or fire control to report: eyes, and the perimeter.
+    const air = s.ground ? [['// SENSORS', ''], ['SCAN', 'VISUAL'], ['RANGE', `${VISUAL_R}m`], ['TRACKS', contacts]] : [
       ['// SENSORS', ''],
       ['SCAN <kbd>[V]</kbd>', scan], ['RADAR <kbd>[F]</kbd>', st.radar ? radar : noRadar], ['RANGE', `${Math.round(st.radar ? radarRange(s) : VISUAL_R)}m`], ['TRACKS', contacts],
       ['// FIRE CONTROL', ''],
@@ -722,6 +786,9 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       ['FIRE <kbd>[G]</kbd>', s.discipline === 1 ? DISCIPLINES[1].name : `<span class="hot">${DISCIPLINES[s.discipline].name}</span>`],
       ['MODE <kbd>[T]</kbd>', MODES[s.mode]],
       ['INTERCEPT <kbd>[SPC]</kbd>', interceptActive(s) ? '<span class="hot">ENGAGING</span>' : (w => w ? `<span class="${w.endsWith('s') ? 'dim' : 'alert'}">${w}</span>` : '<span class="hot">READY</span>')(interceptBlock(s))],
+    ];
+    const html = [
+      ...air,
       ['// BATTERY', ''],
       ['PERIMETER', `${s.perim.length} / ${perimSlots(s.level)} pads`],
       ...overdrive(s) ? [['OVERDRIVE', `<span class="hot">+${Math.round((OVERDRIVE.rate - 1) * 100)}% RATE ${Math.ceil(s.overdriveUntil - s.t)}s</span>`]] : [],
@@ -746,6 +813,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     touch('KeyX', '', ffSpeed > 1); touch('KeyP', '', s.phase === 'pause');
     raidCard(s);
     padCard(s);
+    document.body.classList.toggle('ground', s.ground); // hides the air-defence controls (style.css)
     const live = s.phase === 'play' || s.phase === 'pause', down = live && s.t < s.radarDownUntil, silent = live && !down && s.emcon;
     document.body.classList.toggle('blind', down);
     document.body.classList.toggle('silent', silent);
@@ -772,6 +840,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       b.classList.toggle('max', c === Infinity && !why);
       b.classList.toggle('locked', !!why);
       b.classList.toggle('needs', why.startsWith('NEEDS'));
+      b.classList.toggle('off', why === OTHER_MODE);
     }
     arrangeShop(s);
   }
@@ -786,7 +855,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       const hp = s.hp / st.maxHp, sweep = st.radar && emitting(s) ? s.sweepSpeed / st.sweep : 1;
       if (on('hp', hp < WARN.hp)) out.push(['hp', 'red', `HULL ${Math.round(hp * 100)}%`]);
       if (st.radar && on('power', s.power < st.powerCap * WARN.power || sweep < WARN.sweep)) out.push(['power', '', `POWER LOW${sweep < 1 ? ` · RADAR ${Math.round(sweep * 100)}%` : ''}`]);
-      if (st.weapons.cannon && on('ammo', s.ammo < st.ammoCap * WARN.ammo)) out.push(['ammo', '', `INTERCEPTORS ${fmt(s.ammo)}`]);
+      if ((st.weapons.cannon || s.ground) && on('ammo', s.ammo < st.ammoCap * WARN.ammo)) out.push(['ammo', '', `${s.ground ? 'AMMUNITION' : 'INTERCEPTORS'} ${fmt(s.ammo)}`]);
       let locks = 0, waiting = 0;
       for (const e of s.enemies) { if (e.locked) locks++; else if (visible(s, e) && !e.ided && e.x * e.x + e.z * e.z <= st.trackRange ** 2) waiting++; }
       if (st.radar && on('locks', emitting(s) && locks >= slots(s) && waiting >= WARN.waiting)) out.push(['locks', '', `LOCKS FULL · ${waiting} WAITING`]);
@@ -819,7 +888,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   pc.addEventListener('click', e => { const b = (e.target as HTMLElement).closest('button'); if (b?.dataset.act) actions.pad(b.dataset.act); });
   const BELTS = { fwd: 'FORWARD LINE', main: 'MAIN LINE', inner: 'INNER RING' };
   const SITES: Record<string, string> = { high: 'HIGH GROUND: +20% RANGE, EXPOSED', treeline: 'TREELINE: HIDDEN, -15% RANGE', road: 'ROAD: QUICK RELOADS' };
-  const SUPPORT: Record<string, string> = { observer: `SEES ${OBSERVER_EYES}m ROUND ITSELF`, ammo: `GUNS WITHIN ${AMMO_R}m: +25% RATE, 2× RELOAD`, jammer: `SLOWS CONTACTS WITHIN ${PERIM.jammer.range}m` };
+  const SUPPORT: Record<string, string> = { observer: `SEES ${OBSERVER_EYES}m ROUND ITSELF`, ammo: `GUNS WITHIN ${AMMO_R}m: +25% RATE, 2× RELOAD`, jammer: `SLOWS CONTACTS WITHIN ${PERIM.jammer.range}m`,
+    wire: `WALKERS WITHIN ${PERIM.wire.range}m WADE AT A THIRD OF THEIR SPEED` };
   // Kills and veterancy rank, with the kills to the next one.
   const vetLine = (kills: number) => {
     const r = vetRank(kills), next = VETERANCY[r + 1];
@@ -831,7 +901,9 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     if (p && (s.phase === 'play' || s.phase === 'pause')) {
       const w = padStats(s, p), up = padUpgradeCost(p), fan = FANS[p.k] >= Math.PI ? 360 : Math.round(FANS[p.k] * 360 / Math.PI);
       h = `<b>${padName(p)}</b> · ${BELTS[beltOf(p)]}${p.site ? ` · <span class="hot">${SITES[p.site]}</span>` : ''}<br>`
-        + (GUNS.includes(p.k) ? `${Math.round(w.range)}m · ${(w.dmg * w.rate).toFixed(1)} DMG/s · ${fan}° FIELD OF FIRE<br>` : `${SUPPORT[p.k]}<br>`)
+        + (GUNS.includes(p.k) ? `${Math.round(w.range)}m · ${(w.dmg * w.rate).toFixed(1)} DMG/s · ${fan}° FIELD OF FIRE<br>`
+          : p.k === 'mines' ? `${Math.round(w.range)}m · ${Math.round(w.dmg)} DMG A CHARGE · ${fan}° ARC · ${Math.floor(p.belt)} / ${GROUND_FIRE.mines.charges} CHARGES<br>` : `${SUPPORT[p.k]}<br>`)
+        + (p.k === 'mines' ? vetLine(p.kills) : '')
         + (GUNS.includes(p.k) ? vetLine(p.kills) : '') + `HP ${Math.ceil(p.hp)} / ${PAD_HP}${p.down ? ' <span class="alert">DOWN</span>' : ''}<b class="seg" style="--r:${p.hp / PAD_HP}"></b>`
         + (up < Infinity ? `<button data-act="upgrade"${s.credits < up ? ' disabled' : ''}>[U] ${MG_TIERS[p.tier + 1].name} ${up}CR</button>` : '')
         + `<button data-act="move"${s.relocating ? ' class="on"' : ''}>[B] MOVE</button><button data-act="sell">[DEL] SELL +${fmt(sellValue(s, p))}</button><br>`
@@ -867,10 +939,10 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         + (b ? `<div class="boss"><small>${ENEMIES[b.kind].code} · ${doing(b)}${b.adapt ? ` · COUNTERS ${CAT_NAME[b.adapt]}` : ''}${b.weak ? ` · WEAK TO ${CAT_NAME[b.weak]}` : ""}</small><b class="seg" style="--r:${Math.max(0, b.hp / b.maxHp)}"></b></div>` : '');
       cls = 'on';
     } else if (on && building(s)) { // level card: how it went, what's next, and how long to build
-      const next = stageInfo(s.stage + 1), arc = flankArc(s.stage + 1), wider = arc > flankArc(s.stage);
+      const next = stageInfo(s.stage + 1, s.ground), arc = flankArc(s.stage + 1, s.ground), wider = arc > flankArc(s.stage, s.ground);
       h = `<small>LEVEL ${s.stage + 1} COMPLETE · OBJECTIVE ${s.raidClean ? '<span class="obj">HELD</span>' : 'LOST'}</small><b>BUILD · ${Math.ceil(s.buildUntil - s.t)}s</b>`
         + `NEXT: L${s.stage + 2} ${next.name} · ${next.desc.toUpperCase()}`
-        + (wider ? `<br><span class="obj">DRONES + MISSILES FROM ${arc >= Math.PI ? 'ANY DIRECTION' : `FRONT ±${Math.round(arc * 180 / Math.PI)}°`}</span>` : '')
+        + (wider ? `<br><span class="obj">${s.ground ? 'WALKERS' : 'DRONES + MISSILES'} FROM ${arc >= Math.PI ? 'ANY DIRECTION' : `FRONT ±${Math.round(arc * 180 / Math.PI)}°`}</span>` : '')
         + `<br><button data-k="KeyN">[N] START NOW</button>`;
       cls = 'on build';
     }
@@ -982,8 +1054,8 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         const { mod } = phase(s);
         if (lastPhase && s.training) { say(`TRAINING ${s.stage + 1} · ${TRAINING[s.stage].name}`, 'info'); log(`TRAINING ${s.stage + 1} · ${TRAINING[s.stage].desc.toUpperCase()}`); }
         else if (lastPhase) { say(`LEVEL ${s.stage + 1} · ${phase(s).name}`, mod.name ? 'warn' : 'info'); if (mod.desc) log(mod.desc.toUpperCase(), 'alert');
-          const arc = flankArc(s.stage);
-          if (s.stage && arc > flankArc(s.stage - 1)) log(`DRONES + MISSILES NOW FROM ${arc >= Math.PI ? 'ANY DIRECTION' : `FRONT ±${Math.round(arc * 180 / Math.PI)}°`}`, 'alert'); }
+          const arc = flankArc(s.stage, s.ground);
+          if (s.stage && arc > flankArc(s.stage - 1, s.ground)) log(`${s.ground ? 'WALKERS' : 'DRONES + MISSILES'} NOW FROM ${arc >= Math.PI ? 'ANY DIRECTION' : `FRONT ±${Math.round(arc * 180 / Math.PI)}°`}`, 'alert'); }
         lastPhase = pn;
       }
       if (s.phase === 'start') { drillTip = -1; lastPhase = ''; armSaid = tbmSaid = cruiseSaid = rocketSaid = -99; launches.length = 0; shopForBuild = false; }

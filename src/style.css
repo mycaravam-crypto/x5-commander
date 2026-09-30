@@ -120,6 +120,7 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #shop h4::before { content: '// '; }
 #shop h4 i { font-style: normal; color: var(--alert); opacity: 0.6; letter-spacing: 0.08em; }
 #shop button.needs { display: none; }
+#shop button.off, #shop section.off { display: none; } /* systems the mode (air or ground) has no use for */
 #shop section.shut h4 { opacity: 0.6; }
 #shop button { all: unset; display: grid; grid-template-columns: 1fr auto auto; gap: 8px; width: 100%; box-sizing: border-box;
   padding: 4px 6px; cursor: pointer; opacity: 0.4; border-left: 2px solid transparent; }
@@ -437,7 +438,51 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .lb tr.p2 td { color: var(--silver); text-shadow: 0 0 8px color-mix(in srgb, var(--silver) 40%, transparent); }
 .lb tr.p3 td { color: var(--bronze); text-shadow: 0 0 8px color-mix(in srgb, var(--bronze) 40%, transparent); }
 .lb tr.me td { background: color-mix(in srgb, var(--bright) 14%, transparent); }
-.lb tr.me td.nm::after { content: ' ◄ YOU'; color: var(--alert); font-size: 10px; }
 @media (prefers-reduced-motion: no-preference) { .lb tr.me td { animation: lbme 1.2s ease-in-out infinite alternate; } }
 @keyframes lbme { to { background: color-mix(in srgb, var(--bright) 30%, transparent); } }
 .lb tr.gap td { text-align: center; color: var(--mid); border: 0; padding: 0; }
+/* Pilots (server/career.ts): unit patches, rank insignia, XP bars, medals, and the profile card. */
+.patch { display: inline-block; vertical-align: middle; flex: none; filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.8)); }
+.insig { display: inline-block; vertical-align: middle; color: var(--alert); }
+.rkmark { margin-left: 6px; }
+.pilot { all: unset; display: inline-flex; align-items: center; gap: 7px; cursor: pointer; max-width: 100%; }
+.pilot > span:not(.rkmark):not(.nopatch) { overflow: hidden; text-overflow: ellipsis; }
+button.pilot:hover > span:first-of-type { text-decoration: underline dotted; }
+.nopatch { display: inline-block; width: 20px; flex: none; }
+.lb tr.me .pilot > span:first-of-type::after { content: ' ◄ YOU'; color: var(--alert); font-size: 10px; }
+.acct { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 12px auto 4px; text-align: left; }
+.acct p { margin: 2px 0; }
+.pilot.big .patch { transition: transform 0.15s; }
+.pilot.big:hover .patch { transform: scale(1.08); }
+.xpbar { display: inline-block; vertical-align: middle; width: 90px; height: 5px; border: 1px solid var(--mid); margin-left: 6px; }
+.xpbar i { display: block; height: 100%; background: var(--alert); box-shadow: 0 0 6px var(--alert); }
+.medal { display: inline-block; vertical-align: middle; color: var(--mid); }
+.medal.won { color: var(--hot); filter: drop-shadow(0 0 4px color-mix(in srgb, var(--bright) 50%, transparent)); }
+.medal text { font-family: inherit; }
+.pfmodal { position: fixed; inset: 0; display: grid; place-items: safe center; overflow-y: auto; padding: 16px; background: rgba(0, 4, 1, 0.82); z-index: 5; }
+.card.profile { position: relative; width: min(720px, 100%); text-align: left; background-color: rgba(0, 8, 3, 0.96); }
+.pfclose { position: absolute; top: 14px; right: 16px; }
+.pfhead { display: flex; gap: 18px; align-items: center; margin-bottom: 12px; }
+.pfhead h2 { margin: 0 0 4px; letter-spacing: 0.25em; }
+.pfhead p { margin: 3px 0; }
+.pfhead .xpbar { width: 160px; margin: 0 8px 0 0; }
+.motto { color: var(--bright); font-style: italic; text-transform: none; }
+.pfedit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 4px 0 14px; padding: 10px; border: 1px dashed var(--line); }
+.pfedit .pick { display: flex; align-items: center; gap: 6px; }
+.pfedit .pick b { min-width: 86px; text-align: center; }
+.pfedit input { font: inherit; letter-spacing: 0.08em; flex: 1 1 220px; padding: 6px 9px; color: var(--hot); background: rgba(0, 20, 8, 0.8); border: 1px solid var(--mid); outline: none; user-select: text; text-transform: none; }
+.pfedit .msg { flex-basis: 100%; margin: 0; }
+.pfedit .msg:empty { display: none; }
+.pfstats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 14px; margin: 6px 0 14px; }
+.pfstats div { display: flex; flex-direction: column; }
+.pfstats b { font-size: 16px; color: var(--hot); }
+.medals { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 6px 0 14px; }
+.medals > div { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: center; font-size: 11px; }
+.medals > div .medal { grid-row: span 2; }
+.medals > div.dim b { color: var(--mid); }
+.medals small { text-transform: none; }
+.pfruns { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 4px; }
+.pfruns td { padding: 2px 6px; border-top: 1px solid color-mix(in srgb, var(--mid) 20%, transparent); }
+@media (max-width: 620px) { .pfstats { grid-template-columns: repeat(2, 1fr); } .pfhead { flex-direction: column; align-items: flex-start; } }
+/* Ground assault: no radar, fire control or intercept to work, so their touch buttons go. */
+body.ground #touch [data-k=Space], body.ground #touch [data-k=KeyG], body.ground #touch [data-k=KeyV], body.ground #touch [data-k=KeyF], body.ground #touch [data-k=KeyT] { display: none; }

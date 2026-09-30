@@ -49,6 +49,9 @@ export function createApp(o: AppOptions) {
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    // Served over HTTPS (behind a proxy saying so): browsers stick to HTTPS from then on.
+    if (o.trustProxy && String(res.req.headers['x-forwarded-proto'] ?? '').split(',')[0].trim() === 'https')
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000');
   };
 
   async function serveStatic(req: IncomingMessage, res: ServerResponse) {

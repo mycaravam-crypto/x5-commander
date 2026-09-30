@@ -1,10 +1,11 @@
 // `npm test` — the scoreboard store and accounts against in-memory and throwaway databases. Throws on the first broken rule.
 import { DatabaseSync } from 'node:sqlite';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openScores, parseRun, TOP } from './scores.ts';
 import { parseName, parsePassword, hashPassword, verifyPassword } from './accounts.ts';
+import { xpOf } from './career.ts';
 
 const ok = (c: unknown, msg: string) => { if (!c) throw new Error(msg); };
 const run = (time: number, kills: number, daily = '') => ({ time, kills, level: 3, earned: 1000, seed: 'X5-ABC-0', daily });
@@ -34,6 +35,19 @@ ok(s.board('2026-09-30').rows.length === 1 && s.board('2026-09-29').total === 0,
 for (let i = 0; i < 20; i++) s.add(await acct(`X${i}X`), run(1 + i, 0));
 ok(s.board('').rows.length === TOP && s.board('', 50).rows.length === 24, 'the board shows the top players only');
 
+// Careers: totals over an account's runs, promotions and medals as runs are logged.
+const fresh = await acct('ROOKIE');
+const first = s.add(fresh, run(400, 150));
+ok(first.promoted === 1 && first.medals.includes('sortie') && first.medals.includes('blooded') && first.medals.includes('hold'), 'a first big run promotes and wins medals');
+const second = s.add(fresh, run(10, 1));
+ok(second.promoted === null && second.medals.length === 0, 'a small run wins nothing new');
+const c = s.career(fresh.id);
+ok(c.runs === 2 && c.kills === 151 && c.time === 410 && c.bestTime === 400 && c.bestKills === 150 && c.streak === 1, 'career totals');
+ok(s.recent(fresh.id).length === 2 && s.recent(fresh.id)[0].time === 10, 'recent runs, newest first');
+ok(s.board('', 50).rows.find(r => r.name === 'ROOKIE')?.xp === xpOf(c) && xpOf(c) === 233, 'board rows carry career XP, as xpOf counts it');
+s.accounts.setProfile(fresh.id, { avatar: '1.2.3', motto: 'Eyes up' });
+ok(s.accounts.profile('rookie')?.motto === 'Eyes up' && s.board('', 50).rows.find(r => r.name === 'ROOKIE')?.avatar === '1.2.3', 'profiles keep a patch and motto');
+
 // Accounts
 ok(await s.accounts.signup('alpha', 'password1') === 'taken', 'a callsign can only be taken once');
 ok(await s.accounts.login('ALPHA', 'wrong-password') === null && await s.accounts.login('NOBODY', 'password1') === null, 'bad logins fail');
@@ -55,6 +69,14 @@ s.close();
 // A database from before accounts keeps its callsign runs, each ranked as its own player.
 const dir = mkdtempSync(join(tmpdir(), 'x5-'));
 try {
+  // The database file is its owner's alone: a new one, and an old one left readable, tightened on open.
+  const fresh = join(dir, 'private', 'x5.db');
+  openScores(fresh).close();
+  ok((statSync(fresh).mode & 0o777) === 0o600 && (statSync(join(dir, 'private')).mode & 0o777) === 0o700, 'a new database is private');
+  chmodSync(fresh, 0o644);
+  openScores(fresh).close();
+  ok((statSync(fresh).mode & 0o777) === 0o600, 'an existing database is made private');
+
   const file = join(dir, 'old.db'), old = new DatabaseSync(file);
   old.exec(`CREATE TABLE scores (id INTEGER PRIMARY KEY, name TEXT NOT NULL, time REAL NOT NULL, kills INTEGER NOT NULL, level INTEGER NOT NULL,
     earned INTEGER NOT NULL, seed TEXT NOT NULL DEFAULT '', daily TEXT NOT NULL DEFAULT '', at TEXT NOT NULL DEFAULT (datetime('now')));

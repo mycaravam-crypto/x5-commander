@@ -82,6 +82,7 @@ const KIND_COL: Record<EnemyKind, number> = {
   scout: 0x6d7064, drone: 0x5f625b, decoy: 0x5f625b, swarm: 0x2e2f2c, tank: 0x4d5a3c, ew: 0x5a6446, elite: 0x7b8792, arm: 0xe2dfd4, tbm: 0xd6d6cb, cruise: 0xbabdb5, atgm: 0xd8d4c4, kab: 0x55584e,
   recon: 0x8a8f86, ka52: 0x46503a, hyper: 0xdcdcd2, mald: 0xbabdb5, su25: 0x6b7560, rocket: 0xcfcabb, sead: 0x8994a0, arm2: 0xe6e2d6,
   halo: 0x5a6148, backfire: 0x9aa3a8, okhotnik: 0x3c4148, mainstay: 0xa8adb0,
+  walker: 0x7a7d70, gunbot: 0x5d6552, mech: 0x4c5046,
 };
 
 const GRADE = {
@@ -219,7 +220,7 @@ export function createRenderer() {
     }
     drapeOverlays();
     // Whatever was draped over the old ground is redrawn on the new.
-    zoneKey = flankKey = -1; ringR.clear(); baseKey = covKey = ghostKey = hintKey = '';
+    zoneKey = flankKey = -1; ringR.clear(); baseKey = decorKey = covKey = ghostKey = hintKey = '';
   }
   // ---- map overlays on the ground: build zone, the front, eyesight / radar range ----
   const lineMat = (color: number, opacity: number, dashed = false) => dashed
@@ -299,6 +300,10 @@ export function createRenderer() {
   const aimers: [THREE.Object3D, number, string][] = [], sweepers: [THREE.Object3D, number][] = [];
   // Where each effector's rounds leave from: launcher muzzles (x, y, z), and the HEL / HPM apertures.
   let pacPts: number[][] = [], irisPts: number[][] = [], helPt = [0, 1.6, 0], hpmPt = [0, 1.6, 0];
+  // Launching stations (PAC-3 'pac<i>', IRIS-T 'iris<i>') each pick their own contact, favouring their own sector
+  // and ones nobody else is on, and traverse at a crew's pace. `home` is the azimuth it stows facing.
+  let launchers: { key: string; x: number; z: number; home: number }[] = [];
+  const lst = new Map<string, { cur: number; vel: number; tgt: number; hold: number; idle: number; cue: number; cueT: number; spd: number }>();
   const mats = new Map<number, THREE.MeshStandardMaterial>();
   const mat = (c: number) => { let m = mats.get(c); if (!m) mats.set(c, m = new THREE.MeshStandardMaterial({ color: c, roughness: 0.8, metalness: 0.15 })); return m; };
   // The old wireframe roles, as paint: structure, key parts, glass / apertures.
@@ -332,24 +337,151 @@ export function createRenderer() {
     return pack;
   };
   const slot = (i: number, n: number, off = 0) => i / n * TAU + off;
-  // The compound: an earth berm round it, open to the supply road at the rear, and a few tents.
-  const compound = new THREE.Group();
-  for (let i = 0; i < 28; i++) {
-    const a = (i + 0.5) / 28 * TAU;
-    if (Math.abs(((a - Math.PI / 2) % TAU + TAU) % TAU - Math.PI) > Math.PI - 0.25) continue; // the gate
-    const m = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.9, 0.7, 4, 1).rotateY(Math.PI / 4).scale(1, 1, 2.6 / 1.27), mat(0x8a7a55));
-    m.position.set(Math.cos(a) * 10.4, 0.3, Math.sin(a) * 10.4); m.rotation.y = -a; m.castShadow = m.receiveShadow = true;
-    compound.add(m);
+  // ---- the compound: dressing that grows with the base level, merged per paint into a few meshes ----
+  // Perimeter: sandbag positions (lv1-2), a full earth berm (3-4), HESCO bastions (5-6), concrete T-walls (7+), open
+  // to the supply road at the rear (+z). Around it the camp digs in: tents, cables and floodlights, a flag, gate
+  // towers, hardstands under the launchers, then containers and a concrete apron.
+  let decor = new THREE.Group(), decorKey = '';
+  function buildDecor(s: State) {
+    const L = Math.min(7, s.level), nPac = s.st.weapons.cannon ? Math.min(8, s.level + 1) : 0, nIris = Math.min(4, s.lv.missile ?? 0);
+    const key = `${L}${s.st.radar}${nPac}${nIris}`;
+    if (key === decorKey) return;
+    decorKey = key;
+    scene.remove(decor);
+    decor.traverse(o => { if (o instanceof THREE.Mesh) o.geometry.dispose(); });
+    decor = new THREE.Group();
+    const parts = new Map<number, THREE.BufferGeometry[]>();
+    // A part in local space (+x out, z along), turned by ry and set down at (x, y, z).
+    const put = (geo: THREE.BufferGeometry, color: number, x: number, y: number, z: number, ry = 0) => {
+      geo.rotateY(ry).translate(x, y, z);
+      let l = parts.get(color); if (!l) parts.set(color, l = []); l.push(geo);
+    };
+    const polar = (r: number, a: number): [number, number] => [Math.cos(a) * r, Math.sin(a) * r];
+    const pyramid = (w: number, h: number, d: number) => new THREE.CylinderGeometry(0.01, 0.71, 1, 4, 1).rotateY(Math.PI / 4).scale(w, h, d).translate(0, h / 2, 0);
+    const SAND = 0xa08c60, EARTH = 0x8a7a55, HESCO = 0xb09a6a, WOOD = 0x6b5a40, NET = 0x4a5530, TENT = 0x5d6340, CAN = 0x55603a;
+    const gateW = L >= 5 ? 0.2 : 0.25, gate = (a: number) => Math.abs(angDiff(a, Math.PI / 2)) < gateW;
+
+    // Perimeter.
+    const ring = (n: number, f: (a: number, i: number) => void) => { for (let i = 0; i < n; i++) { const a = (i + 0.5) / n * TAU; if (!gate(a)) f(a, i); } };
+    if (L <= 2) ring(28, (a, i) => { // scattered sandbag positions, gaps between
+      if (i % 3 === 2) return;
+      const [x, z] = polar(10.4, a);
+      put(box(0.8, 0.45, 2).translate(0, 0.22, 0), SAND, x, 0, z, -a);
+      if (i % 3 === 0) put(box(0.6, 0.3, 1.4).translate(0, 0.6, 0), SAND, x, 0, z, -a);
+    });
+    else if (L <= 4) ring(28, (a) => {
+      const [x, z] = polar(10.4, a);
+      put(new THREE.CylinderGeometry(0.5, 0.9, 0.7, 4, 1).rotateY(Math.PI / 4).scale(1, 1, 2.6 / 1.27).translate(0, 0.3, 0), EARTH, x, 0, z, -a);
+    });
+    else if (L <= 6) ring(52, (a, i) => { // HESCO: sand-filled mesh cages with concertina wire on top
+      const [x, z] = polar(10.4, a);
+      put(box(1.1, 1.4, 1.2).translate(0, 0.7, 0), HESCO, x, 0, z, -a);
+      put(box(1.14, 0.08, 1.24).translate(0, 1.4, 0), EARTH, x, 0, z, -a);
+      for (const dz of [-0.4, 0, 0.4]) put(new THREE.TorusGeometry(0.2, 0.02, 3, 8).translate(0, 1.65, dz + (i % 2) * 0.1), C.dark, x, 0, z, -a);
+    });
+    else ring(60, (a) => { // T-walls
+      const [x, z] = polar(10.4, a);
+      put(box(1.2, 0.3, 1.05).translate(0, 0.15, 0), C.concrete, x, 0, z, -a);
+      put(box(0.32, 2.3, 1.05).translate(0, 1.4, 0), C.concrete, x, 0, z, -a);
+    });
+
+    // Supply road out through the gate: dirt, then gravel, then asphalt.
+    const road = L >= 7 ? 0x3b3c38 : L >= 6 ? 0x8f8a7c : 0x7a6848;
+    for (let z = 8; z < 30; z += 2) put(box(L >= 6 ? 2.4 : 2, 0.08, 2.05), road, 0, groundY(0, z + 1) + 0.04, z + 1);
+    if (L >= 7) put(new THREE.CylinderGeometry(5, 5, 0.06, 40), 0x9a978d, 0, 0.03, 0); // concrete apron under the radar group
+
+    // Living area either side of the road: tents, then tents and containers, then containers.
+    const tent = (x: number, z: number, ry: number) => {
+      put(pyramid(2.2, 1.4, 1.8), TENT, x, 0, z, ry);
+      put(box(0.05, 0.6, 0.5).translate(1.0, 0.3, 0), C.dark, x, 0, z, ry); // door flap
+    };
+    const container = (x: number, z: number, ry: number, bags: boolean) => {
+      put(box(2.4, 1.1, 1.1).translate(0, 0.55, 0), CAN, x, 0, z, ry);
+      for (let i = -3; i <= 3; i++) put(box(0.04, 1, 1.12).translate(i * 0.33, 0.55, 0), 0x464f30, x, 0, z, ry); // ribs
+      put(box(0.05, 0.9, 0.9).translate(1.21, 0.5, 0), 0x3d452a, x, 0, z, ry); // doors
+      if (bags) put(box(2.2, 0.3, 1).translate(0, 1.25, 0), SAND, x, 0, z, ry);
+    };
+    if (L <= 4) { tent(-4.5, 8.2, 0.2); tent(4.8, 7.8, -0.3); }
+    else if (L <= 5) { tent(-4.5, 8.2, 0.2); container(4.9, 7.7, -0.35, false); }
+    else { container(-4.7, 8, 0.25, true); container(4.9, 7.7, -0.35, true); }
+    if (L >= 3 && L <= 5) tent(-6.3, 5.9, 0.8);
+    else if (L >= 6) container(-6.3, 5.9, 0.8, L >= 7);
+    if (L >= 6) { // satcom dish on the command container
+      put(new THREE.CylinderGeometry(0.05, 0.05, 0.5, 5), C.metal, -4.7, 1.6, 8);
+      put(new THREE.SphereGeometry(0.45, 10, 5, 0, TAU, 0, 1.1).scale(1, 0.5, 1).rotateZ(0.9), C.metal, -4.7, 1.95, 8);
+    }
+
+    // Supply dump behind the radar: crates and jerrycans, a camo net over them once the camp settles.
+    for (const [x, z, y] of [[-0.6, -4.6, 0], [0.4, -4.7, 0], [-0.1, -5.4, 0], [-0.2, -4.7, 0.5]]) put(box(0.7, 0.5, 0.55).translate(0, 0.25, 0), 0x6a5a3a, x, y, z);
+    for (let i = 0; i < 5; i++) put(box(0.18, 0.4, 0.3).translate(0, 0.2, 0), 0x3f4a2c, 0.9, 0, -4.4 - i * 0.24);
+    if (L >= 3) {
+      put(pyramid(3.2, 0.5, 2.6), NET, 0, 1.3, -4.9);
+      for (const [x, z] of [[-1.2, -3.9], [1.2, -3.9], [-1.2, -5.9], [1.2, -5.9]]) put(new THREE.CylinderGeometry(0.03, 0.03, 1.4, 4), WOOD, x, 0.7, z);
+    }
+
+    // Lv2: power cables from the generators out to the radar and every launching station, and fuel for them.
+    if (L >= 2) {
+      const cable = (x0: number, z0: number, x1: number, z1: number) => {
+        const len = Math.hypot(x1 - x0, z1 - z0);
+        put(box(len, 0.05, 0.07), 0x1d1f19, (x0 + x1) / 2, 0.03, (z0 + z1) / 2, -Math.atan2(z1 - z0, x1 - x0));
+      };
+      const [gx, gz] = polar(3.6, slot(1, 6, 0.3));
+      if (s.st.radar) cable(gx, gz, 0, 0);
+      for (let i = 0; i < nPac; i++) { const a = slot(i, 8, TAU / 16), [x, z] = polar(5.1, a); cable(gx * 0.8, gz * 0.8, x, z); }
+      const fuel = L >= 7 ? 0x6a6a60 : 0x2c2e26, [fx, fz] = polar(8.3, -0.61);
+      if (L >= 7) { // bunded tank
+        put(new THREE.CylinderGeometry(0.55, 0.55, 2, 12).rotateZ(Math.PI / 2), fuel, fx, 0.7, fz, 0.61);
+        put(box(2.6, 0.4, 1.6).translate(0, 0.2, 0), C.concrete, fx, 0, fz, 0.61);
+      } else put(new THREE.SphereGeometry(0.85, 12, 6).scale(1.3, 0.3, 1), fuel, fx, 0.2, fz, 0.61);
+      // Floodlight masts (from lv7 the flank towers carry two of them)
+      for (const a of L >= 7 ? [TAU / 16, TAU * 7 / 16] : [TAU / 16, TAU * 7 / 16, TAU * 9 / 16, TAU * 15 / 16]) {
+        const [x, z] = polar(8.8, a);
+        put(new THREE.CylinderGeometry(0.05, 0.08, 3.4, 5), C.metal, x, 1.7, z);
+        put(box(0.25, 0.25, 0.6).translate(-0.15, 3.4, 0), 0xfff1c0, x, 0, z, -a);
+      }
+    }
+    // Lv3: the unit flag by the gate.
+    if (L >= 3) {
+      put(new THREE.CylinderGeometry(0.04, 0.05, 4, 5), C.metal, -1.8, 2, 8.4);
+      put(box(0.9, 0.55, 0.03).translate(0.47, 3.65, 0), 0xa83a2e, -1.8, 0, 8.4);
+    }
+    // Lv4: gate towers and a barrier; hardstands under the launching stations.
+    if (L >= 4) {
+      for (const x of [-2.2, 2.2]) {
+        if (L >= 7) put(box(1.3, 3.2, 1.3).translate(0, 1.6, 0), C.concrete, x, 0, 11);
+        else for (const [dx, dz] of [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]]) put(box(0.1, 3, 0.1).translate(dx, 1.5, dz), WOOD, x, 0, 11);
+        put(box(1.4, 0.15, 1.4).translate(0, 3.1, 0), L >= 7 ? C.concrete : WOOD, x, 0, 11);
+        for (const s2 of [-1, 1]) { put(box(1.4, 0.5, 0.15).translate(0, 3.4, s2 * 0.62), SAND, x, 0, 11); put(box(0.15, 0.5, 1.1).translate(s2 * 0.62, 3.4, 0), SAND, x, 0, 11); }
+        put(pyramid(1.7, 0.5, 1.7), TENT, x, 4.1, 11);
+        for (const [dx, dz] of [[-0.6, -0.6], [0.6, -0.6], [-0.6, 0.6], [0.6, 0.6]]) put(box(0.06, 0.5, 0.06).translate(dx, 3.9, dz), WOOD, x, 0, 11);
+      }
+      put(box(0.2, 1.1, 0.2).translate(0, 0.55, 0), C.dark, -1.35, 0, 10.6);
+      for (let i = 0; i < 6; i++) put(box(0.42, 0.1, 0.1), i % 2 ? 0xe8e4d8 : 0xa83a2e, -1.05 + i * 0.42, 1, 10.6);
+      const pad = L >= 6 ? 0x9a978d : 0x8f8a7c;
+      for (let i = 0; i < nPac; i++) { const a = slot(i, 8, TAU / 16), [x, z] = polar(6.4, a); put(box(4.2, 0.06, 2.2), pad, x, 0.03, z, -a); }
+      for (let i = 0; i < nIris; i++) { const a = slot(i, 4), [x, z] = polar(9, a); put(box(4, 0.06, 2.2), pad, x, 0.03, z, -a); }
+    }
+    // Lv7: two more towers on the flanks.
+    if (L >= 7) for (const a of [TAU * 9 / 16, TAU * 15 / 16]) {
+      const [x, z] = polar(9.3, a);
+      put(box(1.2, 3.4, 1.2).translate(0, 1.7, 0), C.concrete, x, 0, z, -a);
+      put(box(1.4, 0.4, 1.4).translate(0, 3.6, 0), C.concrete, x, 0, z, -a);
+      put(box(0.05, 0.3, 0.8).translate(0.61, 2.9, 0), 0x1c2a33, x, 0, z, -a); // firing slit
+      put(box(0.25, 0.25, 0.6).translate(-0.4, 3.95, 0), 0xfff1c0, x, 0, z, -a);
+    }
+
+    for (const [color, geos] of parts) {
+      const m = new THREE.Mesh(mergeGeometries(geos), mat(color));
+      m.castShadow = m.receiveShadow = true; decor.add(m);
+      for (const g of geos) g.dispose();
+    }
+    scene.add(decor);
   }
-  for (const [x, z, ry] of [[-4.5, 8.2, 0.2], [4.8, 7.8, -0.3]]) {
-    const t = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 1.4, 1.4, 4, 1).rotateY(Math.PI / 4).scale(1.4, 1, 1).translate(0, 0.7, 0), mat(0x5d6340));
-    t.position.set(x, 0, z); t.rotation.y = ry; t.castShadow = t.receiveShadow = true; compound.add(t);
-  }
-  scene.add(compound);
 
   function buildBase(s: State) {
     scene.remove(base);
-    base = new THREE.Group(); aimers.length = sweepers.length = 0; pacPts = []; irisPts = [];
+    base = new THREE.Group(); aimers.length = sweepers.length = 0; pacPts = []; irisPts = []; launchers = [];
+    buildDecor(s);
     const L = s.level, W = s.st.weapons, R1 = 3.6, R2 = 6.4, R3 = 9;
 
     // Before the radar is bought: a dug-in command post with a field mast, center.
@@ -432,15 +564,17 @@ export function createRenderer() {
     // Four PAC-3 MSE canisters each, raised to 38° and traversing toward the target.
     for (let i = 0; i < (W.cannon ? Math.min(8, L + 1) : 0); i++) {
       const a = slot(i, 8, TAU / 16), ry = radial(a), g = vehicle(R2, a, 2.8, ry, false);
-      aimers.push([canisters(g, 2, 2, 2.6, 0.5, 0.66, 0.1), ry, 'pac']);
+      aimers.push([canisters(g, 2, 2, 2.6, 0.5, 0.66, 0.1), ry, `pac${i}`]);
       pacPts.push([Math.cos(a) * R2, 2.4, Math.sin(a) * R2]);
+      launchers.push({ key: `pac${i}`, x: Math.cos(a) * R2, z: Math.sin(a) * R2, home: a });
       if (L >= 5) solid(box(0.5, 0.8, 3).rotateY(ry), 0x8a7a55, Math.cos(a) * (R2 + 2.4), 0.35, Math.sin(a) * (R2 + 2.4)); // earth berm
     }
     // IRIS-T SLX launchers: 8 canisters, steep launch, one per upgrade level (max 4).
     for (let i = 0; i < Math.min(4, s.lv.missile ?? 0); i++) {
       const a = slot(i, 4), ry = radial(a), g = vehicle(R3, a, 2.6, ry);
-      aimers.push([canisters(g, 2, 4, 2.2, 0.32, 1.05, 0.2), ry, 'pac']);
+      aimers.push([canisters(g, 2, 4, 2.2, 0.32, 1.05, 0.2), ry, `iris${i}`]);
       irisPts.push([Math.cos(a) * R3, 2.7, Math.sin(a) * R3]);
+      launchers.push({ key: `iris${i}`, x: Math.cos(a) * R3, z: Math.sin(a) * R3, home: a });
     }
     // Emplacements: 12.7mm MG in a sandbag ring (twin MG, ZU-23 as it's upgraded), MANTIS gun turret, Stinger team,
     // EW jammer mast, observer tower, ammo point crates. A unit that's down shows only its wrecked plate.
@@ -473,12 +607,41 @@ export function createRenderer() {
         solid(box(0.15, 0.15, 0.5), C.dark, 0.6, 3, 0, g); // binoculars facing out
       } else if (p.k === 'ammo') {
         for (const [x, z, y] of [[-0.35, -0.3, 0.4], [0.35, -0.3, 0.4], [0, 0.35, 0.4], [0, -0.3, 0.85]]) solid(box(0.6, 0.4, 0.5), 0x6a5a3a, x, y, z, g);
+      } else if (p.k === 'wire') { // concertina wire: coils strung across the approach between pickets
+        for (let i = 0; i < 6; i++) solid(new THREE.TorusGeometry(0.28, 0.025, 4, 12), C.metal, 0.7, 0.32, -1.1 + i * 0.44, g);
+        for (const z of [-1.2, 0, 1.2]) solid(box(0.05, 0.8, 0.05), 0x6b5a40, 0.7, 0.4, z, g);
+      } else if (p.k === 'mines') { // Claymores: curved faces out, on their little legs, firing wire back to the pit
+        for (const z of [-0.6, 0, 0.6]) {
+          solid(new THREE.CylinderGeometry(0.5, 0.5, 0.14, 8, 1, true, -0.35, 0.7).rotateY(Math.PI / 2 + Math.PI), C.olive, 0.3, 0.3, z, g);
+          solid(box(0.03, 0.2, 0.2), C.dark, 0.75, 0.12, z, g);
+        }
+        solid(box(0.7, 0.02, 0.02), C.dark, 0.35, 0.22, 0, g);
+      } else if (p.k === 'gmg') { // Mk 19 on its tripod in a sandbag ring: a fat short barrel and the ammo can
+        solid(new THREE.TorusGeometry(0.72, 0.2, 5, 10).rotateX(Math.PI / 2), C.sand, 0, 0.35, 0, g);
+        const t = group(g, 0, 0.55, 0); aimers.push([t, ry, `pad${p.slot}`]);
+        solid(box(0.55, 0.28, 0.3), MID, 0.05, 0.12, 0, t);
+        solid(new THREE.CylinderGeometry(0.07, 0.07, 0.6, 6).rotateZ(Math.PI / 2), C.dark, 0.55, 0.15, 0, t);
+        solid(box(0.25, 0.22, 0.2), 0x6a5a3a, -0.1, 0.1, 0.27, t);
+      } else if (p.k === 'javelin') { // Javelin team: the launch tube on its command launch unit, raised a little
+        solid(new THREE.TorusGeometry(0.72, 0.2, 5, 10).rotateX(Math.PI / 2), C.sand, 0, 0.35, 0, g);
+        const t = group(g, 0, 0.6, 0); aimers.push([t, ry, `pad${p.slot}`]);
+        const tube = group(t, 0, 0.1, 0); tube.rotation.z = 0.2;
+        solid(new THREE.CylinderGeometry(0.08, 0.08, 1.2, 8).rotateZ(Math.PI / 2), C.olive, 0.2, 0.08, 0, tube);
+        solid(box(0.3, 0.2, 0.22), C.dark, 0.1, -0.1, 0.16, tube); // CLU with its thermal sight
+      } else if (p.k === 'mortar') { // M120: a baseplate, the tube steep up toward the target, its bipod
+        const t = group(g, 0, 0.25, 0); aimers.push([t, ry, `pad${p.slot}`]);
+        solid(new THREE.CylinderGeometry(0.45, 0.5, 0.1, 10), C.dark, 0, 0, 0, t);
+        const tube = group(t, -0.1, 0.05, 0); tube.rotation.z = -0.55;
+        solid(new THREE.CylinderGeometry(0.09, 0.1, 1.6, 8).translate(0, 0.8, 0), C.olive, 0, 0, 0, tube);
+        for (const z of [-0.25, 0.25]) solid(new THREE.CylinderGeometry(0.025, 0.025, 1).rotateX(z > 0 ? -0.35 : 0.35), C.dark, 0.45, 0.45, z, t);
+        for (const [x, z] of [[-0.7, -0.5], [-0.7, 0.5]]) solid(box(0.35, 0.3, 0.3), 0x6a5a3a, x, 0.15, z, g); // ammo boxes
       } else {
         solid(new THREE.CylinderGeometry(0.05, 0.07, 2.4, 5), C.metal, 0, 1.4, 0, g);
         const head = group(g, 0, 2.6, 0); sweepers.push([head, ry]);
         solid(new THREE.ConeGeometry(0.45, 0.3, 8, 1, true).rotateZ(Math.PI / 2), HOT, 0.2, 0, 0, head);
       }
-      if (!GUNS.includes(p.k)) continue;
+      if (!aimT.has(`pad${p.slot}`)) aimT.set(`pad${p.slot}`, p.a); // new guns stand facing out
+      if (!GUNS.includes(p.k) && p.k !== 'mines') continue;
       const out = p.slot === s.selected ? picked : fan;
       fanPts(out, p.k, p.x, p.z, p.a, padStats(s, p).range);
     }
@@ -712,8 +875,42 @@ export function createRenderer() {
     bl.x[i] = x; bl.z[i] = z; bl.r[i] = r; bl.life[i] = bl.max[i] = life;
   }
 
+  function traverse(s: State, dt: number, play: boolean) {
+    const claimed = new Map<number, number>(), foes = new Map<number, Enemy>();
+    for (const o of s.enemies) foes.set(o.id, o);
+    for (const l of launchers) {
+      let L = lst.get(l.key);
+      if (!L) lst.set(l.key, L = { cur: l.home, vel: 0, tgt: -1, hold: Math.random(), idle: 0, cue: -1, cueT: 0, spd: 0.55 + Math.random() * 0.3 });
+      if (play) { L.hold -= dt; L.cueT -= dt; }
+      const bearing = (e: Enemy) => Math.atan2(e.z - l.z, e.x - l.x);
+      let e = L.cueT > 0 ? foes.get(L.cue) : undefined;
+      if (!e) {
+        const cur = foes.get(L.tgt), keep = cur && visible(s, cur);
+        if (!keep || L.hold <= 0) { // look again, but not every frame: a crew doesn't flick between tracks
+          let best = keep ? cur : undefined, bs = keep ? Math.abs(angDiff(l.home, bearing(cur!))) + 0.9 * (claimed.get(cur!.id) ?? 0) - 0.4 : Infinity;
+          for (const o of s.enemies) {
+            if (!visible(s, o)) continue;
+            const sc = Math.abs(angDiff(l.home, bearing(o))) + 0.9 * (claimed.get(o.id) ?? 0) + Math.hypot(o.x, o.z) / ARENA_R * 0.5;
+            if (sc < bs) { bs = sc; best = o; }
+          }
+          L.tgt = best ? best.id : -1; L.hold = 1.5 + Math.random() * 2;
+        }
+        e = foes.get(L.tgt);
+      }
+      if (e) claimed.set(e.id, (claimed.get(e.id) ?? 0) + 1);
+      L.idle = e ? 0 : L.idle + (play ? dt : 0);
+      // Nothing to watch: hold a moment, then back to its own sector.
+      const want = e ? bearing(e) : L.idle > 3 ? l.home : L.cur;
+      if (!play) { aimCur.set(l.key, L.cur); continue; }
+      const da = angDiff(want, L.cur), v = Math.max(-L.spd, Math.min(L.spd, da * 1.8));
+      L.vel += (v - L.vel) * Math.min(1, dt * 2.5); // hydraulics: spin up and settle, never snap
+      L.cur += L.vel * dt;
+      aimCur.set(l.key, L.cur);
+    }
+  }
+
   const WRECKS: EnemyKind[] = ['scout', 'drone', 'decoy', 'tank', 'ew', 'elite', 'recon', 'ka52', 'su25', 'sead', 'halo', 'backfire', 'okhotnik', 'mainstay'];
-  const KILL_SHARDS: Record<EnemyKind, number> = { swarm: 4, scout: 6, drone: 8, tank: 16, elite: 24, decoy: 5, arm: 6, ew: 16, tbm: 12, cruise: 8, atgm: 3, kab: 10, recon: 8, ka52: 18, hyper: 14, mald: 6, su25: 20, rocket: 2, sead: 22, arm2: 7, halo: 40, backfire: 40, okhotnik: 36, mainstay: 48 };
+  const KILL_SHARDS: Record<EnemyKind, number> = { swarm: 4, scout: 6, drone: 8, tank: 16, elite: 24, decoy: 5, arm: 6, ew: 16, tbm: 12, cruise: 8, atgm: 3, kab: 10, recon: 8, ka52: 18, hyper: 14, mald: 6, su25: 20, rocket: 2, sead: 22, arm2: 7, halo: 40, backfire: 40, okhotnik: 36, mainstay: 48, walker: 6, gunbot: 10, mech: 22 };
   function consume(s: State) {
     for (const e of s.events) {
       switch (e.k) {
@@ -749,6 +946,13 @@ export function createRenderer() {
           if (p) aimT.set(`pad${p.slot}`, a);
           const tip = (p?.k === 'mg' ? (p.tier === 2 ? 1.65 : 1.15) : 1.9) * PAD_VIS;
           shards(e.x + Math.cos(a) * tip, e.z + Math.sin(a) * tip, 2, C.flash, 3, 0.35, groundY(e.x, e.z) + 0.8, 2);
+          break;
+        }
+        case 'robotFire': { // a walker's burst at one of your units: tracers from its gun, sparks on the unit
+          const y = groundY(e.x, e.z) + 1.3, y2 = groundY(e.x2, e.z2) + 0.8;
+          beam(e.x, y, e.z, e.x2, y2, e.z2, 0.07, 0xff9a4a, 0.1, 2);
+          shards(e.x, e.z, 2, C.flash, 3, 0.3, y, 2);
+          shards(e.x2, e.z2, 3, C.fire, 5, 0.4, y2, 1.5);
           break;
         }
         case 'beam': { // from the HEL (sim fires from the centre), or a hop between contacts (ARC LASER, OVERKILL)
@@ -945,6 +1149,7 @@ export function createRenderer() {
       const c = aimCur.get(k) ?? t, da = ((t - c + Math.PI) % TAU + TAU) % TAU - Math.PI;
       aimCur.set(k, c + da * Math.min(1, dt * 15));
     }
+    traverse(s, dt, play);
     for (const [o, ry, k] of aimers) o.rotation.y = -(aimCur.get(k) ?? aimCur.get('pac')!) - ry;
     for (const [o, ry] of sweepers) o.rotation.y = -s.sweepA - ry;
 
@@ -996,7 +1201,9 @@ export function createRenderer() {
       const k = shownKind(e), m = enemyMeshes[k];
       if (m.count >= MAX_ENEMIES) continue;
       const ex = e.x + e.vx * lead, ez = e.z + e.vz * lead; // where it is now, between sim ticks
-      const gy = groundY(ex, ez), sz = e.size * VIS, f = fly(e, ex, ez, gy, dt, play), y = f.y, alt = y - gy;
+      const gy = groundY(ex, ez), sz = e.size * VIS, f = fly(e, ex, ez, gy, dt, play), alt = f.y - gy;
+      // A walker bobs with its stride while it moves.
+      const y = f.y + (ENEMIES[k].ground && f.hs > 0.2 ? 0.05 * sz * Math.abs(Math.sin(clock * (4 + f.hs) + e.id)) : 0);
       const pos = ePos[ne++ % MAX_ENEMIES]; pos.x = ex; pos.z = ez; pos.y = y; byId.set(e.id, pos);
       // A classified decoy is drawn as a ghost, so it can't be mistaken for the Shahed it copies.
       const fade = (e.locked ? 1 : Math.max(0.35, Math.min(1, (e.seenUntil - s.t) / 1.5))) * (e.ided ? 0.45 : 1);
@@ -1067,13 +1274,20 @@ export function createRenderer() {
     for (const p of s.shots) {
       const tracer = p.kind === 'tracer', stinger = p.src === 'STINGER', y0 = tracer ? 1 : 1.6;
       let f = shotFx.get(p);
+      if (!f && p.pad !== undefined) aimT.set(`pad${p.pad}`, Math.atan2(p.vz, p.vx)); // the unit's gun swings onto it
       if (!f) { // first frame: pick the launcher facing the shot, flash its muzzle
         const pts = p.src === 'PAC-3' ? pacPts : p.src === 'IRIS-T' ? irisPts : null;
         let o = [p.x, (tracer ? 1 : 1.1) + groundY(p.x, p.z), p.z];
         if (pts?.length) {
-          const h = Math.atan2(p.vz, p.vx);
-          let bd = Infinity;
-          for (const q of pts) { const d = Math.abs(((Math.atan2(q[2], q[0]) - h + Math.PI) % TAU + TAU) % TAU - Math.PI); if (d < bd) { bd = d; o = q; } }
+          // The station whose launcher already looks that way (or whose sector it is) takes the shot, and slews onto it.
+          const h = Math.atan2(p.vz, p.vx), pre = p.src === 'PAC-3' ? 'pac' : 'iris';
+          let bd = Infinity, bk = '';
+          pts.forEach((q, i) => {
+            const L = lst.get(pre + i), d = Math.abs(angDiff(Math.atan2(q[2], q[0]), h)) + (L ? 0.6 * Math.abs(angDiff(L.cur, h)) : 0);
+            if (d < bd) { bd = d; o = q; bk = pre + i; }
+          });
+          const L = lst.get(bk);
+          if (L) { L.cue = p.target; L.cueT = 2.5; }
         }
         const t = byId.get(p.target);
         f = { ox: o[0] - p.x, oy: o[1] - y0, oz: o[2] - p.z, age: 0, d0: t ? Math.hypot(t.x - p.x, t.z - p.z) || 1 : 1, px: o[0], py: o[1], pz: o[2] };
@@ -1084,7 +1298,10 @@ export function createRenderer() {
       const blend = p.kind === 'shell' ? 0.25 : 0.6, u = Math.min(1, f.age / blend), k = (1 - u) * (1 - u) * (1 + 2 * u); // smoothstep out
       const t = byId.get(p.target), ty2 = t ? t.y : y0 + 3;
       const prog = t ? 1 - Math.min(1, Math.hypot(t.x - p.x, t.z - p.z) / f.d0) : Math.min(1, f.age);
-      const x = p.x + p.vx * lead + f.ox * k, y = y0 + (ty2 - y0) * prog + f.oy * k, z = p.z + p.vz * lead + f.oz * k;
+      const x = p.x + p.vx * lead + f.ox * k, z = p.z + p.vz * lead + f.oz * k;
+      // A grenade or mortar round arcs up and comes down on the spot it was aimed at.
+      const arc = p.kind === 'lob' ? Math.min(1, 1 - (p.life - lead) / (p.fly || 1)) : 0;
+      const y = p.kind === 'lob' ? groundY(x, z) + 1 + 4 * (p.apex ?? 2) * arc * (1 - arc) : y0 + (ty2 - y0) * prog + f.oy * k;
       const dx = x - f.px, dy = y - f.py, dz = z - f.pz, moved = dx * dx + dy * dy + dz * dz > 1e-6;
       if (moved && !tracer) {
         if (p.kind === 'shell') beam(f.px, f.py, f.pz, x, y, z, 0.22, C.fire, 0.12, 1.5);
@@ -1094,13 +1311,13 @@ export function createRenderer() {
         }
       }
       f.px = x; f.py = y; f.pz = z;
-      const m = p.kind === 'shell' ? shells : tracer ? tracers : missiles;
+      const m = p.kind === 'shell' || p.kind === 'lob' ? shells : tracer ? tracers : missiles;
       if (m.count >= MAX_SHOTS) continue;
       dummy.position.set(x, y, z);
       if (moved) dummy.lookAt(x + dx, y + dy, z + dz); else dummy.rotation.set(0, Math.atan2(p.vx, p.vz), 0);
       dummy.scale.setScalar(stinger ? 0.7 : 1);
       dummy.updateMatrix(); m.setMatrixAt(m.count, dummy.matrix);
-      m.setColorAt(m.count++, tracer ? tmpC.setHex(0xffc861).multiplyScalar(2) : p.kind === 'shell' ? tmpC.setHex(C.flash).multiplyScalar(2) : tmpC.setHex(0xf2f2ea));
+      m.setColorAt(m.count++, tracer ? tmpC.setHex(0xffc861).multiplyScalar(2) : p.kind === 'shell' ? tmpC.setHex(C.flash).multiplyScalar(2) : p.kind === 'lob' ? tmpC.setHex(0x3a3a33) : tmpC.setHex(0xf2f2ea));
     }
 
     // salvage: tech glows white, a cache gold, the rest olive crates
@@ -1244,7 +1461,10 @@ export function createRenderer() {
       const vy = (f.y - y0) / dt, yaw = angDiff(f.h, h0) / dt;
       f.acc += ((hs - f.hs) / dt - f.acc) * ease(4); f.hs = hs;
       let bank: number, pitch: number;
-      if (heli) {
+      if (ENEMIES[e.kind].ground) {
+        // On foot: upright, with a sway from side to side in step with its stride.
+        bank = hs > 0.2 ? 0.08 * Math.sin(clock * (4 + hs) + e.id) : 0; pitch = 0;
+      } else if (heli) {
         // Sideways speed relative to the nose tilts the disc; forward speed dips the nose, braking lifts it.
         const lat = -Math.sin(f.h) * e.vx + Math.cos(f.h) * e.vz, fwd = Math.cos(f.h) * e.vx + Math.sin(f.h) * e.vz;
         bank = clamp(lat * 0.18 + yaw * 0.3, 0.45); pitch = clamp(-0.1 * fwd + 0.25 * f.acc, 0.35);
