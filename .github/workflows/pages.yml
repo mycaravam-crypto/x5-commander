@@ -28,6 +28,10 @@ jobs:
       - run: npm ci
       - name: Build with relative base
         run: npx tsc --noEmit && npx vite build --base=./
+        env:
+          # Optional: a scoreboard server's API URL (e.g. https://scores.example.com/api/scores), set as a repository
+          # variable. Unset, the Pages build has no scoreboard. The server must list this site in X5_CORS_ORIGINS.
+          VITE_SCORES_API: ${{ vars.SCORES_API }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

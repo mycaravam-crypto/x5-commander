@@ -340,9 +340,12 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const n = lbShown, form = overlay.querySelector('.logrun')!;
     form.innerHTML = '<p class="dim">LOGGING…</p>';
     const p = await postRun({ name, time: s.t, kills: s.kills, level: s.level, earned: s.earned, seed: seedCode(s), daily: s.daily });
-    const b: Board | null = p && await fetchBoard(s.daily);
+    const b: Board | null = typeof p === 'object' ? await fetchBoard(s.daily) : null;
     if (n !== lbShown) return;
-    if (!p || !b) { form.innerHTML = '<p class="alert">SCOREBOARD OFFLINE · RUN NOT LOGGED</p>'; return; }
+    if (typeof p !== 'object' || !b) {
+      form.innerHTML = `<p class="alert">${p === 'busy' ? 'TOO MANY RUNS LOGGED FROM HERE · TRY AGAIN LATER' : p === 'rejected' ? 'RUN REJECTED BY THE SCOREBOARD' : 'SCOREBOARD OFFLINE · RUN NOT LOGGED'}</p>`;
+      return;
+    }
     const mine = p.daily ? { ...p.run, rank: p.daily.rank } : p.run; // a daily op's board ranks it among that op's runs
     overlay.querySelector('.lbslot')!.innerHTML = placedHtml(p) + scoreboardHtml(lbTitle(s), b, mine);
   }

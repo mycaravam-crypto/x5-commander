@@ -24,20 +24,29 @@ ok(db.board('').rows.length === TOP && db.board('', 50).rows.length === 25, 'the
 ok(parseRun(run('  ghost   rider <b> ', 10, 1))?.name === 'GHOST RIDER B', 'callsigns are cleaned up');
 ok(parseRun(run('', 10, 1)) === null && parseRun(run('<>', 10, 1)) === null, 'a callsign is required');
 ok(parseRun({ ...run('A', 10, 1), kills: -1 }) === null && parseRun({ ...run('A', 10, 1), time: 'x' }) === null, 'bad numbers are rejected');
+ok(parseRun(run('A', 10, 400)) === null && parseRun(run('A', 100, 1500)) !== null, 'kills must fit the time survived');
 ok(parseRun({ ...run('A', 10, 1), seed: "'; drop", daily: 'today' })?.seed === '', 'bad seed and date are dropped');
 
-const api = scoresApi(openScores(':memory:'));
+const api = scoresApi(openScores(':memory:'), { postLimit: 3, cors: ['https://game.example'] });
 const server = createServer((req, res) => api(req, res, () => { res.statusCode = 404; res.end(); }));
 await new Promise<void>(r => server.listen(0, r));
 const base = `http://127.0.0.1:${(server.address() as { port: number }).port}/api/scores`;
 try {
-  const post = (body: unknown) => fetch(base, { method: 'POST', body: JSON.stringify(body) });
+  const post = (body: unknown) => fetch(base, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const p = await post(run('FOXTROT', 200, 20));
   ok(p.status === 201 && (await p.json()).run.rank === 1, 'POST logs a run and returns its rank');
   ok((await post({ name: 'X' })).status === 400, 'POST rejects an incomplete run');
   const g = await (await fetch(base)).json();
   ok(g.total === 1 && g.rows[0].name === 'FOXTROT', 'GET returns the board');
   ok((await fetch(base.replace('scores', 'other'))).status === 404, 'other paths pass through');
+  ok((await fetch(base, { method: 'POST', body: '{}' })).status === 415, 'POST wants JSON');
+  ok((await post(run('CHEAT', 10, 99999))).status === 400, 'an implausible kill rate is rejected');
+  const busy = await post(run('GOLF', 10, 1));
+  ok(busy.status === 429 && Number(busy.headers.get('retry-after')) > 0, 'a client logging too many runs is held off');
+  ok((await fetch(base)).status === 200, 'reads are not rate limited');
+  const pre = await fetch(base, { method: 'OPTIONS', headers: { Origin: 'https://game.example' } });
+  ok(pre.status === 204 && pre.headers.get('access-control-allow-origin') === 'https://game.example', 'an allowed origin gets CORS');
+  ok(!(await fetch(base, { headers: { Origin: 'https://evil.example' } })).headers.get('access-control-allow-origin'), 'other origins get no CORS');
 } finally { server.close(); }
 
 console.log('ok · scoreboard');
