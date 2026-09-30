@@ -298,6 +298,10 @@ export function createRenderer() {
   const aimers: [THREE.Object3D, number, string][] = [], sweepers: [THREE.Object3D, number][] = [];
   // Where each effector's rounds leave from: launcher muzzles (x, y, z), and the HEL / HPM apertures.
   let pacPts: number[][] = [], irisPts: number[][] = [], helPt = [0, 1.6, 0], hpmPt = [0, 1.6, 0];
+  // Launching stations (PAC-3 'pac<i>', IRIS-T 'iris<i>') each pick their own contact, favouring their own sector
+  // and ones nobody else is on, and traverse at a crew's pace. `home` is the azimuth it stows facing.
+  let launchers: { key: string; x: number; z: number; home: number }[] = [];
+  const lst = new Map<string, { cur: number; vel: number; tgt: number; hold: number; idle: number; cue: number; cueT: number; spd: number }>();
   const mats = new Map<number, THREE.MeshStandardMaterial>();
   const mat = (c: number) => { let m = mats.get(c); if (!m) mats.set(c, m = new THREE.MeshStandardMaterial({ color: c, roughness: 0.8, metalness: 0.15 })); return m; };
   // The old wireframe roles, as paint: structure, key parts, glass / apertures.
@@ -348,7 +352,7 @@ export function createRenderer() {
 
   function buildBase(s: State) {
     scene.remove(base);
-    base = new THREE.Group(); aimers.length = sweepers.length = 0; pacPts = []; irisPts = [];
+    base = new THREE.Group(); aimers.length = sweepers.length = 0; pacPts = []; irisPts = []; launchers = [];
     const L = s.level, W = s.st.weapons, R1 = 3.6, R2 = 6.4, R3 = 9;
 
     // Before the radar is bought: a dug-in command post with a field mast, center.
@@ -431,15 +435,17 @@ export function createRenderer() {
     // Four PAC-3 MSE canisters each, raised to 38° and traversing toward the target.
     for (let i = 0; i < (W.cannon ? Math.min(8, L + 1) : 0); i++) {
       const a = slot(i, 8, TAU / 16), ry = radial(a), g = vehicle(R2, a, 2.8, ry, false);
-      aimers.push([canisters(g, 2, 2, 2.6, 0.5, 0.66, 0.1), ry, 'pac']);
+      aimers.push([canisters(g, 2, 2, 2.6, 0.5, 0.66, 0.1), ry, `pac${i}`]);
       pacPts.push([Math.cos(a) * R2, 2.4, Math.sin(a) * R2]);
+      launchers.push({ key: `pac${i}`, x: Math.cos(a) * R2, z: Math.sin(a) * R2, home: a });
       if (L >= 5) solid(box(0.5, 0.8, 3).rotateY(ry), 0x8a7a55, Math.cos(a) * (R2 + 2.4), 0.35, Math.sin(a) * (R2 + 2.4)); // earth berm
     }
     // IRIS-T SLX launchers: 8 canisters, steep launch, one per upgrade level (max 4).
     for (let i = 0; i < Math.min(4, s.lv.missile ?? 0); i++) {
       const a = slot(i, 4), ry = radial(a), g = vehicle(R3, a, 2.6, ry);
-      aimers.push([canisters(g, 2, 4, 2.2, 0.32, 1.05, 0.2), ry, 'pac']);
+      aimers.push([canisters(g, 2, 4, 2.2, 0.32, 1.05, 0.2), ry, `iris${i}`]);
       irisPts.push([Math.cos(a) * R3, 2.7, Math.sin(a) * R3]);
+      launchers.push({ key: `iris${i}`, x: Math.cos(a) * R3, z: Math.sin(a) * R3, home: a });
     }
     // Emplacements: 12.7mm MG in a sandbag ring (twin MG, ZU-23 as it's upgraded), MANTIS gun turret, Stinger team,
     // EW jammer mast, observer tower, ammo point crates. A unit that's down shows only its wrecked plate.
@@ -711,6 +717,40 @@ export function createRenderer() {
     bl.x[i] = x; bl.z[i] = z; bl.r[i] = r; bl.life[i] = bl.max[i] = life;
   }
 
+  function traverse(s: State, dt: number, play: boolean) {
+    const claimed = new Map<number, number>(), foes = new Map<number, Enemy>();
+    for (const o of s.enemies) foes.set(o.id, o);
+    for (const l of launchers) {
+      let L = lst.get(l.key);
+      if (!L) lst.set(l.key, L = { cur: l.home, vel: 0, tgt: -1, hold: Math.random(), idle: 0, cue: -1, cueT: 0, spd: 0.55 + Math.random() * 0.3 });
+      if (play) { L.hold -= dt; L.cueT -= dt; }
+      const bearing = (e: Enemy) => Math.atan2(e.z - l.z, e.x - l.x);
+      let e = L.cueT > 0 ? foes.get(L.cue) : undefined;
+      if (!e) {
+        const cur = foes.get(L.tgt), keep = cur && visible(s, cur);
+        if (!keep || L.hold <= 0) { // look again, but not every frame: a crew doesn't flick between tracks
+          let best = keep ? cur : undefined, bs = keep ? Math.abs(angDiff(l.home, bearing(cur!))) + 0.9 * (claimed.get(cur!.id) ?? 0) - 0.4 : Infinity;
+          for (const o of s.enemies) {
+            if (!visible(s, o)) continue;
+            const sc = Math.abs(angDiff(l.home, bearing(o))) + 0.9 * (claimed.get(o.id) ?? 0) + Math.hypot(o.x, o.z) / ARENA_R * 0.5;
+            if (sc < bs) { bs = sc; best = o; }
+          }
+          L.tgt = best ? best.id : -1; L.hold = 1.5 + Math.random() * 2;
+        }
+        e = foes.get(L.tgt);
+      }
+      if (e) claimed.set(e.id, (claimed.get(e.id) ?? 0) + 1);
+      L.idle = e ? 0 : L.idle + (play ? dt : 0);
+      // Nothing to watch: hold a moment, then back to its own sector.
+      const want = e ? bearing(e) : L.idle > 3 ? l.home : L.cur;
+      if (!play) { aimCur.set(l.key, L.cur); continue; }
+      const da = angDiff(want, L.cur), v = Math.max(-L.spd, Math.min(L.spd, da * 1.8));
+      L.vel += (v - L.vel) * Math.min(1, dt * 2.5); // hydraulics: spin up and settle, never snap
+      L.cur += L.vel * dt;
+      aimCur.set(l.key, L.cur);
+    }
+  }
+
   const WRECKS: EnemyKind[] = ['scout', 'drone', 'decoy', 'tank', 'ew', 'elite', 'recon', 'ka52', 'su25', 'sead'];
   const KILL_SHARDS: Record<EnemyKind, number> = { swarm: 4, scout: 6, drone: 8, tank: 16, elite: 24, decoy: 5, arm: 6, ew: 16, tbm: 12, cruise: 8, atgm: 3, kab: 10, recon: 8, ka52: 18, hyper: 14, mald: 6, su25: 20, rocket: 2, sead: 22, arm2: 7 };
   function consume(s: State) {
@@ -944,6 +984,7 @@ export function createRenderer() {
       const c = aimCur.get(k) ?? t, da = ((t - c + Math.PI) % TAU + TAU) % TAU - Math.PI;
       aimCur.set(k, c + da * Math.min(1, dt * 15));
     }
+    traverse(s, dt, play);
     for (const [o, ry, k] of aimers) o.rotation.y = -(aimCur.get(k) ?? aimCur.get('pac')!) - ry;
     for (const [o, ry] of sweepers) o.rotation.y = -s.sweepA - ry;
 
@@ -1070,9 +1111,15 @@ export function createRenderer() {
         const pts = p.src === 'PAC-3' ? pacPts : p.src === 'IRIS-T' ? irisPts : null;
         let o = [p.x, (tracer ? 1 : 1.1) + groundY(p.x, p.z), p.z];
         if (pts?.length) {
-          const h = Math.atan2(p.vz, p.vx);
-          let bd = Infinity;
-          for (const q of pts) { const d = Math.abs(((Math.atan2(q[2], q[0]) - h + Math.PI) % TAU + TAU) % TAU - Math.PI); if (d < bd) { bd = d; o = q; } }
+          // The station whose launcher already looks that way (or whose sector it is) takes the shot, and slews onto it.
+          const h = Math.atan2(p.vz, p.vx), pre = p.src === 'PAC-3' ? 'pac' : 'iris';
+          let bd = Infinity, bk = '';
+          pts.forEach((q, i) => {
+            const L = lst.get(pre + i), d = Math.abs(angDiff(Math.atan2(q[2], q[0]), h)) + (L ? 0.6 * Math.abs(angDiff(L.cur, h)) : 0);
+            if (d < bd) { bd = d; o = q; bk = pre + i; }
+          });
+          const L = lst.get(bk);
+          if (L) { L.cue = p.target; L.cueT = 2.5; }
         }
         const t = byId.get(p.target);
         f = { ox: o[0] - p.x, oy: o[1] - y0, oz: o[2] - p.z, age: 0, d0: t ? Math.hypot(t.x - p.x, t.z - p.z) || 1 : 1, px: o[0], py: o[1], pz: o[2] };
