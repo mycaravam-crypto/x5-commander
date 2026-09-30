@@ -1,0 +1,75 @@
+name: Deploy to x5.vi0lins.de
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "server/**"
+      - "index.html"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.ts"
+      - "deploy/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch: {}
+
+# One deploy at a time, and never cancel one halfway through.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: https://x5.vi0lins.de
+    steps:
+      # Until the secrets are set (see deploy/Caddyfile and the README), skip instead of failing every push.
+      - name: Check deploy secrets
+        id: ready
+        env:
+          KEY: ${{ secrets.X5_DEPLOY_SSH_KEY }}
+          HOST: ${{ secrets.X5_DEPLOY_HOST }}
+        run: |
+          if [ -n "$KEY" ] && [ -n "$HOST" ]; then echo "ok=true" >> "$GITHUB_OUTPUT"
+          else echo "::warning::X5_DEPLOY_SSH_KEY / X5_DEPLOY_HOST not set: skipping deploy"; fi
+
+      - uses: actions/checkout@v4
+        if: steps.ready.outputs.ok
+
+      - uses: actions/setup-node@v4
+        if: steps.ready.outputs.ok
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: webfactory/ssh-agent@v0.9.0
+        if: steps.ready.outputs.ok
+        with:
+          ssh-private-key: ${{ secrets.X5_DEPLOY_SSH_KEY }}
+
+      - name: Trust server host key
+        if: steps.ready.outputs.ok
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H vi0lins.de >> ~/.ssh/known_hosts
+
+      - name: Deploy
+        if: steps.ready.outputs.ok
+        env:
+          X5_DEPLOY_HOST: ${{ secrets.X5_DEPLOY_HOST }}
+          X5_DEPLOY_PATH: ${{ secrets.X5_DEPLOY_PATH }}
+        run: ./deploy/deploy.sh
+
+      - name: Check the live site
+        if: steps.ready.outputs.ok
+        run: |
+          for i in $(seq 10); do curl -sf https://x5.vi0lins.de/healthz && exit 0; sleep 3; done
+          echo "::error::https://x5.vi0lins.de/healthz isn't answering (DNS or the Caddy block missing?)"; exit 1

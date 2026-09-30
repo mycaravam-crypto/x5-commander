@@ -1,0 +1,36 @@
+# Caddy site block for x5.vi0lins.de, next to vanspace.vi0lins.de on the same server.
+#
+# Unlike vanspace3d (static files only), X5 Commander has a scoreboard API, so Caddy doesn't serve files itself: it
+# terminates HTTPS (Let's Encrypt, automatic) and proxies everything to the Node server (server/index.ts), which
+# serves the game, the API, gzip, caching and the security headers. The Node server runs as a systemd *user* service
+# of the deploy user (deploy/x5-commander.service), so deploys restart it without sudo.
+#
+# One-time setup on the server (needs sudo, run interactively):
+#
+#   # Node 22.18+ (24 recommended) as /usr/bin/node, if it isn't there yet (node --version):
+#   curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash - && sudo apt-get install -y nodejs
+#
+#   sudo mkdir -p /var/www/x5-commander/releases /var/www/x5-commander/shared
+#   sudo chown -R mycaravam:mycaravam /var/www/x5-commander
+#   sudo loginctl enable-linger mycaravam      # user services keep running without a login session
+#   sudo tee -a /etc/caddy/Caddyfile <<'EOF'
+#
+#   x5.vi0lins.de {
+#           reverse_proxy 127.0.0.1:8095
+#   }
+#   EOF
+#   sudo systemctl reload caddy
+#
+# DNS: an A/AAAA record (or CNAME to vi0lins.de) for x5.vi0lins.de.
+#
+# After that, deploys are just (or push to main: .github/workflows/deploy.yml):
+#
+#   X5_DEPLOY_HOST=mycaravam@vi0lins.de ./deploy/deploy.sh
+#
+# and rollbacks:
+#
+#   X5_DEPLOY_HOST=mycaravam@vi0lins.de ./deploy/rollback.sh
+
+x5.vi0lins.de {
+        reverse_proxy 127.0.0.1:8095
+}
