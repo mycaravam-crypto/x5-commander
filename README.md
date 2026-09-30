@@ -250,11 +250,12 @@ Where a unit stands decides its **belt**:
 
 ### Power and ammo
 Your generator fills a power pool, and everything draws on it in this order:
-1. Fire control: 0.25/s for each lock held, plus 1.2/s while a priority target is marked.
+1. **Standby:** every system draws a little just to stay ready: 0.5/s for the Patriot, per level 0.6/s for the laser, 0.4/s for the IRIS-T SLX and 1/s for the HPM, and per working unit 0.2/s for a MANTIS, 0.3/s for an IRIS-T SLM and 0.1/s for an observer post. A bigger battery needs a bigger plant.
+   Fire control: 0.25/s for each lock held, plus 1.2/s while a priority target is marked.
 2. The radar: ×1.4 in FOCUSED, ×0.6 in LPI, nothing in EMCON. **When power runs short, the radar sweep slows** (down to 25% speed), so you see less.
 3. Interceptor production and Maintenance Crew repairs, from the surplus above 20% only.
 
-Laser and HPM shots cost power as well. The power and interceptor bars show the net flow per second, so you can see which way the budget is going. Balancing seeing, shooting and building is the core tension of the game.
+Laser and HPM shots cost power as well. **Resupply breathes:** the generators and the GMT reload line work harder the emptier their store is: 1.6× their rating when empty, easing to 0.4× at capacity (`RESUPPLY`). So each bar settles at a level that shows how supply compares to demand: short of it, low but still firing; well ahead, near full. And since demand keeps growing with the war, a surplus bought once wears away. The power and interceptor bars show the net flow per second, so you can see which way the budget is going. Balancing seeing, shooting and building is the core tension of the game.
 
 ### Credits, upgrades and base levels
 Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits. There are 28 upgrades in 7 groups: BATTERY, POWER, SENSORS, FIRE CONTROL, WEAPONS, MAGAZINE and PERIMETER. Each upgrade costs more with every level. There is **no max level**, except for *Threat Evaluation*, the *radar*, the *PAC-3 battery* and *LTAMDS AESA*, which are on/off, and Scan Rate before the AESA. Earth Revetments have diminishing returns, up to 85% less damage taken. **Ranks:** every 5th level of an open-ended upgrade (not a pad) is a new rank and adds one free level on top. A bar under each shop row fills toward the next rank, and the buy that reaches it is marked ★. Every purchase shows what it bought, and the purchase sound climbs with the upgrade's level. The bar under BATTERY LV fills toward the next base level. Buying upgrades raises your **base level**, which adds visible structures to the base and offers a **perk draft: pick 1 of 3**. Every perk has a tradeoff, for example *GLASS CANNON*: +60% damage, −45% max HP. From base level 3, every draft also offers one **rule perk** (marked ★ NEW RULE) that changes how the battery plays, until you've taken them all. From level 3: *BLACKOUT PROTOCOL* (tracks coast twice as long when the radar goes dark, −30% memory while radiating), *COUNTER-SEAD* (each ARM shot down restores 20% power), *KILL CHAIN* (every 5 kills: +1 lock slot for 8 s), *OVERKILL* (damage past a kill jumps to the nearest contact within 8 m) and *LAST STAND* (below 25% HP: +50% fire rate, −40% power gen). From level 5: *TRACK FUSION* (locks hold while the radar is dark), *LPI WAVEFORM* (LPI mode keeps full detection), *OVERWATCH* (your marked target takes double damage), *ARC LASER* (laser jumps to 2 more targets; needs the laser), *SCAVENGER* (kills refund interceptors) and *FRAG WARHEADS* (PAC-3 hits splash).
@@ -305,14 +306,27 @@ An EW helicopter in a package is an **escort**: it goes in first and holds stati
 **Raids:** every level ends with a named raid, all from one bearing. Which raids can come, and how big they are, goes by the level. Each one runs the same way:
 1. **Warning and preparation (10 s):** a briefing card shows the sector, the raid's name, its composition, the objective and the bonus, with chevrons at the rim. When that part of the rim is off screen, an amber arrow on the screen edge points toward it. Use the time to set radar, fire discipline and priority.
 2. **Attack:** a siren sounds and the HUD frames turn amber. Normal spawns thin out to 40% while the raid is in the air, and the card tracks what's left and whether the objective still holds.
-3. **Resolution:** the objective is **PROTECT BATTERY** (nothing in the raid lands) or, for SEAD STRIKE, **PROTECT RADAR** (no ARM hits the radar while the raid is on).
+3. **Resolution:** the objective is **PROTECT BATTERY** (nothing in the raid lands), for SEAD STRIKE **PROTECT RADAR** (no ARM hits the radar while the raid is on), or on a boss level **SHOOT DOWN THE BOSS** (see *Bosses*).
    - **Held:** the bonus pays out, then a **20 s build window**.
    - **Lost:** no bonus, and only an **8 s build window**.
    Either way, the level ends when the last aircraft of the raid is gone.
 
 Raids include SHAHED WAVE, LANCET PACK, FPV SWARM, DECOY SCREEN, HELO ASSAULT, ISKANDER SALVO, CRUISE SALVO and the package raids SWARM ASSAULT, SEAD STRIKE (led by a Su-34) and SATURATION STRIKE, and late in a run EW BARRAGE (level 8: two jammers over cruise missiles, decoys, Shaheds and Lancets) COMBINED STRIKE (level 9: a Su-34, Mi-28s, FPVs and cruise missiles), ALLIGATOR HUNT (level 6: Ka-52s with an Orlan-10 spotting and FPVs), SATURATION WAVE (level 8: many FPVs, decoys and Shaheds over a few Kh-101s and an Iskander) HYPERSONIC STRIKE (level 10: Kinzhals and an Iskander behind Kh-55 decoys), GROUND ATTACK (level 7: Su-25s under Lancets) and SEAD SWEEP (level 9: a Su-35S and a Su-34 with ARMs, decoys and Shaheds; PROTECT RADAR). An escort jammer flies with its raid but doesn't count toward it; ARMs a raid's Su-34 launches do.
 
-Spawn rate, HP and damage grow **logarithmically** with play time, and raid size with the level: each doubling adds about the same threat. **After 12 minutes the war escalates:** enemy HP grows 12% and damage 6% per minute (compounding), and numbers 5% per minute. Upgrades cost more with every level, so the surge outruns any battery sooner or later: every run ends, and the question is when.
+Spawn rate, HP and damage grow **logarithmically** with play time, and raid size with the level: each doubling adds about the same threat. **After 6 minutes (about level 5) the war escalates:** enemy HP grows 16% and damage 7% per minute (compounding), and numbers 4% per minute. Kills pay more as it goes (reward × the HP surge^0.65), so income keeps upgrades coming, but slower than the threat grows. A battery that stops building falls within a few levels; one that keeps building lasts, but the surge outruns any battery sooner or later: every run ends, and the question is when. The numbers are `SURGE` in `config.ts`.
+
+**Bosses:** every 5th level (L5, L10, L15, L20, then round again, stronger each time) the raid is led by a boss, with an escort. The briefing card names it, its skill, what it counters and what it's weak to. Objective: **shoot it down before it leaves**. It goes home once it has used up its attacks or its time on station, and still can be caught on the way out. Shot down, it pays its bounty and the raid bonus, and always drops **SALVAGED TECH** (a free upgrade level). Every boss is matched to your battery:
+- **HP** is about a minute of the firepower that can actually reach where it holds, never below what the level's difficulty says.
+- **Countermeasures (−50%)** against the weapon family (guns · SAMs · Patriot · laser + HPM) that has done the most of your damage this run.
+- **A weakness (+60%)**: its own family, or, if you have nothing in it, the family you own and have used least. A boss rewards the upgrades you've neglected.
+- **It holds just inside your reach** on its bearing, so something can always hit it. Mark it.
+
+| Boss | Level | Skill | Weak to |
+|------|-------|-------|---------|
+| Mi-26T2 heavy assault helicopter | 5 | Hovers at standoff and drops an FPV pack on your units every 6 s | SAMs |
+| Tu-22M3M long-range bomber | 10 | Circles far out, fires Kh-101 pairs at your most valuable units every 8 s, and its ECM jams its own sector | Patriot |
+| S-70 Okhotnik-B stealth UCAV | 15 | Radar barely sees it. Every 7 s its bay opens to drop a glide bomb: for 2.5 s it shows on the scope and takes +50% | Guns |
+| A-50U Mainstay command post | 20 | Circles far out and commands: while it's on station every other raider takes 30% less damage and flies 15% faster | SAMs |
 
 | Threat                      | Notes                                     |
 |-----------------------------|-------------------------------------------|
