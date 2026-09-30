@@ -1,7 +1,8 @@
 import { defineConfig, type Plugin } from 'vite';
-import { openScores, scoresApi } from './server/scores.ts';
+import { openScores } from './server/scores.ts';
+import { scoresApi } from './server/api.ts';
 
-// The scoreboard API (/api/scores) on the dev and preview servers, backed by a local SQLite file.
+// The game's API (/api: scoreboard and accounts, server/api.ts) on the dev and preview servers, backed by a local SQLite file.
 // X5_SCORES_DB moves the file; the default is data/scores.db.
 function scoreboard(): Plugin {
   let api: ReturnType<typeof scoresApi> | undefined;

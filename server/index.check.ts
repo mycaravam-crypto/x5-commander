@@ -33,8 +33,11 @@ try {
   ok((await fetch(base + '/nope.js')).status === 404, 'a missing file is a 404');
   ok((await fetch(base + '/', { method: 'DELETE' })).status === 405, 'static files are read-only');
   ok((await (await fetch(base + '/healthz')).text()) === 'ok', 'health check answers');
-  const p = await fetch(base + '/api/scores', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'HOTEL', time: 60, kills: 30, level: 2, earned: 500 }) });
-  ok(p.status === 201 && (await (await fetch(base + '/api/scores')).json()).rows[0].name === 'HOTEL', 'the API is mounted and persists');
+  const json = { 'Content-Type': 'application/json' };
+  const up = await fetch(base + '/api/signup', { method: 'POST', headers: json, body: JSON.stringify({ name: 'HOTEL', password: 'password1' }) });
+  const cookie = up.headers.get('set-cookie')!.split(';')[0];
+  const p = await fetch(base + '/api/scores', { method: 'POST', headers: { ...json, Cookie: cookie }, body: JSON.stringify({ time: 60, kills: 30, level: 2, earned: 500 }) });
+  ok(up.status === 201 && p.status === 201 && (await (await fetch(base + '/api/scores')).json()).rows[0].name === 'HOTEL', 'the API is mounted and persists');
 } finally { await app.close(); }
 
 // Started the way deploy/ starts it, through a symlinked release dir: it must still run (not just import) and listen.

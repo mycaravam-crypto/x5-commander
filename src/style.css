@@ -409,11 +409,16 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   #top .stat:nth-child(2) small { display: none; }
 }
 /* Scoreboard (src/scores.ts): callsign entry and the ranked leaderboard. Gold / silver / bronze for the top three. */
-.logrun { display: flex; justify-content: center; align-items: center; gap: 10px; margin: 12px 0 4px; pointer-events: auto; }
-.logrun input { font: inherit; font-size: 14px; letter-spacing: 0.2em; text-transform: uppercase; width: 200px; padding: 7px 10px;
+.auth { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px 10px; margin: 12px auto 4px; max-width: 560px; pointer-events: auto; }
+.auth > p { flex-basis: 100%; margin: 0; }
+.auth input { font: inherit; font-size: 14px; letter-spacing: 0.2em; width: 170px; padding: 7px 10px;
   color: var(--hot); background: rgba(0, 20, 8, 0.8); border: 1px solid var(--mid); outline: none; text-shadow: var(--glow); user-select: text; }
-.logrun input:focus { border-color: var(--hot); box-shadow: 0 0 12px color-mix(in srgb, var(--bright) 40%, transparent); }
-.logrun input.bad { border-color: var(--alert); }
+.auth input[name=name] { text-transform: uppercase; }
+.auth input:focus { border-color: var(--hot); box-shadow: 0 0 12px color-mix(in srgb, var(--bright) 40%, transparent); }
+.auth .msg:empty { display: none; }
+.acct { margin: 12px 0 2px; letter-spacing: 0.12em; }
+.acct .link { margin-left: 10px; }
+.lb tr.guest:not(.p1):not(.p2):not(.p3) td { color: var(--mid); }
 .placed { letter-spacing: 0.14em; margin: 12px 0 2px; }
 .lb { --gold: #ffd35a; --silver: #d8e6ee; --bronze: #e0935a; display: block; max-width: 560px; margin: 10px auto; padding: 10px 14px; text-align: left; background-color: var(--panel); }
 .lbhead { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; }

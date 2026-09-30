@@ -31,7 +31,8 @@ jobs:
       name: production
       url: https://x5.vi0lins.de
     steps:
-      # Until the secrets are set (see deploy/Caddyfile and the README), skip instead of failing every push.
+      # Until the secrets are set (see deploy/Caddyfile and the README), a push skips instead of failing; a deploy run by
+      # hand fails, so a skipped deploy never looks like a green one.
       - name: Check deploy secrets
         id: ready
         env:
@@ -39,6 +40,8 @@ jobs:
           HOST: ${{ secrets.X5_DEPLOY_HOST }}
         run: |
           if [ -n "$KEY" ] && [ -n "$HOST" ]; then echo "ok=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "::error::X5_DEPLOY_SSH_KEY / X5_DEPLOY_HOST not set: nothing to deploy with"; exit 1
           else echo "::warning::X5_DEPLOY_SSH_KEY / X5_DEPLOY_HOST not set: skipping deploy"; fi
 
       - uses: actions/checkout@v4

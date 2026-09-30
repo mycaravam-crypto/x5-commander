@@ -1,14 +1,15 @@
 // `npm start` — the production server: the built game (dist/) and the scoreboard API on one port, no other packages.
 //   PORT (8080) · HOST (0.0.0.0) · X5_SCORES_DB (data/scores.db) · X5_DIST (dist)
 //   X5_TRUST_PROXY=1 behind a reverse proxy · X5_CORS_ORIGINS=https://a.example,https://b.example for a game hosted elsewhere
-//   X5_POST_LIMIT (20 runs per client per 10 min)
+//   X5_POST_LIMIT (20 runs per account per 10 min)
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
-import { openScores, scoresApi, type ApiOptions } from './scores.ts';
+import { openScores } from './scores.ts';
+import { scoresApi, type ApiOptions } from './api.ts';
 
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',

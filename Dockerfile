@@ -12,7 +12,7 @@ FROM node:24-slim
 ENV NODE_ENV=production PORT=8080 X5_SCORES_DB=/data/scores.db X5_DIST=/app/dist
 WORKDIR /app
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/server/scores.ts /app/server/index.ts ./server/
+COPY --from=build /app/server/index.ts /app/server/api.ts /app/server/scores.ts /app/server/accounts.ts ./server/
 COPY package.json ./
 RUN mkdir -p /data && chown node:node /data
 USER node

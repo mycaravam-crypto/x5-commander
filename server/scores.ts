@@ -1,20 +1,22 @@
-// The scoreboard: finished runs in a local SQLite file, ranked by time survived, then kills.
-// No accounts yet: a run carries the callsign typed on the debrief. Served at /api/scores by the Vite dev and preview
-// servers (vite.config.ts); a static host has no API, and the game just leaves the board out.
+// The scoreboard: finished runs in a local SQLite file. The board ranks players by their best run (time survived,
+// then kills); a player is an account (server/accounts.ts), or, for runs logged before accounts, each run on its own.
+// Served by server/api.ts: at /api/* by the production server (server/index.ts) and the Vite dev and preview servers.
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import { openAccounts } from './accounts.ts';
 
-export type Run = { name: string; time: number; kills: number; level: number; earned: number; seed: string; daily: string };
-export type Row = Run & { id: number; rank: number; at: string };
+export type Run = { time: number; kills: number; level: number; earned: number; seed: string; daily: string };
+// verified: logged by an account (0: a callsign run from before accounts).
+export type Row = Run & { id: number; rank: number; name: string; verified: number; at: string };
+export type Placed = { run: Row; total: number; best: boolean; daily: { run: Row; rank: number; total: number } | null };
 
-export const NAME_MAX = 16, TOP = 10;
+export const TOP = 10;
 
 export function openScores(file: string) {
   if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
-  db.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA synchronous = NORMAL;
+  db.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;
     CREATE TABLE IF NOT EXISTS scores (
       id     INTEGER PRIMARY KEY,
       name   TEXT    NOT NULL,
@@ -27,104 +29,58 @@ export function openScores(file: string) {
       at     TEXT    NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS scores_rank ON scores (daily, time DESC, kills DESC);`);
-  // Every run's rank on its board (all-time, or one daily op's), ties sharing a rank. '' as the board means all-time.
-  const ranked = `SELECT *, RANK() OVER (ORDER BY time DESC, kills DESC) AS rank FROM scores WHERE ?1 = '' OR daily = ?1`;
+  const accounts = openAccounts(db);
+  // Databases from before accounts: runs gain the account that logged them (NULL for the old callsign runs).
+  if (!(db.prepare('PRAGMA table_info(scores)').all() as { name: string }[]).some(c => c.name === 'user_id'))
+    db.exec('ALTER TABLE scores ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL');
+  db.exec('CREATE INDEX IF NOT EXISTS scores_user ON scores (user_id)');
+
+  // Each player's best run on a board (all-time when ?1 is '', else that daily op), ranked; ties share a rank.
+  const ranked = `WITH best AS (
+      SELECT *, ROW_NUMBER() OVER (PARTITION BY COALESCE(user_id, -id) ORDER BY time DESC, kills DESC, id) AS rn
+      FROM scores WHERE ?1 = '' OR daily = ?1)
+    SELECT id, name, time, kills, level, earned, seed, daily, at, user_id, user_id IS NOT NULL AS verified,
+      RANK() OVER (ORDER BY time DESC, kills DESC) AS rank FROM best WHERE rn = 1`;
   const top = db.prepare(`${ranked} ORDER BY rank, id LIMIT ?2`);
-  const one = db.prepare(`SELECT * FROM (${ranked}) WHERE id = ?2`);
-  const count = db.prepare(`SELECT COUNT(*) AS n FROM scores WHERE ?1 = '' OR daily = ?1`);
-  const insert = db.prepare('INSERT INTO scores (name, time, kills, level, earned, seed, daily) VALUES (?, ?, ?, ?, ?, ?, ?)');
-  const board = (daily: string, limit = TOP) => ({ rows: top.all(daily, limit) as Row[], total: (count.get(daily) as { n: number }).n });
+  const ofUser = db.prepare(`SELECT * FROM (${ranked}) WHERE user_id = ?2`);
+  const ofRun = db.prepare(`SELECT * FROM (${ranked}) WHERE id = ?2`);
+  const players = db.prepare(`SELECT COUNT(DISTINCT COALESCE(user_id, -id)) AS n FROM scores WHERE ?1 = '' OR daily = ?1`);
+  const runs = db.prepare('SELECT COUNT(*) AS n FROM scores WHERE user_id = ?');
+  const insert = db.prepare('INSERT INTO scores (name, time, kills, level, earned, seed, daily, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+  const clean = (r: Row | undefined) => { if (!r) return null; const { user_id: _, ...row } = r as Row & { user_id?: number }; return row as Row; };
+  const total = (daily: string) => (players.get(daily) as { n: number }).n;
+  const board = (daily: string, limit = TOP) => ({ rows: (top.all(daily, limit) as Row[]).map(r => clean(r)!), total: total(daily) });
+
   return {
-    board,
-    // Adds a run; returns it with its rank on the all-time board, and on its daily op's board if it was one.
-    add(r: Run) {
-      const id = Number(insert.run(r.name, r.time, r.kills, r.level, r.earned, r.seed, r.daily).lastInsertRowid);
-      const mine = one.get('', id) as Row;
-      return { run: mine, total: board('').total, daily: r.daily ? { rank: (one.get(r.daily, id) as Row).rank, total: board(r.daily).total } : null };
+    db, accounts, board,
+    // Logs an account's run. Returns the player's standing after it: their best run with its rank, whether this run
+    // is that best, and their rank on this run's daily op board if it was one.
+    add(user: { id: number; name: string }, r: Run): Placed {
+      const id = Number(insert.run(user.name, r.time, r.kills, r.level, r.earned, r.seed, r.daily, user.id).lastInsertRowid);
+      const best = clean(ofUser.get('', user.id) as Row)!;
+      const day = r.daily ? clean(ofUser.get(r.daily, user.id) as Row) : null;
+      return { run: best, total: total(''), best: best.id === id, daily: day ? { run: day, rank: day.rank, total: total(r.daily) } : null };
     },
+    // An account's standing: its best run with its rank, and how many runs it has logged.
+    player: (userId: number) => ({ best: clean(ofUser.get('', userId) as Row), runs: (runs.get(userId) as { n: number }).n, total: total('') }),
+    rankOf: (runId: number, daily = '') => clean(ofRun.get(daily, runId) as Row),
     close: () => db.close(),
   };
 }
 export type Scores = ReturnType<typeof openScores>;
 
-// A posted run, checked: a callsign of letters, digits, spaces and - _ . and numbers in a sane range. null if it isn't one.
-// Also plausible: a run can't kill faster than the swarm spawns (MAX_KILL_RATE per second, with some slack for a short
-// run) nor last longer than MAX_TIME. There are no accounts or signed runs yet, so this only stops the obvious fakes.
+// A posted run, checked: numbers in a sane range, and plausible. A run can't kill faster than the swarm spawns
+// (MAX_KILL_RATE per second, with some slack for a short run) nor last longer than MAX_TIME. Runs aren't signed, so this
+// only stops the obvious fakes; an account can still post a made-up plausible run. null if it isn't a run.
 export const MAX_TIME = 6 * 3600, MAX_KILL_RATE = 20, MAX_LEVEL = 100;
 export function parseRun(b: unknown): Run | null {
   if (!b || typeof b !== 'object') return null;
   const o = b as Record<string, unknown>;
   const num = (v: unknown, max: number) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= max ? v : NaN;
-  const name = typeof o.name === 'string' ? o.name.toUpperCase().replace(/[^A-Z0-9 _.-]/g, '').replace(/\s+/g, ' ').trim().slice(0, NAME_MAX) : '';
   const time = num(o.time, MAX_TIME), kills = num(o.kills, 1e7), level = num(o.level, MAX_LEVEL), earned = num(o.earned, 1e10);
   const seed = typeof o.seed === 'string' && /^X5-[A-Z0-9-]{1,20}$/.test(o.seed) ? o.seed : '';
   const daily = typeof o.daily === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(o.daily) ? o.daily : '';
-  if (!name || [time, kills, level, earned].some(Number.isNaN)) return null;
+  if ([time, kills, level, earned].some(Number.isNaN)) return null;
   if (kills > MAX_KILL_RATE * time + 100) return null;
-  return { name, time: Math.round(time * 10) / 10, kills: Math.floor(kills), level: Math.floor(level), earned: Math.floor(earned), seed, daily };
-}
-
-export type ApiOptions = {
-  // Runs one client may log per window (by IP). Reads aren't limited.
-  postLimit?: number; postWindowMs?: number;
-  // Origins allowed to call the API from another site (e.g. the game on GitHub Pages): '*' or a list. Default: same origin only.
-  cors?: string[];
-  // Behind a reverse proxy: take the client's IP from X-Forwarded-For (its last hop) instead of the socket.
-  trustProxy?: boolean;
-};
-
-// Connect-style middleware for /api/scores:
-//   GET  /api/scores[?daily=YYYY-MM-DD&limit=N]  → { rows, total }
-//   POST /api/scores  { name, time, kills, level, earned, seed?, daily? }  → { run, total, daily }
-export function scoresApi(scores: Scores, opts: ApiOptions = {}) {
-  const { postLimit = 20, postWindowMs = 10 * 60_000, cors = [], trustProxy = false } = opts;
-  const hits = new Map<string, { n: number; reset: number }>();
-  const limited = (ip: string, now = Date.now()) => {
-    if (hits.size > 10_000) for (const [k, h] of hits) if (h.reset <= now) hits.delete(k); // forget old clients
-    const h = hits.get(ip);
-    if (!h || h.reset <= now) { hits.set(ip, { n: 1, reset: now + postWindowMs }); return 0; }
-    return ++h.n > postLimit ? Math.ceil((h.reset - now) / 1000) : 0;
-  };
-  const clientIp = (req: IncomingMessage) => {
-    const fwd = trustProxy ? String(req.headers['x-forwarded-for'] ?? '').split(',').at(-1)!.trim() : '';
-    return fwd || req.socket.remoteAddress || '?';
-  };
-  return (req: IncomingMessage, res: ServerResponse, next: () => void) => {
-    const url = new URL(req.url ?? '/', 'http://x');
-    if (url.pathname !== '/api/scores') return next();
-    const send = (code: number, body: unknown) => {
-      res.statusCode = code;
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      res.setHeader('Cache-Control', 'no-store');
-      res.end(JSON.stringify(body));
-    };
-    const origin = req.headers.origin;
-    if (origin && (cors.includes('*') || cors.includes(origin))) {
-      res.setHeader('Access-Control-Allow-Origin', cors.includes('*') ? '*' : origin);
-      res.setHeader('Vary', 'Origin');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-      res.setHeader('Access-Control-Max-Age', '86400');
-    }
-    if (req.method === 'OPTIONS') { res.statusCode = 204; return res.end(); }
-    if (req.method === 'GET' || req.method === 'HEAD') {
-      const daily = url.searchParams.get('daily') ?? '';
-      const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || TOP));
-      return send(200, scores.board(/^\d{4}-\d{2}-\d{2}$/.test(daily) ? daily : '', limit));
-    }
-    if (req.method !== 'POST') { res.setHeader('Allow', 'GET, POST'); return send(405, { error: 'method' }); }
-    if (!String(req.headers['content-type'] ?? '').includes('application/json')) return send(415, { error: 'json only' });
-    const wait = limited(clientIp(req));
-    if (wait) { res.setHeader('Retry-After', String(wait)); return send(429, { error: 'too many runs' }); }
-    let body = '';
-    req.setEncoding('utf8');
-    req.on('data', (c: string) => { body += c; if (body.length > 4096 && !res.writableEnded) { send(413, { error: 'too large' }); req.destroy(); } });
-    req.on('end', () => {
-      if (res.writableEnded) return;
-      let run: Run | null = null;
-      try { run = parseRun(JSON.parse(body)); } catch { /* not JSON: rejected below */ }
-      if (!run) return send(400, { error: 'bad run' });
-      try { send(201, scores.add(run)); } catch (e) { console.error('scores: add failed', e); send(500, { error: 'server' }); }
-    });
-  };
+  return { time: Math.round(time * 10) / 10, kills: Math.floor(kills), level: Math.floor(level), earned: Math.floor(earned), seed, daily };
 }

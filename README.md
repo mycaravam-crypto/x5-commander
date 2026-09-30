@@ -26,20 +26,27 @@ Other scripts:
 
 The game runs entirely in the browser, with no backend and no asset files. `dist/` can be hosted on any static file server.
 
-### Scoreboard
+### Scoreboard and accounts
 
-`npm run dev` and `npm run preview` also serve a leaderboard API at `/api/scores`, backed by a local SQLite file (`data/scores.db`, or wherever `X5_SCORES_DB` points; Node's built-in `node:sqlite`, no extra packages). On the debrief you type a callsign and log the run, and the board shows its rank: ranked by time survived, then kills, with ties sharing a rank. A daily op is ranked on that op's own board as well. The start screen shows the all-time top 10. There are no user accounts yet: a callsign is just a name. A static host has no API, so the board is simply left out.
+`npm run dev`, `npm run preview` and `npm start` serve the game's API under `/api` (`server/api.ts`), backed by a local SQLite file (`data/scores.db`, or wherever `X5_SCORES_DB` points; Node's built-in `node:sqlite`, no extra packages).
+
+Players sign up with a callsign and a password on the start screen or the debrief; there's no email. Signed in, every run is logged by itself when it ends, and the debrief shows whether it's a new personal best and where it puts you. The leaderboard ranks **players by their best run**: time survived, then kills, with ties sharing a rank. A daily op is ranked on that op's own board as well. Runs logged by callsign before accounts existed stay on the board (dimmed), each as its own entry. A static host has no API, so the board is simply left out.
+
+Passwords are hashed with scrypt. A sign-in is a random session token in an `HttpOnly`, `SameSite=Lax` cookie (`Secure` over HTTPS), valid for 90 days; the database keeps only its SHA-256. POSTs must be JSON from the game's own origin.
 
 | Endpoint | |
 |---|---|
-| `GET /api/scores[?daily=YYYY-MM-DD&limit=N]` | `{ rows, total }`: the top runs with their rank |
-| `POST /api/scores` `{ name, time, kills, level, earned, seed?, daily? }` | `{ run, total, daily }`: the logged run and where it placed |
+| `GET /api/scores[?daily=YYYY-MM-DD&limit=N]` | `{ rows, total }`: each player's best run with its rank; `total` is the number of players |
+| `POST /api/scores` `{ time, kills, level, earned, seed?, daily? }` | Signed in: logs a run. `{ run, total, best, daily }`: the player's best and rank, and whether this run is that best |
+| `GET /api/me` | `{ user }`: the signed-in player's name, best run, rank and run count, or `null` |
+| `POST /api/signup` / `POST /api/login` `{ name, password }` | Signs in (sets the cookie). Callsign 3-16 letters, digits, `_ . -`; password 8+ characters |
+| `POST /api/logout` | Signs out |
 
-A run must be plausible to be logged (no more than 20 kills a second, at most 6 hours), and one client can log 20 runs per 10 minutes. There are no accounts or signed runs yet, so a determined cheat can still post a fake score.
+A run must be plausible to be logged (no more than 20 kills a second, at most 6 hours). An account can log 20 runs per 10 minutes, and one client can try 20 sign-ups or sign-ins per 10 minutes. Runs aren't signed, so a player can still post a made-up plausible score.
 
 ### Production
 
-`npm start` runs the production server (`server/index.ts`): it serves the built `dist/` and the scoreboard API on one port, with no packages needed at run time. It gzips and caches the hashed assets, and sets a Content-Security-Policy and other security headers. It answers `GET /healthz` and shuts down cleanly on SIGTERM.
+`npm start` runs the production server (`server/index.ts`): it serves the built `dist/` and the API on one port, with no packages needed at run time. It gzips and caches the hashed assets, and sets a Content-Security-Policy and other security headers. It answers `GET /healthz` and shuts down cleanly on SIGTERM.
 
 ```sh
 npm ci && npm run build
@@ -59,8 +66,8 @@ docker run -p 8080:8080 -v x5-data:/data x5-commander
 | `X5_SCORES_DB` | `data/scores.db` (`/data/scores.db` in Docker) | The SQLite file |
 | `X5_DIST` | `dist` | The built game |
 | `X5_TRUST_PROXY` | off | `1` behind a reverse proxy: rate-limit by `X-Forwarded-For` |
-| `X5_CORS_ORIGINS` | none | Comma-separated origins allowed to call the API from another site |
-| `X5_POST_LIMIT` | `20` | Runs one client may log per 10 minutes |
+| `X5_CORS_ORIGINS` | none | Comma-separated origins allowed to read the board from another site |
+| `X5_POST_LIMIT` | `20` | Runs one account may log per 10 minutes |
 
 Run it behind HTTPS (a reverse proxy or your platform's load balancer). SQLite needs one instance on a persistent disk, so don't scale it out. Back the database up with `sqlite3 scores.db ".backup backup.db"`.
 
@@ -80,7 +87,7 @@ X5_DEPLOY_HOST=mycaravam@vi0lins.de ./deploy/rollback.sh [--list | <release>]
 ssh mycaravam@vi0lins.de journalctl --user -u x5-commander -f    # logs
 ```
 
-The GitHub Pages build is static. To give it a scoreboard, run the server somewhere, set the repository variable `SCORES_API` to its `…/api/scores` URL, and put the Pages origin in that server's `X5_CORS_ORIGINS`.
+The GitHub Pages build is static. To give it a scoreboard, run the server somewhere, set the repository variable `SCORES_API` to its `…/api/scores` URL, and put the Pages origin in that server's `X5_CORS_ORIGINS`. The Pages build can only show the board: signing in and logging runs need the game's own origin (x5.vi0lins.de).
 
 ## Controls
 
