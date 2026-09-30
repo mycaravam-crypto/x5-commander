@@ -49,7 +49,7 @@ ssh "$HOST" "mkdir -p '$REMOTE_PATH/shared/backups' && cd '$REMOTE_PATH/shared' 
 echo "Uploading release $TIMESTAMP ..."
 ssh "$HOST" "mkdir -p '$RELEASE_PATH/server'"
 rsync -az --delete dist/ "$HOST:$RELEASE_PATH/dist/"
-rsync -az server/index.ts server/scores.ts "$HOST:$RELEASE_PATH/server/"
+rsync -az $(ls server/*.ts | grep -v "\.check\.ts$") "$HOST:$RELEASE_PATH/server/"
 rsync -az package.json "$HOST:$RELEASE_PATH/"
 
 echo "Installing the service..."

@@ -3,7 +3,7 @@ import { play as sound } from './sfx.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import { mapSeed } from './terrain.ts';
 import type { Records } from './config.ts';
-import { fetchBoard, postRun, boardHtml as scoreboardHtml, placedHtml, loadCallsign, saveCallsign, type Board } from './scores.ts';
+import { fetchBoard, fetchMe, postRun, signup, login, logout, boardHtml as scoreboardHtml, placedHtml, accountHtml, saveCallsign, type Me } from './scores.ts';
 import { seedCode, beltOf, stageInfo, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, noAmmo, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const byId = new Map<string, HTMLElement>(); // the HUD's elements are fixed: look each up once
@@ -220,11 +220,13 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     else if (a?.startsWith('doc')) actions.doctrine(+a.slice(3));
     else if (a === 'restart') actions.restart();
     else if (a === 'share') share();
-    else if (a === 'logRun') logRun();
+    else if (a === 'signup') auth('signup');
+    else if (a === 'logout') signOut();
     else if (a?.startsWith('perk')) actions.perk(+a.slice(4));
     // The pause card covers the on-screen pause button, so a tap off the menu resumes.
     else if (shownPhase.startsWith('pause') && !(e.target as HTMLElement).closest('.card')) actions.resume();
   };
+  overlay.onsubmit = e => { e.preventDefault(); auth('login'); }; // the sign-in form: Enter or SIGN IN
   overlay.oninput = e => { const el = e.target as HTMLInputElement; if (el.dataset.set) actions.setting(el.dataset.set, +el.value / 100); };
   // Pause menu settings: volumes and the coverage overlay (all remembered between runs).
   const settingsHtml = () => {
@@ -318,36 +320,62 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     navigator.clipboard.writeText(text).then(() => { if (btn) btn.textContent = 'COPIED ✓'; }, () => prompt('Copy your result:', text));
   }
 
-  // ---- scoreboard (server/scores.ts): the all-time board on the start screen; on the debrief, log the run under a
-  // callsign and see where it ranks (a daily op on that op's board). Left out when there's no API. ----
-  let lbShown = 0, logged = false; // lbShown: which overlay draw a fetch belongs to, so a slow one can't land on a later screen
+  // ---- scoreboard and accounts (src/scores.ts, server/api.ts) ----
+  // Start screen: who's signed in (or the sign-in form) and the all-time board. Debrief: a signed-in run is logged by
+  // itself and shows where it put the player; signed out, the form offers to sign in and log it. Left out with no API.
+  let lbShown = 0; // which overlay draw a fetch belongs to, so a slow one can't land on a later screen
+  let loggedRun = ''; // the run already logged (or being logged): signing out and in again mustn't log it twice
+  const runKey = (s: State) => `${s.seed}:${s.daily}:${s.t}:${s.kills}`;
+  let me: Me | null = null;
   const lbTitle = (s: State) => s.phase === 'over' && s.daily ? `DAILY OP ${s.daily} · LEADERBOARD` : 'ALL-TIME LEADERBOARD';
+  const why = (s: State) => s.phase === 'over' ? 'SIGN IN TO PUT THIS RUN ON THE LEADERBOARD' : 'SIGN IN TO PUT YOUR RUNS ON THE LEADERBOARD';
+  const slot = () => overlay.querySelector<HTMLElement>('.lbslot');
   async function showScores(s: State) {
     const n = ++lbShown, daily = s.phase === 'over' ? s.daily : '';
-    logged = false;
-    const b = await fetchBoard(daily);
-    const slot = overlay.querySelector('.lbslot');
-    if (!b || !slot || n !== lbShown) return;
-    slot.innerHTML = (s.phase === 'over' ? `<div class="logrun"><input id="callsign" type="text" maxlength="16" placeholder="CALLSIGN" spellcheck="false" autocomplete="off" value="${loadCallsign().replace(/"/g, '')}">
-      <button class="btn hotbtn" data-a="logRun">LOG RUN [ENTER]</button></div>` : '') + scoreboardHtml(lbTitle(s), b);
+    const [b, who] = await Promise.all([fetchBoard(daily), fetchMe()]);
+    if (!b || who === undefined || !slot() || n !== lbShown) return;
+    me = who;
+    if (s.phase === 'over' && me && loggedRun !== runKey(s)) return logRun(s);
+    slot()!.innerHTML = `<div class="acctslot">${accountHtml(me, why(s))}</div>` + scoreboardHtml(lbTitle(s), b, me ? { name: me.name, row: me.best } : undefined);
   }
-  async function logRun() {
-    const s = lastState, input = overlay.querySelector<HTMLInputElement>('#callsign');
-    if (!s || s.phase !== 'over' || !input || logged) return;
-    const name = input.value.trim();
-    if (!name) { input.focus(); input.classList.add('bad'); return; }
-    logged = true; saveCallsign(name);
-    const n = lbShown, form = overlay.querySelector('.logrun')!;
-    form.innerHTML = '<p class="dim">LOGGING…</p>';
-    const p = await postRun({ name, time: s.t, kills: s.kills, level: s.level, earned: s.earned, seed: seedCode(s), daily: s.daily });
-    const b: Board | null = typeof p === 'object' ? await fetchBoard(s.daily) : null;
-    if (n !== lbShown) return;
-    if (typeof p !== 'object' || !b) {
-      form.innerHTML = `<p class="alert">${p === 'busy' ? 'TOO MANY RUNS LOGGED FROM HERE · TRY AGAIN LATER' : p === 'rejected' ? 'RUN REJECTED BY THE SCOREBOARD' : 'SCOREBOARD OFFLINE · RUN NOT LOGGED'}</p>`;
+  async function logRun(s: State) {
+    if (loggedRun === runKey(s) || s.phase !== 'over') return;
+    loggedRun = runKey(s);
+    const n = lbShown;
+    slot()!.innerHTML = '<p class="dim placed">LOGGING RUN…</p>';
+    const p = await postRun({ time: s.t, kills: s.kills, level: s.level, earned: s.earned, seed: seedCode(s), daily: s.daily });
+    const [b, who] = p.ok ? await Promise.all([fetchBoard(s.daily), fetchMe()]) : [null, null];
+    if (n !== lbShown || !slot()) return;
+    if (!p.ok || !b) {
+      const msg = !p.ok && p.status === 429 ? 'TOO MANY RUNS LOGGED · TRY AGAIN LATER' : !p.ok && p.status === 400 ? 'RUN REJECTED BY THE SCOREBOARD'
+        : !p.ok && p.status === 401 ? 'SIGNED OUT · RUN NOT LOGGED' : 'SCOREBOARD OFFLINE · RUN NOT LOGGED';
+      if (!p.ok && p.status !== 400) loggedRun = ''; // not logged: signing in again may retry
+      if (!p.ok && p.status === 401) { me = null; showScores(s); return; } // session expired: offer the form
+      slot()!.innerHTML = `<p class="alert placed">${msg}</p>`;
       return;
     }
-    const mine = p.daily ? { ...p.run, rank: p.daily.rank } : p.run; // a daily op's board ranks it among that op's runs
-    overlay.querySelector('.lbslot')!.innerHTML = placedHtml(p) + scoreboardHtml(lbTitle(s), b, mine);
+    if (who) me = who;
+    const row = s.daily ? p.data.daily?.run : p.data.run; // a daily op's board ranks the player among that op's runs
+    slot()!.innerHTML = placedHtml(p.data) + `<div class="acctslot">${accountHtml(me, '')}</div>` + scoreboardHtml(lbTitle(s), b, { name: me!.name, row });
+  }
+  let authBusy = false;
+  async function auth(kind: 'login' | 'signup') {
+    const form = overlay.querySelector<HTMLFormElement>('form.auth'), s = lastState;
+    if (!form || !s || authBusy) return;
+    const name = (form.elements.namedItem('name') as HTMLInputElement).value.trim(), pw = (form.elements.namedItem('password') as HTMLInputElement).value;
+    const msg = form.querySelector('.msg')!;
+    if (!name || !pw) { msg.textContent = 'CALLSIGN AND PASSWORD, PLEASE'; return; }
+    authBusy = true; msg.textContent = '';
+    const r = await (kind === 'login' ? login : signup)(name, pw);
+    authBusy = false;
+    if (!r.ok) { msg.textContent = r.status === 0 ? 'SCOREBOARD OFFLINE' : r.error; return; }
+    saveCallsign(r.data.user.name);
+    showScores(s); // signed in: a debrief logs its run now, the start screen shows the player
+  }
+  async function signOut() {
+    await logout();
+    me = null;
+    if (lastState) showScores(lastState);
   }
 
   // ---- tips ----
@@ -957,6 +985,6 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       const bottom = (shop.classList.contains('hidden') ? $('touch') : shop).getBoundingClientRect().top;
       return [$('left').getBoundingClientRect().bottom, innerHeight - bottom];
     },
-    share, logRun,
+    share,
   };
 }

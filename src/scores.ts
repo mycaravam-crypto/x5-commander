@@ -1,29 +1,41 @@
-// The scoreboard client: talks to /api/scores (server/scores.ts) and draws the leaderboard.
-// On a static host there's no API: every call resolves null and the board is left out.
-export type Row = { id: number; rank: number; name: string; time: number; kills: number; level: number; earned: number; seed: string; daily: string; at: string };
+// The scoreboard and accounts client: talks to /api (server/api.ts) and draws the leaderboard and the sign-in form.
+// On a static host there's no API: every read resolves null and the board is left out.
+export type Row = { id: number; rank: number; name: string; verified: number; time: number; kills: number; level: number; earned: number; seed: string; daily: string; at: string };
 export type Board = { rows: Row[]; total: number };
-export type Posted = { run: Row; total: number; daily: { rank: number; total: number } | null };
-export type Run = { name: string; time: number; kills: number; level: number; earned: number; seed: string; daily: string };
+export type Posted = { run: Row; total: number; best: boolean; daily: { run: Row; rank: number; total: number } | null };
+export type Run = { time: number; kills: number; level: number; earned: number; seed: string; daily: string };
+export type Me = { name: string; best: Row | null; runs: number; total: number };
 
-// VITE_SCORES_API at build time points a game hosted elsewhere (GitHub Pages) at a scoreboard server; default: same origin.
-const API = import.meta.env.VITE_SCORES_API || `${import.meta.env.BASE_URL}api/scores`;
-const call = async <T>(init?: RequestInit, q = ''): Promise<T | null> => {
+// VITE_SCORES_API at build time points a game hosted elsewhere (GitHub Pages) at a scoreboard server, read-only (the
+// session cookie isn't sent cross-site); default: this origin's /api.
+const SCORES = import.meta.env.VITE_SCORES_API || `${import.meta.env.BASE_URL}api/scores`;
+const API = SCORES.replace(/scores$/, '');
+
+type Res<T> = { ok: true; data: T } | { ok: false; status: number; error: string };
+async function call<T>(url: string, body?: unknown): Promise<Res<T>> {
   try {
-    const r = await fetch(API + q, init);
-    return r.ok && r.headers.get('content-type')?.includes('json') ? await r.json() as T : null;
-  } catch { return null; }
-};
-export const fetchBoard = (daily = '', limit = 10) => call<Board>(undefined, `?limit=${limit}${daily ? `&daily=${daily}` : ''}`);
-// Logs a run: where it placed, or why it wasn't logged ('busy': too many runs from here lately; 'rejected'; 'offline').
-export async function postRun(run: Run): Promise<Posted | 'busy' | 'rejected' | 'offline'> {
-  try {
-    const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(run) });
-    if (r.status === 429) return 'busy';
-    if (r.status === 400) return 'rejected';
-    return r.ok && r.headers.get('content-type')?.includes('json') ? await r.json() as Posted : 'offline';
-  } catch { return 'offline'; }
+    const r = await fetch(url, body === undefined ? { credentials: 'same-origin' }
+      : { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const json = r.headers.get('content-type')?.includes('json') ? await r.json() : null;
+    if (!json) return { ok: false, status: 0, error: 'offline' };
+    return r.ok ? { ok: true, data: json as T } : { ok: false, status: r.status, error: String(json.error ?? r.status).toUpperCase() };
+  } catch { return { ok: false, status: 0, error: 'offline' }; }
 }
+const data = <T>(r: Res<T>) => r.ok ? r.data : null;
 
+export const fetchBoard = async (daily = '', limit = 10) => data(await call<Board>(`${SCORES}?limit=${limit}${daily ? `&daily=${daily}` : ''}`));
+// The signed-in player, or null signed out; undefined when there's no API to ask.
+export async function fetchMe(): Promise<Me | null | undefined> {
+  const r = await call<{ user: Me | null }>(`${API}me`);
+  return r.ok ? r.data.user : undefined;
+}
+export const signup = (name: string, password: string) => call<{ user: { name: string } }>(`${API}signup`, { name, password });
+export const login = (name: string, password: string) => call<{ user: { name: string } }>(`${API}login`, { name, password });
+export const logout = () => call<object>(`${API}logout`, {});
+// Logs a run under the signed-in account: where it placed, or why it wasn't logged.
+export const postRun = (run: Run) => call<Posted>(SCORES, run);
+
+// The callsign last typed into the sign-in form, to fill it in next time.
 export const loadCallsign = () => { try { return localStorage.getItem('x5-callsign') ?? ''; } catch { return ''; } };
 export const saveCallsign = (n: string) => { try { localStorage.setItem('x5-callsign', n); } catch { /* storage blocked: skip */ } };
 
@@ -34,23 +46,37 @@ const fmt = (n: number) => Math.floor(n).toLocaleString('en-US');
 const badge = (rank: number) => rank <= 3 ? ['', '★', '★', '★'][rank] : rank <= 10 ? '»' : '›';
 const place = (rank: number) => rank <= 3 ? ` p${rank}` : '';
 
-// The board, best first. `mine` (a run id) is highlighted; if it ranked below the rows shown, it's added under a gap.
-export function boardHtml(title: string, b: Board, mine?: Row) {
-  const row = (r: Row) => `<tr class="${place(r.rank)}${r.id === mine?.id ? ' me' : ''}">
+// The board: each player's best run, ranked. The signed-in player's row (`me`) is highlighted; if it's below the rows
+// shown, it's added under a gap. Callsign runs from before accounts are dimmed.
+export function boardHtml(title: string, b: Board, me?: { name: string; row?: Row | null }) {
+  const mine = (r: Row) => !!me && !!r.verified && r.name === me.name;
+  const row = (r: Row) => `<tr class="${place(r.rank)}${mine(r) ? ' me' : ''}${r.verified ? '' : ' guest'}">
     <td class="rk"><i>${badge(r.rank)}</i>${String(r.rank).padStart(2, '0')}</td><td class="nm">${esc(r.name)}</td>
     <td>${clock(r.time)}</td><td>${fmt(r.kills)}</td><td>${r.level}</td></tr>`;
-  const shown = b.rows.some(r => r.id === mine?.id);
-  return `<div class="lb frame"><div class="lbhead"><small>${title}</small><small>${fmt(b.total)} RUN${b.total === 1 ? '' : 'S'} LOGGED</small></div>
-    ${b.rows.length ? `<table><thead><tr><th>RANK</th><th class="nm">CALLSIGN</th><th>SURVIVED</th><th>KILLS</th><th>LV</th></tr></thead><tbody>
-    ${b.rows.map(row).join('')}${mine && !shown ? `<tr class="gap"><td colspan="5">⋮</td></tr>${row(mine)}` : ''}</tbody></table>`
+  const extra = me?.row && !b.rows.some(mine) ? `<tr class="gap"><td colspan="5">⋮</td></tr>${row(me.row)}` : '';
+  return `<div class="lb frame"><div class="lbhead"><small>${title}</small><small>${fmt(b.total)} PILOT${b.total === 1 ? '' : 'S'}</small></div>
+    ${b.rows.length ? `<table><thead><tr><th>RANK</th><th class="nm">PILOT</th><th>SURVIVED</th><th>KILLS</th><th>LV</th></tr></thead><tbody>
+    ${b.rows.map(row).join('')}${extra}</tbody></table>`
     : '<p class="dim">NO RUNS LOGGED YET · BE THE FIRST</p>'}</div>`;
 }
 
-// One line on where a logged run landed: rank, and the top percent it's in.
+const pct = (rank: number, total: number) => Math.max(1, Math.ceil(rank / total * 100));
+const standing = (label: string, rank: number, total: number) => `${label} <b>#${rank}</b> OF ${fmt(total)}${total >= 10 ? ` · TOP ${pct(rank, total)}%` : ''}`;
+
+// Where a logged run left the player: a new personal best (and where it ranks), or their standing unchanged.
 export function placedHtml(p: Posted) {
-  const pct = (rank: number, total: number) => Math.max(1, Math.ceil(rank / total * 100));
-  const line = (label: string, rank: number, total: number) =>
-    `${label} <b>#${rank}</b> OF ${fmt(total)}${total >= 10 ? ` · TOP ${pct(rank, total)}%` : ''}`;
-  return `<p class="${p.run.rank <= 3 ? 'alert' : 'hot'} placed">${p.run.rank === 1 ? 'NEW NUMBER ONE ★ · ' : ''}${line('ALL-TIME', p.run.rank, p.total)}${
-    p.daily ? ` · ${line('TODAY\'S OP', p.daily.rank, p.daily.total)}` : ''}</p>`;
+  const head = p.best ? (p.run.rank === 1 ? 'NEW NUMBER ONE ★' : 'NEW PERSONAL BEST ★') : `RUN LOGGED · BEST STAYS ${clock(p.run.time)}`;
+  return `<p class="${p.best && p.run.rank <= 3 ? 'alert' : 'hot'} placed">${head} · ${standing('ALL-TIME', p.run.rank, p.total)}${
+    p.daily ? ` · ${standing('TODAY\'S OP', p.daily.rank, p.daily.total)}` : ''}</p>`;
+}
+
+// The signed-in player's line, or the sign-in form. `why` says what signing in is for here.
+export function accountHtml(me: Me | null, why: string, msg = '') {
+  if (me) return `<p class="acct">PILOT <b class="hot">${esc(me.name)}</b>${me.best ? ` · BEST ${clock(me.best.time)} · ${standing('RANK', me.best.rank, me.total)}` : ' · NO RUNS YET'}${
+    me.runs ? ` · ${fmt(me.runs)} RUN${me.runs === 1 ? '' : 'S'}` : ''} <button class="link" data-a="logout">SIGN OUT</button></p>`;
+  return `<form class="auth" autocomplete="on"><p class="dim">${why}</p>
+    <input name="name" type="text" maxlength="16" placeholder="CALLSIGN" spellcheck="false" autocomplete="username" autocapitalize="characters" value="${esc(loadCallsign())}">
+    <input name="password" type="password" maxlength="200" placeholder="PASSWORD" autocomplete="current-password">
+    <button class="btn hotbtn">SIGN IN [ENTER]</button> <button class="btn" data-a="signup" type="button">SIGN UP</button>
+    <p class="msg alert">${esc(msg)}</p></form>`;
 }
