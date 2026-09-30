@@ -117,6 +117,7 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #shop h4::before { content: '// '; }
 #shop h4 i { font-style: normal; color: var(--alert); opacity: 0.6; letter-spacing: 0.08em; }
 #shop button.needs { display: none; }
+#shop button.off, #shop section.off { display: none; } /* systems the mode (air or ground) has no use for */
 #shop section.shut h4 { opacity: 0.6; }
 #shop button { all: unset; display: grid; grid-template-columns: 1fr auto auto; gap: 8px; width: 100%; box-sizing: border-box;
   padding: 4px 6px; cursor: pointer; opacity: 0.4; border-left: 2px solid transparent; }
@@ -480,3 +481,5 @@ button.pilot:hover > span:first-of-type { text-decoration: underline dotted; }
 .pfruns { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 4px; }
 .pfruns td { padding: 2px 6px; border-top: 1px solid color-mix(in srgb, var(--mid) 20%, transparent); }
 @media (max-width: 620px) { .pfstats { grid-template-columns: repeat(2, 1fr); } .pfhead { flex-direction: column; align-items: flex-start; } }
+/* Ground assault: no radar, fire control or intercept to work, so their touch buttons go. */
+body.ground #touch [data-k=Space], body.ground #touch [data-k=KeyG], body.ground #touch [data-k=KeyV], body.ground #touch [data-k=KeyF], body.ground #touch [data-k=KeyT] { display: none; }

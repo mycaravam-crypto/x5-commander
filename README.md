@@ -112,6 +112,7 @@ The GitHub Pages build is static. To give it a scoreboard, run the server somewh
 |------------------------|-------------------------------------------|
 | Space / Enter          | Start game                                |
 | T (start screen)       | Training: a 3-minute drill of four waves  |
+| A (start screen)       | Ground assault: bipedal robots on foot, only the perimeter can fight them |
 | S (start screen)       | Play a seed: paste a seed code or a friend's result line |
 | Space (in play)        | Emergency intercept                       |
 | G                      | Cycle fire discipline: CONSERVE / BALANCED / MAXIMUM |
@@ -145,6 +146,8 @@ The game pauses by itself when the window loses focus.
 The first time you meet each threat or mechanic, a short tip explains it. Tips don't come back once you've seen them, unless you press RESET TIPS (start screen or pause menu).
 
 **Training.** A first-run drill of four short scripted waves on a fixed map, each with its lesson on screen: **eyesight** (guns fire at what they can see; build a third gun), **radar** (the radar and Patriot are handed over: see far, lock, mark a priority target), **ARMs and EMCON** (ARM salvos: go silent with `F`, then radiate again) and **decoys** (Gerberas among Shaheds, classified and greyed out once locked). The battery can't fall in training and no records are kept. The start screen offers it first until you've finished it once; `T` there starts it any time.
+
+**Ground assault.** A mode of its own (`A` on the start screen, on the map shown there): instead of aircraft, swarms of **bipedal robots** walk in over the ground, and **only perimeter defenses can engage them**. The radar, the Patriot, the laser and the HPM are out of the shop (and wouldn't touch a walker: fire control doesn't lock them and the battery's weapons can't hurt them), and so are the Stinger and IRIS-T SLM, which only shoot at aircraft. Walkers are seen by eye (base, guns, observer posts, a Javelin's thermal sight). Rivers, ponds, woods and rock slow them down. See *Ground assault* under Gameplay. The HUD drops the radar, fire-control and intercept readouts and touch buttons, which have nothing to do here. Its records are kept apart from the air war's, unlock no doctrines and aren't logged on the leaderboard; its seed code ends in `-G`.
 
 **Pause menu.** Resume or quit to the menu, SFX and music volumes, the coverage overlay mode, RESET TIPS, and a compact help panel: the key systems in a line each, and every hotkey.
 
@@ -354,6 +357,28 @@ Spawn rate, HP and damage grow **logarithmically** with play time, and raid size
 
 **Signatures and height.** Each type has a radar cross-section (`sig`), a heat signature (`ir`) and a height (`alt`) in `ENEMIES`. The radar sees anything flying under 3.5 m only closer in, in proportion to its height (**radar horizon**: an FPV inside about 73% of range, a Kh-101 or a masked Ka-52 about 64%), and one under 2 m over woods or a rock outcrop is lost in the clutter (−60% detection chance). The TRML-4D backup radar has the same horizon; eyes don't. IR seekers (Stinger, IRIS-T SLM, IRIS-T SLX) hit hot targets harder and cold ones softer: a Su-34 takes +21% and a helicopter +14%, an electric Lancet or FPV about −20%.
 
+### Ground assault
+Its own levels, one new problem at a time, then looping conditions (NIGHT ASSAULT, HORDE, ARMOURED PUSH, LULL, GUN LINE):
+**1 SKIRMISH** packs of light walkers from the front · **2 GUN LINE** combat walkers · **3 FLANKS** from ±70° · **4 HEAVY WALKERS** armoured walkers · **5 SWARM** many more light walkers, from every side · **6 FULL ASSAULT**. Every level still ends with a raid (WALKER RUSH, GUN TEAM, PINCER, ARMOURED PUSH, THE SWARM, HEAVY ASSAULT).
+
+| Walker                  | What it does |
+|-------------------------|--------------|
+| Light assault walker    | Comes in packs of 3–6. Charges the nearest unit it sees within 8 m (further if that unit is on high ground) and blows its demolition charge on it; otherwise walks on the base |
+| Armed combat walker     | Stops within 9 m of a unit and shoots it up in bursts until it's down, then walks on. Lightly armoured (guns do 80%) |
+| Heavy assault walker    | Slow and tough, fires its cannon at a unit within 16 m every 4 s without stopping. Armoured: machine guns, the MANTIS and the Mk 19 do half. Hits the base hard |
+
+Perimeter defenses for this mode (on top of the MG, MANTIS, EW jammer, observer post and ammo point, which work here too):
+
+| Unit | Reach | What it does |
+|------|-------|--------------|
+| Concertina wire | 7 m | Obstacle belt: walkers inside it wade through at a third of their speed. Cheap; put it in front of your guns so they spend longer in the kill zone |
+| M18A1 Claymore belt | 6 m, 60° arc facing out | Directional mines: a walker stepping into the arc sets off a charge that blasts every walker in it, armour or not. No eyes needed. 4 charges, re-laid one every 15 s and all of them in the build window |
+| Mk 19 grenade launcher | 18 m | 40 mm automatic grenades lobbed onto where the target will be: 2.2 m splash tears up packs. Feeds from its own 32-round belt (base level 2) |
+| FGM-148 Javelin team | 28 m | Top-attack missile that goes through any armour, heaviest walker first. Its command launch unit's thermal sight sees 26 m. Uses the ammunition pool (base level 3) |
+| M120 120 mm mortar | 36 m, not inside 9 m | Indirect fire: a round lands on the target's predicted spot 1.8 s later with a 4 m splash, through armour. Needs something to see the target (an observer post or a Javelin sight is ideal). Uses the ammunition pool (base level 4) |
+
+Power and the ammunition pool (Generator, Battery Banks, M903 Canisters, GMT Reload) don't wait for a radar or a Patriot here.
+
 ### The battery
 The base is laid out like a Patriot site. Every base level builds something that changes what it can do, plus an M903 launcher once you have the Patriot (up to 8), and 2 more perimeter pads:
 
@@ -406,6 +431,7 @@ This section replaces the old `plan-mvp.md`, `plan.md` and `plan-frontline.md`; 
 - **Front line, steps 1–5:** the front and widening flank arcs, levels with raids and build windows, the AA MG start with the radar and Patriot as milestones, belt slots with fields of fire, crossfire, support units and unit HP, the coverage overlay (`O`), and Kh-101 cruise missiles with the IRIS-T SLM to stop them.
 - **Threat realism:** Orlan-10 spotter, Ka-52, Su-25 attack runs with S-8 rockets, Su-35S SEAD with memory-seeker Kh-58s, Kinzhal and the Kh-55 decoy; per-type height, RCS and heat signature, a radar horizon by height, FPV swarms that hunt isolated units, and salvage that stays until clicked.
 - **Defence layers:** reaches in the real order (HPM 7, MG 10, HEL 11, MANTIS 15, Stinger 24, IRIS-T SLM 40, SLX 50, PAC-3 58, radar 68 m) on a 75 m arena; the laser and HPM are self-cueing point defence; a two-gun start with crossing fields of fire.
+- **Ground assault:** a second mode (`A` on the start screen): bipedal robot swarms on foot that only the perimeter can engage, five new perimeter defenses (concertina wire, Claymores, Mk 19, Javelin, M120 mortar), its own levels, raids and records, and a HUD without the radar and fire-control controls.
 - **Performance pass:** a fixed 1/60 s sim step, throttled HUD text, lighter effects on LITE, bloom that switches itself off under slow frames, and `npm run bench` with p95 and worst-case timings.
 
 ### Next: finish the front line (step 6)
@@ -445,6 +471,7 @@ src/sim.ts        pure game state + update(dt), no Three.js (testable in Node)
 src/terrain.ts    the map, generated from the run's seed: ground types, heights, trees (pure, the sim uses it for building)
 src/terrainPaint.ts paints the map for the 3D ground and the minimap
 src/render.ts     Three.js scene, reads state only
+src/models.ts     low-poly enemy models: airframes and the ground assault's walkers
 src/hud.ts        DOM HUD, minimap, shop, overlays
 src/sfx.ts        WebAudio sound effects, no audio files
 src/main.ts       boot, input, main loop

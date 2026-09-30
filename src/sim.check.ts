@@ -1031,4 +1031,97 @@ ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies stan
   ok(unitKills === Object.values(b.stats.perim).reduce((a, x) => a + x, 0), `unit kills match perimeter kills (${unitKills})`);
 }
 
+// GROUND ASSAULT: walkers on foot, and only the perimeter can engage them.
+{
+  const gq = () => { const g = newGame(1, '', 'standard', false, true); Object.assign(g, { phase: 'play', spawnAcc: -1e9, nextRaid: 1e9, level: 5 }); g.perim.length = 0; g.st.maxHp = g.hp = 1e9; return g; };
+  const put = (g: State, k: string, x: number, z: number) => { g.credits += 1e6; ok(buy(g, k), `buy ${k} on the ground`); ok(placePad(g, x, z), `place ${k}`); return g.perim[g.perim.length - 1]; };
+  // A walker at polar (a, r) around the base, standing still unless `speed`.
+  const walker = (g: State, kind: 'walker' | 'gunbot' | 'mech', x: number, z: number, speed = 0) => {
+    const e = spawnEnemy(g, kind, Math.atan2(z, x), Math.hypot(x, z)); e.speed = speed; e.vx = e.vz = 0; return e;
+  };
+  const g0 = newGame(7, '2026-01-01', 'sensor', false, true);
+  ok(g0.ground && g0.doctrine === 'standard' && !g0.daily && !g0.st.radar, 'a ground assault flies STANDARD, no daily, no radar');
+  ok(lockReason(g0, 'radar') === 'OTHER MODE' && lockReason(g0, 'pac3') === 'OTHER MODE' && lockReason(g0, 'stinger') === 'OTHER MODE', 'the air-defence systems are out of the ground shop');
+  ok(lockReason(g0, 'wire') === '' && lockReason(g0, 'gmg') === 'BASE LV 2' && lockReason(newGame(7), 'wire') === 'OTHER MODE', 'the ground weapons are only in the ground shop');
+  ok(lockReason(g0, 'gen') === '' && lockReason(g0, 'acap') === '', 'power and magazine don\'t wait for a radar on the ground');
+  const c = parseCode(seedCode(g0));
+  ok(c?.kind === 'run' && c.ground && c.seed === g0.seed && seedCode(g0).endsWith('-G'), 'a ground assault\'s code round-trips');
+  ok(parseCode(seedCode(newGame(7)))?.kind === 'run' && !(parseCode(seedCode(newGame(7))) as { ground: boolean }).ground, 'a normal code is not a ground one');
+
+  // Its own levels: only walkers come, no strike packages, no Su-34s, no jammers.
+  {
+    const g = newGame(3, '', 'standard', false, true); g.phase = 'play'; g.st.maxHp = g.hp = 1e9;
+    const seen = new Set<string>();
+    run(g, 600, () => { for (const e of g.enemies) seen.add(e.kind); });
+    ok(g.stage >= 3 && [...seen].every(k => ENEMIES[k as keyof typeof ENEMIES].ground), `only walkers on the ground (${[...seen].join(',')}, L${g.stage + 1})`);
+    ok(stageInfo(20, true).w.walker! > 0 && !stageInfo(20, true).w.ew && stageInfo(20, true).pk === 0, 'the ground loop adds no jammers or packages');
+  }
+  // Battery weapons can't touch a walker, and fire control doesn't lock one: the perimeter can.
+  {
+    const g = gq(); g.lv.radar = g.lv.pac3 = g.lv.pulse = g.lv.rail = 1; g.st = deriveStats(g.lv, [], 5); g.st.maxHp = g.hp = 1e9;
+    const q = freeSpots(g).find(q => !site(q.x, q.z) && Math.hypot(q.x, q.z) < 13)!;
+    const e = walker(g, 'walker', q.x * 0.45, q.z * 0.45), hp = e.hp; // right by the battery, in reach of all of it
+    run(g, 3);
+    ok(e.hp === hp && !e.locked && g.enemies.includes(e), 'PAC-3, HEL and HPM don\'t engage a walker');
+    e.x = q.x * 1.4; e.z = q.z * 1.4; // out in front of where the MG goes
+    put(g, 'mg', q.x, q.z); run(g, 3);
+    ok(!g.enemies.includes(e) && g.stats.kills.walker === 1, 'the perimeter MG kills it');
+  }
+  // Armour: an MG does half to a heavy walker; a Javelin goes through.
+  {
+    const dealt = (k: string, kind: 'walker' | 'mech') => {
+      const g = gq(), q = freeSpots(g).find(q => !site(q.x, q.z) && Math.hypot(q.x, q.z) < 14)!, p = put(g, k, q.x, q.z);
+      const e = walker(g, kind, q.x * 1.5, q.z * 1.5); e.hp = e.maxHp = 1e9;
+      run(g, 10); ok(p.kills === 0, 'a punching bag');
+      return g.stats.dmg[k === 'mg' ? 'MG' : 'JAVELIN'] ?? 0;
+    };
+    const mg = dealt('mg', 'mech') / dealt('mg', 'walker'), jav = dealt('javelin', 'mech') / dealt('javelin', 'walker');
+    ok(Math.abs(mg - (ENEMIES.mech.armour ?? 1)) < 0.1 && Math.abs(jav - 1) < 0.1, `armour: MG x${mg.toFixed(2)}, Javelin x${jav.toFixed(2)}`);
+  }
+  // Wire: a walker wades through it at a third of its speed.
+  {
+    const moved = (wire: boolean) => {
+      const g = gq(), q = freeSpots(g).find(q => Math.hypot(q.x, q.z) > 16)!;
+      if (wire) put(g, 'wire', q.x, q.z);
+      const e = walker(g, 'walker', q.x * 1.1, q.z * 1.1, 3); e.hp = e.maxHp = 1e9; e.dmg = 0;
+      const x0 = e.x, z0 = e.z; run(g, 0.5);
+      return Math.hypot(e.x - x0, e.z - z0);
+    };
+    ok(moved(true) < moved(false) * 0.6, `wire slows walkers (${moved(true).toFixed(2)} vs ${moved(false).toFixed(2)})`);
+  }
+  // Claymores: a pack stepping into the arc goes up with one charge; mortars can't hit inside their minimum range.
+  {
+    const g = gq(), q = freeSpots(g).find(q => Math.hypot(q.x, q.z) > 15 && !site(q.x, q.z))!, p = put(g, 'mines', q.x, q.z);
+    const out = { x: q.x / Math.hypot(q.x, q.z), z: q.z / Math.hypot(q.x, q.z) };
+    for (let i = 0; i < 3; i++) walker(g, 'walker', q.x + out.x * 3 + i * 0.3, q.z + out.z * 3);
+    run(g, 0.2);
+    ok(g.enemies.length === 0 && p.belt < 4 && p.belt >= 2.9, `one Claymore charge takes out the pack (${g.enemies.length} left, ${p.belt.toFixed(2)} charges)`);
+    const m = gq(), mq = freeSpots(m).find(q => Math.hypot(q.x, q.z) < 13 && !site(q.x, q.z))!, mp = put(m, 'mortar', mq.x, mq.z);
+    const close = walker(m, 'walker', mq.x * 1.3, mq.z * 1.3); close.hp = 1e9;
+    run(m, 4); ok(m.shots.length === 0 && mp.cd === 0 && close.hp === 1e9, 'mortar holds fire inside its minimum range');
+  }
+  // Combat walkers stop and shoot a unit in reach; light walkers charge one and blow up on it.
+  {
+    const g = gq(), q = freeSpots(g).find(q => Math.hypot(q.x, q.z) > 16 && !site(q.x, q.z))!, p = put(g, 'wire', q.x, q.z);
+    const e = walker(g, 'gunbot', q.x * 1.3, q.z * 1.3, 2); e.hp = e.maxHp = 1e9;
+    run(g, 8);
+    ok(p.hp < 30 && Math.hypot(e.x - q.x, e.z - q.z) < 9.5 && e.act === 'hover', `a combat walker stops to shoot up a unit (pad hp ${p.hp.toFixed(1)})`);
+    const h = gq(), hq = freeSpots(h).find(q => Math.hypot(q.x, q.z) > 16 && !site(q.x, q.z))!, hp = put(h, 'wire', hq.x, hq.z);
+    walker(h, 'walker', hq.x * 1.25, hq.z * 1.25, 3);
+    run(h, 5);
+    ok(h.enemies.length === 0 && hp.hp < 30, 'a light walker charges a unit and blows its charge on it');
+  }
+  // A whole run: the bot's cheapest-gun strategy holds for a while and every perimeter weapon gets kills.
+  {
+    const g = newGame(2, '', 'standard', false, true); g.phase = 'play';
+    run(g, 900, () => {
+      if (g.phase === 'perk') pickPerk(g, 0);
+      const gun = !g.placing && g.perim.length < perimSlots(g.level) ? GUNS.filter(k => cost(g, k) < Infinity).sort((a, b) => cost(g, a) - cost(g, b))[0] : undefined;
+      buy(g, gun ?? UPGRADES.map(u => u.id).sort((a, b) => cost(g, a) - cost(g, b))[0]);
+    });
+    ok(g.t > 400 && g.stats.kills.mech! > 0, `a ground bot holds (${g.t.toFixed(0)}s, ${g.kills} kills)`);
+    ok(!g.stats.dmg['PAC-3'] && !g.stats.dmg.HEL && !g.stats.dmg.HPM, 'nothing but the perimeter dealt damage');
+  }
+}
+
 console.log(`ok · idle ${idle.t.toFixed(0)}s/${idle.kills} kills · bot ${b.t.toFixed(0)}s/${b.kills} kills lv${b.level} [${b.perks.join(',')}]`);
