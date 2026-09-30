@@ -5,13 +5,20 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { ARENA_R, BASE_R, BUILD_MIN, DROP_MAX, ENEMIES, MUNITIONS, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, FANS, GUNS, MG_TIERS, PERIM, PAD_HP, BIG_KILLS, altitude, flightAlt, buildR, type EnemyKind, type PerimKind } from './config.ts';
+import { ARENA_R, BASE_R, BUILD_MIN, DROP_MAX, PERF, ENEMIES, MUNITIONS, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, FANS, GUNS, MG_TIERS, PERIM, PAD_HP, BIG_KILLS, altitude, flightAlt, buildR, type EnemyKind, type PerimKind } from './config.ts';
 import { building as inBuildWindow, emitting, focusBearing, flankArc, radarRange, radarSector, bestSpot, spotNear, selectedPad, coverage, padStats, phase, shownKind, visible, type Enemy, type Shot, type State } from './sim.ts';
 import { heightSampler, treeList, ROCKS, FARMS, WATER_Y, mapSeed } from './terrain.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import { enemyGeos, ROTORS } from './models.ts';
 
-const MAX_WRECKS = 48, MAX_FIRES = 24, MAX_ENEMIES = 2000, MAX_LOCKS = 64, MAX_SHOTS = 600, MAX_SHARDS = 2500, MAX_WAVES = 64, MAX_BEAMS = 3000, MAX_FRONTS = 48, MAX_BLIPS = 1024, MAX_PUFFS = 600;
+// Phones and tablets get a lighter pipeline: no real-time shadows (the ground has them baked in), no bloom,
+// a smaller ground texture and mesh, a capped pixel ratio and smaller effect pools (PERF.lite). The full one is
+// several times the GPU memory and fill rate, and was enough to lose the WebGL context on phones.
+const LITE = matchMedia('(pointer: coarse)').matches || innerWidth * innerHeight < 800 * 600;
+const L = PERF.lite;
+const MAX_ENEMIES = 2000, MAX_LOCKS = 64, MAX_SHOTS = 600, MAX_WAVES = 64, MAX_FRONTS = 48;
+const MAX_WRECKS = LITE ? L.wrecks : 48, MAX_FIRES = LITE ? L.fires : 24, MAX_SHARDS = LITE ? L.shards : 2500, MAX_BEAMS = LITE ? L.beams : 3000;
+const MAX_BLIPS = LITE ? L.blips : 1024, MAX_PUFFS = LITE ? L.puffs : 600;
 const VIS = 1.6; // enemies drawn bigger than their hitbox so they read at a glance
 const PAD_VIS = 1.35; // emplacements too
 const TAU = Math.PI * 2;
@@ -98,11 +105,6 @@ const GRADE = {
     }`,
 };
 
-// Phones and tablets get a lighter pipeline: no real-time shadows (the ground has them baked in), no bloom,
-// a smaller ground texture and mesh, and a capped pixel ratio. The full one is several times the GPU memory
-// and fill rate, and was enough to lose the WebGL context on phones.
-const LITE = matchMedia('(pointer: coarse)').matches || innerWidth * innerHeight < 800 * 600;
-
 export function createRenderer() {
   const coarse = LITE;
   // No antialias on the canvas itself: the scene is drawn into the composer's target, so MSAA goes there.
@@ -121,7 +123,10 @@ export function createRenderer() {
   const target = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: coarse ? 0 : 4 });
   const composer = new EffectComposer(renderer, target);
   composer.addPass(new RenderPass(scene, camera));
-  if (!coarse) composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.45, 0.35, 0.92));
+  const bloom = coarse ? null : new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.45, 0.35, 0.92);
+  if (bloom) composer.addPass(bloom);
+  // Bloom is the costliest pass: if frames stay slow through play (PERF.bloomOff), it goes for the session.
+  let frameMs = 1000 / 60, slowFor = 0;
   composer.addPass(new OutputPass());
   const grade = new ShaderPass(GRADE);
   composer.addPass(grade);
@@ -822,7 +827,9 @@ export function createRenderer() {
   const hpCol = (r: number) => tmpC.setRGB(1 - r * 0.6, 0.35 + r * 0.6, 0.25);
   let clock = 0;
 
-  function render(s: State, dt: number) {
+  // lead: s of game time since the last sim tick (main.ts ticks at a fixed step). Contacts and shots are drawn that
+  // far along their velocity, so they glide at any refresh rate instead of stepping at the tick rate.
+  function render(s: State, dt: number, lead = 0) {
     clock += dt;
     if (mapSeed !== terrainKey) buildTerrain(); // a new run, a new map
     consume(s);
@@ -831,6 +838,11 @@ export function createRenderer() {
     covMesh.visible = showCov;
     if (showCov && `${key}|${s.stage}` !== covKey) { covKey = `${key}|${s.stage}`; drawCoverage(s); }
     const play = s.phase === 'play';
+    if (bloom?.enabled && play && dt > 0) {
+      frameMs += (dt * 1000 - frameMs) * 0.1;
+      slowFor = frameMs > PERF.bloomOff.ms ? slowFor + dt : 0;
+      if (slowFor > PERF.bloomOff.secs) { bloom.enabled = false; console.info(`x5: bloom off, frames averaging ${frameMs.toFixed(0)} ms`); }
+    }
 
     // camera: orbit the target; portrait screens back off so the base still fits across
     const aspectK = Math.max(1, 0.8 / camera.aspect), d = dist * aspectK;
@@ -982,13 +994,14 @@ export function createRenderer() {
       if (!visible(s, e)) continue;
       const k = shownKind(e), m = enemyMeshes[k];
       if (m.count >= MAX_ENEMIES) continue;
-      const gy = groundY(e.x, e.z), sz = e.size * VIS, f = fly(e, gy, dt, play), y = f.y, alt = y - gy;
-      const pos = ePos[ne++ % MAX_ENEMIES]; pos.x = e.x; pos.z = e.z; pos.y = y; byId.set(e.id, pos);
+      const ex = e.x + e.vx * lead, ez = e.z + e.vz * lead; // where it is now, between sim ticks
+      const gy = groundY(ex, ez), sz = e.size * VIS, f = fly(e, ex, ez, gy, dt, play), y = f.y, alt = y - gy;
+      const pos = ePos[ne++ % MAX_ENEMIES]; pos.x = ex; pos.z = ez; pos.y = y; byId.set(e.id, pos);
       // A classified decoy is drawn as a ghost, so it can't be mistaken for the Shahed it copies.
       const fade = (e.locked ? 1 : Math.max(0.35, Math.min(1, (e.seenUntil - s.t) / 1.5))) * (e.ided ? 0.45 : 1);
       // FPVs rock as they jink, on top of the banking.
       const bank = f.bank + (k === 'swarm' ? 0.25 * Math.sin(clock * 9 + e.id) : 0);
-      dummy.position.set(e.x, y, e.z);
+      dummy.position.set(ex, y, ez);
       dummy.rotation.set(bank, -f.h, f.pitch, 'YXZ');
       dummy.scale.setScalar(sz);
       dummy.updateMatrix();
@@ -997,35 +1010,35 @@ export function createRenderer() {
       if (play) exhaust(e, f, sz, dt);
       const rotor = ROTORS[k];
       if (rotor) { // spinning main rotor disc
-        dummy.position.set(e.x, y + rotor.y * sz, e.z); dummy.rotation.set(0, clock * 20, 0); dummy.scale.set(rotor.r * sz, 1, rotor.r * sz); dummy.updateMatrix();
+        dummy.position.set(ex, y + rotor.y * sz, ez); dummy.rotation.set(0, clock * 20, 0); dummy.scale.set(rotor.r * sz, 1, rotor.r * sz); dummy.updateMatrix();
         rotors.setMatrixAt(rotors.count, dummy.matrix); rotors.setColorAt(rotors.count, tmpC.setHex(0x222222)); rf.setX(rotors.count++, 0.8);
       }
       // Stalk and ground ring: red for a threat, amber for a missile on the battery, grey for a classified decoy.
       const tc = ENEMIES[k].mimic ? 0x999999 : MUNITIONS.includes(k) ? ALERT : C.threat;
-      dummy.position.set(e.x, gy + 0.1, e.z); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, Math.max(0.01, alt - 0.1), 1); dummy.updateMatrix();
+      dummy.position.set(ex, gy + 0.1, ez); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, Math.max(0.01, alt - 0.1), 1); dummy.updateMatrix();
       stalks.setMatrixAt(stalks.count, dummy.matrix); stalks.setColorAt(stalks.count, tmpC.setHex(tc)); sf.setX(stalks.count++, 0.6 * fade);
-      dummy.position.set(e.x, gy + 0.15, e.z); dummy.scale.setScalar(sz * 0.45); dummy.updateMatrix();
+      dummy.position.set(ex, gy + 0.15, ez); dummy.scale.setScalar(sz * 0.45); dummy.updateMatrix();
       pips.setMatrixAt(pips.count, dummy.matrix); pips.setColorAt(pips.count, tmpC.setHex(tc)); pfa.setX(pips.count++, (e.locked ? 1 : 0.6) * fade);
       if (e.id === s.marked) {
         marked = true;
-        markRing.position.set(e.x, gy + 0.3, e.z);
+        markRing.position.set(ex, gy + 0.3, ez);
         markRing.rotation.y = clock * 2;
         markRing.scale.setScalar(sz * (1.3 + Math.sin(clock * 8) * 0.08));
-        markEnd.setXYZ(1, e.x, y, e.z); markEnd.needsUpdate = true;
+        markEnd.setXYZ(1, ex, y, ez); markEnd.needsUpdate = true;
         markLine.computeLineDistances();
       }
       if (e.locked && nl < MAX_LOCKS) {
-        dummy.position.set(e.x, y, e.z); dummy.quaternion.copy(camera.quaternion); dummy.scale.setScalar(sz * 0.9);
+        dummy.position.set(ex, y, ez); dummy.quaternion.copy(camera.quaternion); dummy.scale.setScalar(sz * 0.9);
         dummy.updateMatrix();
         brackets.setMatrixAt(nl, dummy.matrix);
         brackets.setColorAt(nl, tmpC.setHex(e.id === s.marked ? 0xffffff : C.friend).multiplyScalar(e.id === s.marked ? 2 : 1.4));
         const r = Math.max(0, e.hp / e.maxHp);
-        dummy.position.set(e.x, y + sz * 0.8 + 0.6, e.z).addScaledVector(camRight, -sz);
+        dummy.position.set(ex, y + sz * 0.8 + 0.6, ez).addScaledVector(camRight, -sz);
         dummy.scale.set(Math.max(0.01, sz * 2 * r), 1, 1);
         dummy.updateMatrix();
         hpBars.setMatrixAt(nb, dummy.matrix);
         hpBars.setColorAt(nb++, hpCol(r));
-        lockLinePos.set([0, 2.2, 0, e.x, y, e.z], nl * 6);
+        lockLinePos.set([0, 2.2, 0, ex, y, ez], nl * 6);
         nl++;
       }
     }
@@ -1070,7 +1083,7 @@ export function createRenderer() {
       const blend = p.kind === 'shell' ? 0.25 : 0.6, u = Math.min(1, f.age / blend), k = (1 - u) * (1 - u) * (1 + 2 * u); // smoothstep out
       const t = byId.get(p.target), ty2 = t ? t.y : y0 + 3;
       const prog = t ? 1 - Math.min(1, Math.hypot(t.x - p.x, t.z - p.z) / f.d0) : Math.min(1, f.age);
-      const x = p.x + f.ox * k, y = y0 + (ty2 - y0) * prog + f.oy * k, z = p.z + f.oz * k;
+      const x = p.x + p.vx * lead + f.ox * k, y = y0 + (ty2 - y0) * prog + f.oy * k, z = p.z + p.vz * lead + f.oz * k;
       const dx = x - f.px, dy = y - f.py, dz = z - f.pz, moved = dx * dx + dy * dy + dz * dz > 1e-6;
       if (moved && !tracer) {
         if (p.kind === 'shell') beam(f.px, f.py, f.pz, x, y, z, 0.22, C.fire, 0.12, 1.5);
@@ -1214,12 +1227,12 @@ export function createRenderer() {
   // nose eased round onto its course, banked into turns and pitched along its climb or dive. Helicopters keep
   // their nose on the battery while they hover or hold station, sidestep with a tilt, dip the nose flying in and
   // flare as they slow.
-  function fly(e: Enemy, gy: number, dt: number, play: boolean) {
+  function fly(e: Enemy, x: number, z: number, gy: number, dt: number, play: boolean) {
     const want = gy + flightAlt(e), hs = Math.hypot(e.vx, e.vz), heli = !!ROTORS[e.kind];
-    const course = heli && (e.act === 'hover' || e.orbit) ? Math.atan2(-e.z, -e.x) : hs > 0.05 ? Math.atan2(e.vz, e.vx) : undefined;
+    const course = heli && (e.act === 'hover' || e.orbit) ? Math.atan2(-z, -x) : hs > 0.05 ? Math.atan2(e.vz, e.vx) : undefined;
     let f = flights.get(e.id);
     if (!f) {
-      f = { kind: e.kind, x: e.x, y: want, z: e.z, vx: e.vx, vz: e.vz, h: course ?? Math.atan2(-e.z, -e.x), bank: 0, pitch: 0, hs, acc: 0, tx: e.x, ty: want, tz: e.z, emit: 0, frame: frameNo };
+      f = { kind: e.kind, x, y: want, z, vx: e.vx, vz: e.vz, h: course ?? Math.atan2(-z, -x), bank: 0, pitch: 0, hs, acc: 0, tx: x, ty: want, tz: z, emit: 0, frame: frameNo };
       flights.set(e.id, f);
     }
     f.frame = frameNo;
@@ -1241,7 +1254,7 @@ export function createRenderer() {
       }
       f.bank += (bank - f.bank) * ease(5); f.pitch += (pitch - f.pitch) * ease(5);
     }
-    f.x = e.x; f.z = e.z; f.vx = e.vx; f.vz = e.vz;
+    f.x = x; f.z = z; f.vx = e.vx; f.vz = e.vz;
     return f;
   }
   const TRAIL: Partial<Record<EnemyKind, { w: number; life: number; shade: number; flame: number; twin?: boolean }>> = {

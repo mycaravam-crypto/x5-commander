@@ -216,11 +216,19 @@ export const shownKind = (e: Enemy): EnemyKind => ENEMIES[e.kind].mimic && !e.id
 const flies = (k: EnemyKind) => ENEMIES[k].mimic ?? k;
 const angDiff = (a: number, b: number) => ((a - b + Math.PI) % TAU + TAU) % TAU - Math.PI;
 
+// The Mi-8s on station and their bearings. A radar pass works this out once, not once per contact it looks at.
+type Jams = { j: Enemy; a: number }[];
+function jamBearings(s: State): Jams {
+  const out: Jams = [];
+  for (const j of s.enemies) if (j.kind === 'ew' && j.orbit) out.push({ j, a: Math.atan2(j.z, j.x) });
+  return out;
+}
 // Detection multiplier at `e`: every Mi-8 on station blanks a sector around its own bearing (but not itself).
-export function jamFactor(s: State, e: { x: number; z: number }) {
+export function jamFactor(s: State, e: { x: number; z: number }, jams = jamBearings(s)) {
   let f = 1;
+  if (!jams.length) return f;
   const a = Math.atan2(e.z, e.x);
-  for (const j of s.enemies) if (j.kind === 'ew' && j.orbit && j !== e && Math.abs(angDiff(a, Math.atan2(j.z, j.x))) < EW_ARC) f *= EW_JAM;
+  for (const { j, a: b } of jams) if (j !== e && Math.abs(angDiff(a, b)) < EW_ARC) f *= EW_JAM;
   return f;
 }
 // Spotted for: inside the sector of an Orlan-10 on station (its own bearing ± RECON.arc), not the Orlan itself.
@@ -801,8 +809,9 @@ function moveEnemies(s: State, dt: number) {
     // Below, each flight mode sets the velocity it wants; steer() then flies the airframe toward it.
     const pvx = e.vx, pvz = e.vz;
     let homing = 0; // 1: homing on a unit or waypoint, 2: close enough to fly straight at it
+    const arm = ARMS.includes(e.kind);
     if (e.pop > 0) e.pop -= dt;
-    if (ARMS.includes(e.kind)) {
+    if (arm) {
       steerArm(s, e, dt);
       // Out of motor, or veered off past the arena: it's gone.
       if (s.t - e.born > (e.kind === 'arm2' ? ARM2.life : ARM_LIFE) || d > ARENA_R + 12) {
@@ -957,12 +966,12 @@ function moveEnemies(s: State, dt: number) {
         homing = dd < HOMING_SNAP ? 2 : 1;
       }
     }
-    if (!ARMS.includes(e.kind) && homing < 2) steer(e, pvx, pvz, dt, homing ? HOMING_BOOST : 1);
+    if (!arm && homing < 2) steer(e, pvx, pvz, dt, homing ? HOMING_BOOST : 1);
     e.x += e.vx * dt; e.z += e.vz * dt;
     if (d < BASE_R + e.size * 0.5) {
       // Objective lost: PROTECT BATTERY by anything of the raid landing, PROTECT RADAR by any ARM hit while it's on.
-      if (s.raidClean && s.raidLeft && (s.raidObj === 'radar' ? ARMS.includes(e.kind) : e.raid === s.raidId && e.dmg > 0)) raidLost(s);
-      if (ARMS.includes(e.kind) && s.st.radar) {
+      if (s.raidClean && s.raidLeft && (s.raidObj === 'radar' ? arm : e.raid === s.raidId && e.dmg > 0)) raidLost(s);
+      if (arm && s.st.radar) {
         const stun = ARM_STUN * s.st.armStun * (e.kind === 'arm2' ? ARM2.stun : 1);
         s.radarDownUntil = Math.min(Math.max(s.radarDownUntil, s.t) + stun, s.t + 2 * stun);
         s.events.push({ k: 'radarDown' });
@@ -1061,17 +1070,20 @@ function perimeter(s: State, dt: number) {
   }
   const guns = s.perim.filter(p => GUNS.includes(p.k) && up(p));
   const stats = guns.map(p => padStats(s, p));
+  const ic = interceptActive(s) ? s.enemies.find(e => e.id === s.intercept.target) : undefined;
   guns.forEach((p, gi) => {
     const w = stats[gi];
     p.cd = Math.max(0, p.cd - dt);
     if (p.cd > 0 || s.ammo < w.ammo) return;
-    let best: Enemy | null = null, bd = w.range ** 2, brank = 2;
-    const ic = interceptActive(s) ? s.enemies.find(e => e.id === s.intercept.target) : undefined;
+    const r2 = w.range ** 2;
+    let best: Enemy | null = null, bd = r2, brank = 2;
     for (const e of s.enemies) {
-      if (!visible(s, e) || e.ided || e.incoming >= e.hp && e !== ic || ENEMIES[e.kind].pacOnly) continue;
+      // Out of reach first: the cheap test, and it rules out most of a big swarm.
+      const d = (e.x - p.x) ** 2 + (e.z - p.z) ** 2;
+      if (d > r2 || !visible(s, e) || e.ided || e.incoming >= e.hp && e !== ic || ENEMIES[e.kind].pacOnly) continue;
       if (ic && e !== ic && (ic.x - p.x) ** 2 + (ic.z - p.z) ** 2 < bd) continue; // intercept target in reach: only it
-      const d = (e.x - p.x) ** 2 + (e.z - p.z) ** 2, rank = p.k === 'iris' && isMissile(e) ? 0 : 1; // the SAM takes missiles first
-      if (d > w.range ** 2 || !covers(p, e.x, e.z, w.range) || rank > brank || rank === brank && d >= bd) continue;
+      const rank = p.k === 'iris' && isMissile(e) ? 0 : 1; // the SAM takes missiles first
+      if (!covers(p, e.x, e.z, w.range) || rank > brank || rank === brank && d >= bd) continue;
       bd = d; best = e; brank = rank;
     }
     if (!best) return;
@@ -1148,11 +1160,11 @@ function powerAndAmmo(s: State, dt: number) {
 // control locks, but contacts stay on the scope for the perimeter pads.
 export const backupSearching = (s: State) => s.st.backupRadar && !s.emcon && s.t < s.radarDownUntil;
 function backupRadar(s: State, dt: number) {
-  const da = s.st.sweep * dt, r2 = (s.st.radarRange * BACKUP_RADAR) ** 2;
+  const da = s.st.sweep * dt, r2 = (s.st.radarRange * BACKUP_RADAR) ** 2, jams = jamBearings(s);
   for (const e of s.enemies) {
     if (e.x * e.x + e.z * e.z > r2 || Math.random() >= da / TAU) continue;
     const hm = horizonMask(e, r2);
-    if (hm && Math.random() < ENEMIES[e.kind].sig * hm * BACKUP_RADAR * s.st.res * jamFactor(s, e)) e.seenUntil = Math.max(e.seenUntil, s.t + s.st.persist);
+    if (hm && Math.random() < ENEMIES[e.kind].sig * hm * BACKUP_RADAR * s.st.res * jamFactor(s, e, jams)) e.seenUntil = Math.max(e.seenUntil, s.t + s.st.persist);
   }
 }
 
@@ -1160,9 +1172,14 @@ function backupRadar(s: State, dt: number) {
 function spot(s: State) {
   const k = phase(s).mod.dark ? VISUAL_DARK : 1, b2 = (VISUAL_R * k) ** 2;
   const eyes = s.perim.filter(up).map(p => ({ x: p.x, z: p.z, r2: ((p.k === 'observer' ? OBSERVER_EYES : PAD_EYES) * siteRange(p.site) * k) ** 2 }));
+  // Past this far out no unit's eyes reach (its distance out plus its eyesight, a hair over): skip the per-unit test.
+  let reach = 0;
+  for (const p of eyes) reach = Math.max(reach, Math.hypot(p.x, p.z) + Math.sqrt(p.r2) + 1e-3);
+  const reach2 = reach * reach;
   let newly = 0;
   for (const e of s.enemies) {
-    if (e.x * e.x + e.z * e.z > b2 && !eyes.some(p => (e.x - p.x) ** 2 + (e.z - p.z) ** 2 < p.r2)) continue;
+    const d2 = e.x * e.x + e.z * e.z;
+    if (d2 > b2 && (d2 > reach2 || !eyes.some(p => (e.x - p.x) ** 2 + (e.z - p.z) ** 2 < p.r2))) continue;
     if (e.seenUntil < s.t) newly++;
     e.seenUntil = Math.max(e.seenUntil, s.t + 0.25);
   }
@@ -1177,7 +1194,7 @@ function radar(s: State, dt: number) {
   // sweepA then only turns the TRML-4D head (and the sweep ping) at a calm fixed rate.
   s.sweepA = (a0 + (s.st.aesa ? AESA_SPIN * dt * s.sweepSpeed / s.st.sweep : da)) % TAU;
   const r2 = radarRange(s) ** 2, { mod } = phase(s), M = radarMode(s);
-  const sector = radarSector(s), fa = focusBearing(s), sig = M.lpi && s.st.lpi ? 1 : M.sig;
+  const sector = radarSector(s), fa = focusBearing(s), sig = M.lpi && s.st.lpi ? 1 : M.sig, jams = jamBearings(s);
   let newly = 0;
   for (const e of s.enemies) {
     if (e.x * e.x + e.z * e.z > r2) continue;
@@ -1187,7 +1204,7 @@ function radar(s: State, dt: number) {
     else if (s.st.aesa ? Math.random() >= da / TAU : ((a - a0) % TAU + TAU) % TAU > da) continue;
     // Low flyers: under the horizon until they're close, and lost in the clutter over woods and rock.
     const hm = horizonMask(e, r2);
-    if (hm && Math.random() < ENEMIES[e.kind].sig * hm * sig * s.st.res * jamFactor(s, e) * (mod.sig ?? 1)) {
+    if (hm && Math.random() < ENEMIES[e.kind].sig * hm * sig * s.st.res * jamFactor(s, e, jams) * (mod.sig ?? 1)) {
       if (e.seenUntil < s.t) newly++;
       e.seenUntil = s.t + s.st.persist * (mod.persist ?? 1) * (s.st.blackout ? BLACKOUT.lit : 1);
     }
@@ -1249,15 +1266,20 @@ function track(s: State, dt: number) {
     }
     lock(m); locks++;
   }
-  while (locks < n) {
-    let best: Enemy | null = null, bs = -Infinity;
+  if (locks < n) {
+    // The free slots go to the best-scoring candidates, found in one pass: the k best so far, best first, a tie
+    // behind the one met earlier. The same picks, in the same order, as taking the best one slot at a time.
+    const k = n - locks, top: Enemy[] = [], ts: number[] = [];
     for (const e of s.enemies) {
       if (e.locked || e.ided || e.seenUntil <= s.t || e.incoming >= e.hp || e.x * e.x + e.z * e.z > tr2) continue;
       const sc = score(s, e);
-      if (sc > bs) { bs = sc; best = e; }
+      if (!(sc > -Infinity) || top.length === k && sc <= ts[k - 1]) continue;
+      let i = top.length;
+      while (i > 0 && ts[i - 1] < sc) i--;
+      top.splice(i, 0, e); ts.splice(i, 0, sc);
+      if (top.length > k) { top.pop(); ts.pop(); }
     }
-    if (!best) break;
-    lock(best); locks++;
+    for (const e of top) { lock(e); locks++; }
   }
   report();
 }
