@@ -13,10 +13,12 @@ import { parseName, parsePassword, SESSION_DAYS, NAME_MIN, NAME_MAX, PASSWORD_MI
 import { parseAvatar, avatarCode, parseMotto, MOTTO_MAX } from './career.ts';
 
 export type ApiOptions = {
-  // Runs one client may log per window (by IP). Reads aren't limited.
+  // Runs one account may log per window (and five times that per IP). Reads aren't limited.
   postLimit?: number; postWindowMs?: number;
   // Sign-up and sign-in attempts one client may make per window (by IP).
   authLimit?: number; authWindowMs?: number;
+  // Profile edits one account may make per window.
+  editLimit?: number;
   // Origins allowed to read the board from another site (e.g. the game on GitHub Pages). Signing in and logging runs
   // need the game's own origin: the session cookie isn't sent cross-site.
   cors?: string[];
@@ -46,8 +48,9 @@ const readJson = (req: IncomingMessage, max = 4096) => new Promise<unknown>((res
 });
 
 export function scoresApi(scores: Scores, opts: ApiOptions = {}) {
-  const { postLimit = 20, postWindowMs = 10 * 60_000, authLimit = 20, authWindowMs = 10 * 60_000, cors = [], trustProxy = false } = opts;
-  const runLimit = limiter(postLimit, postWindowMs), authLimited = limiter(authLimit, authWindowMs);
+  const { postLimit = 20, postWindowMs = 10 * 60_000, authLimit = 20, authWindowMs = 10 * 60_000, editLimit = 60, cors = [], trustProxy = false } = opts;
+  // Runs are limited per account; per IP only as a looser backstop, since players can share an address.
+  const runLimit = limiter(postLimit, postWindowMs), ipRunLimit = limiter(postLimit * 5, postWindowMs), authLimited = limiter(authLimit, authWindowMs), editLimited = limiter(editLimit, 10 * 60_000);
   const { accounts } = scores;
   const clientIp = (req: IncomingMessage) => {
     const fwd = trustProxy ? String(req.headers['x-forwarded-for'] ?? '').split(',').at(-1)!.trim() : '';
@@ -127,7 +130,7 @@ export function scoresApi(scores: Scores, opts: ApiOptions = {}) {
       if (route === 'profile') {
         const user = accounts.user(token(req));
         if (!user) return send(401, { error: 'sign in to edit your profile' });
-        const wait = runLimit(`p${user.id}`);
+        const wait = editLimited(`${user.id}`);
         if (wait) { res.setHeader('Retry-After', String(wait)); return send(429, { error: 'too many changes' }); }
         const body = await readJson(req) as Record<string, unknown> | null;
         const change: { avatar?: string; motto?: string } = {};
@@ -147,7 +150,7 @@ export function scoresApi(scores: Scores, opts: ApiOptions = {}) {
       if (route === 'scores') {
         const user: User | null = accounts.user(token(req));
         if (!user) return send(401, { error: 'sign in to log runs' });
-        const wait = runLimit(`${user.id}`) || runLimit(ip);
+        const wait = runLimit(`${user.id}`) || ipRunLimit(ip);
         if (wait) { res.setHeader('Retry-After', String(wait)); return send(429, { error: 'too many runs' }); }
         const run = parseRun(await readJson(req));
         if (!run) return send(400, { error: 'bad run' });

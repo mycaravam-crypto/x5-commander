@@ -4,7 +4,7 @@ import { openScores } from './scores.ts';
 import { scoresApi } from './api.ts';
 
 const ok = (c: unknown, msg: string) => { if (!c) throw new Error(msg); };
-const api = scoresApi(openScores(':memory:'), { postLimit: 3, authLimit: 8, cors: ['https://game.example'] });
+const api = scoresApi(openScores(':memory:'), { postLimit: 3, authLimit: 12, cors: ['https://game.example'] });
 const server = createServer((req, res) => api(req, res, () => { res.statusCode = 404; res.end(); }));
 await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${(server.address() as { port: number }).port}/api`;
@@ -56,6 +56,21 @@ try {
   const pub = (await anon('/profile?name=iceman')).json.profile;
   ok(pub.name === 'ICEMAN' && pub.motto === 'Talk to me, Goose' && pub.career.runs === 2 && pub.recent.length === 2 && pub.best.rank === 1 && !('pw' in pub) && !('id' in pub), 'profiles are public, without secrets');
   ok((await anon('/profile?name=nobody')).status === 404, 'no such pilot');
+  // SQL-shaped input is only ever data: bound parameters, and callsigns that can't hold it.
+  ok((await anon(`/profile?name=${encodeURIComponent("ICEMAN' OR '1'='1")}`)).status === 404, 'a quote in a lookup finds nothing');
+  ok((await anon(`/scores?daily=${encodeURIComponent("2026-09-30' OR 1=1 --")}&limit=${encodeURIComponent('1; DROP TABLE scores')}`)).json.rows.length === 1, 'bad board parameters fall back to the defaults');
+  ok((await rival('/signup', { name: "x'); DROP TABLE users; --", password: 'whatever12' })).status === 400, 'a callsign with SQL in it is refused');
+  ok((await rival('/login', { name: "ICEMAN' --", password: 'anything1' })).status === 401, 'no signing in by SQL comment');
+  const motto = `'); DELETE FROM scores; -- <script>`;
+  const before = (await anon('/scores')).json.total;
+  ok((await you('/profile', { motto })).json.profile.motto === motto && (await anon('/scores')).json.total === before && before > 0, 'a motto is stored as typed, harming nothing');
+  ok((await you('/profile', { avatar: '1.1.1; DROP' })).status === 400 && (await you('/profile', { avatar: { toString: 1 } })).status === 400, 'patches are only ever codes');
+  const typed = await rival('/scores', { time: '60', kills: 5, level: 1, earned: 1 });
+  ok(typed.status === 400, `run fields must be numbers (got ${typed.status} ${JSON.stringify(typed.json)})`);
+  const cookie2 = (await rival('/login', { name: 'GOOSE', password: 'whatever12' })).headers.get('set-cookie')!.split(';')[0];
+  const polluted = await fetch(base + '/scores', { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie2 },
+    body: '{"time":60,"kills":5,"level":1,"earned":1,"__proto__":{"isAdmin":true},"constructor":{"prototype":{"x":1}}}' });
+  ok(polluted.status === 201 && ({} as Record<string, unknown>).isAdmin === undefined && ({} as Record<string, unknown>).x === undefined, 'prototype keys in a body are just ignored');
   ok((await you('/me')).json.user.career.runs === 2 && (await you('/me')).json.user.avatar === '2.4.1', '/me has the career and patch');
   ok((await anon('/scores')).json.rows[0].avatar === '2.4.1', 'the board shows patches');
   ok((await you('/logout', {})).status === 200 && (await you('/me')).json.user === null, 'sign out');
@@ -72,7 +87,7 @@ try {
   ok((await anon('/nope')).status === 404 && (await anon('/login')).status === 405, 'unknown routes and methods');
 
   let limited = false;
-  for (let i = 0; i < 6 && !limited; i++) limited = (await anon('/login', { name: 'GOOSE', password: `guess-${i}xx` })).status === 429;
+  for (let i = 0; i < 12 && !limited; i++) limited = (await anon('/login', { name: 'GOOSE', password: `guess-${i}xx` })).status === 429;
   ok(limited, 'password guessing is rate limited');
   const proxied = scoresApi(openScores(':memory:'), { trustProxy: true });
   const s2 = createServer((req, res) => proxied(req, res, () => res.end()));

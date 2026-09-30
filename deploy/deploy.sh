@@ -42,9 +42,10 @@ fi
 echo "Node: $NODE ($(ssh "$HOST" "'$NODE' --version"))"
 
 echo "Backing up the scoreboard..."
-ssh "$HOST" "mkdir -p '$REMOTE_PATH/shared/backups' && cd '$REMOTE_PATH/shared' && if [ -f scores.db ]; then
+# The database holds password hashes: shared/ and its backups are the deploy user's alone.
+ssh "$HOST" "umask 077 && mkdir -p '$REMOTE_PATH/shared/backups' && chmod 700 '$REMOTE_PATH/shared' '$REMOTE_PATH/shared/backups' && cd '$REMOTE_PATH/shared' && if [ -f scores.db ]; then
     '$NODE' --disable-warning=ExperimentalWarning -e \"new (require('node:sqlite').DatabaseSync)('scores.db').exec(\\\"VACUUM INTO 'backups/scores-$TIMESTAMP.db'\\\")\" &&
-    ls -1t backups | tail -n +11 | xargs -r -I{} rm -f -- 'backups/{}'; fi"
+    chmod 600 backups/*.db && ls -1t backups | tail -n +11 | xargs -r -I{} rm -f -- 'backups/{}'; fi"
 
 echo "Uploading release $TIMESTAMP ..."
 ssh "$HOST" "mkdir -p '$RELEASE_PATH/server'"

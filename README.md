@@ -52,6 +52,13 @@ Passwords are hashed with scrypt. A sign-in is a random session token in an `Htt
 | `GET /api/profile?name=CALLSIGN` | `{ profile }`: a pilot's patch, motto, enlistment date, career totals, best run and rank, latest 10 runs |
 | `POST /api/profile` `{ avatar?, motto? }` | Signed in: sets your patch (`"shape.emblem.colour"`) and motto (up to 60 characters) |
 
+**Security.**
+- **SQL:** every query is a prepared statement with bound parameters; no user value ever becomes SQL text.
+- **Input:** it's checked on the way in. Callsigns are 3-16 of `A-Z 0-9 _ . -`. Patches are numeric codes. Mottos are one line of up to 60 characters, with control and bidi-override characters removed. Run fields must be numbers, and request bodies are capped at 4 KB.
+- **Output:** the game re-checks everything the API returns (numbers must be numbers, dates must be dates, only known medal and rank ids) and HTML-escapes every string it draws. The page's Content-Security-Policy allows no inline or third-party script, so even an escaping bug couldn't run code. `npm test` renders the board, profile and debrief with hostile names, mottos and numbers and fails if any markup gets through.
+- **Database:** the file holds password and session hashes, so it and its WAL and backups are created owner-only (600, directories 700), and an existing file is tightened on start. SQLite runs with `foreign_keys`, `trusted_schema = OFF` and `secure_delete`.
+- **Cookies and headers:** over HTTPS the server sends HSTS, and the session cookie is `Secure`.
+
 A run must be plausible to be logged (no more than 20 kills a second, at most 6 hours). An account can log 20 runs per 10 minutes, and one client can try 20 sign-ups or sign-ins per 10 minutes. Runs aren't signed, so a player can still post a made-up plausible score.
 
 ### Production

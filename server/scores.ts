@@ -2,7 +2,7 @@
 // then kills); a player is an account (server/accounts.ts), or, for runs logged before accounts, each run on its own.
 // Served by server/api.ts: at /api/* by the production server (server/index.ts) and the Vite dev and preview servers.
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { openAccounts } from './accounts.ts';
 import { EMPTY_CAREER, medalsOf, rankOf, streaks, xpOf, type Career } from './career.ts';
@@ -18,9 +18,19 @@ export type Recent = Run & { id: number; at: string };
 export const TOP = 10;
 
 export function openScores(file: string) {
-  if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true });
-  const db = new DatabaseSync(file);
+  // The file holds password hashes and session hashes: only its owner may read it (the directory too, when this makes
+  // it). Existing files are tightened on every start; new ones (the WAL and SHM too) are made under a private umask.
+  const disk = file !== ':memory:';
+  if (disk) mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+  const umask = disk ? process.umask(0o077) : 0;
+  let db: DatabaseSync;
+  try { db = new DatabaseSync(file); } finally { if (disk) process.umask(umask); }
+  if (disk) for (const f of [file, `${file}-wal`, `${file}-shm`]) if (existsSync(f)) chmodSync(f, 0o600);
+  // Every statement below is prepared with bound parameters; no user value is ever part of SQL text.
+  // trusted_schema OFF: the schema can't call functions with side effects; secure_delete: deleted rows (ended
+  // sessions) are zeroed, not left in free pages.
   db.exec(`PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;
+    PRAGMA trusted_schema = OFF; PRAGMA secure_delete = ON;
     CREATE TABLE IF NOT EXISTS scores (
       id     INTEGER PRIMARY KEY,
       name   TEXT    NOT NULL,

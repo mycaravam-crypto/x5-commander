@@ -14,6 +14,9 @@ Environment=PORT=@PORT@
 Environment=X5_DIST=@PATH@/current/dist
 Environment=X5_SCORES_DB=@PATH@/shared/scores.db
 Environment=X5_TRUST_PROXY=1
+# Files it makes (the database, its WAL) are the deploy user's alone.
+UMask=0077
+NoNewPrivileges=true
 Restart=on-failure
 RestartSec=2
 TimeoutStopSec=15

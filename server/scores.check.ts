@@ -1,6 +1,6 @@
 // `npm test` — the scoreboard store and accounts against in-memory and throwaway databases. Throws on the first broken rule.
 import { DatabaseSync } from 'node:sqlite';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openScores, parseRun, TOP } from './scores.ts';
@@ -69,6 +69,14 @@ s.close();
 // A database from before accounts keeps its callsign runs, each ranked as its own player.
 const dir = mkdtempSync(join(tmpdir(), 'x5-'));
 try {
+  // The database file is its owner's alone: a new one, and an old one left readable, tightened on open.
+  const fresh = join(dir, 'private', 'x5.db');
+  openScores(fresh).close();
+  ok((statSync(fresh).mode & 0o777) === 0o600 && (statSync(join(dir, 'private')).mode & 0o777) === 0o700, 'a new database is private');
+  chmodSync(fresh, 0o644);
+  openScores(fresh).close();
+  ok((statSync(fresh).mode & 0o777) === 0o600, 'an existing database is made private');
+
   const file = join(dir, 'old.db'), old = new DatabaseSync(file);
   old.exec(`CREATE TABLE scores (id INTEGER PRIMARY KEY, name TEXT NOT NULL, time REAL NOT NULL, kills INTEGER NOT NULL, level INTEGER NOT NULL,
     earned INTEGER NOT NULL, seed TEXT NOT NULL DEFAULT '', daily TEXT NOT NULL DEFAULT '', at TEXT NOT NULL DEFAULT (datetime('now')));
