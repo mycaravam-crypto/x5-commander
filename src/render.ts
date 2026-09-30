@@ -81,6 +81,7 @@ for (const g of Object.values(GEOS)) g.computeVertexNormals();
 const KIND_COL: Record<EnemyKind, number> = {
   scout: 0x6d7064, drone: 0x5f625b, decoy: 0x5f625b, swarm: 0x2e2f2c, tank: 0x4d5a3c, ew: 0x5a6446, elite: 0x7b8792, arm: 0xe2dfd4, tbm: 0xd6d6cb, cruise: 0xbabdb5, atgm: 0xd8d4c4, kab: 0x55584e,
   recon: 0x8a8f86, ka52: 0x46503a, hyper: 0xdcdcd2, mald: 0xbabdb5, su25: 0x6b7560, rocket: 0xcfcabb, sead: 0x8994a0, arm2: 0xe6e2d6,
+  walker: 0x7a7d70, gunbot: 0x5d6552, mech: 0x4c5046,
 };
 
 const GRADE = {
@@ -605,12 +606,41 @@ export function createRenderer() {
         solid(box(0.15, 0.15, 0.5), C.dark, 0.6, 3, 0, g); // binoculars facing out
       } else if (p.k === 'ammo') {
         for (const [x, z, y] of [[-0.35, -0.3, 0.4], [0.35, -0.3, 0.4], [0, 0.35, 0.4], [0, -0.3, 0.85]]) solid(box(0.6, 0.4, 0.5), 0x6a5a3a, x, y, z, g);
+      } else if (p.k === 'wire') { // concertina wire: coils strung across the approach between pickets
+        for (let i = 0; i < 6; i++) solid(new THREE.TorusGeometry(0.28, 0.025, 4, 12), C.metal, 0.7, 0.32, -1.1 + i * 0.44, g);
+        for (const z of [-1.2, 0, 1.2]) solid(box(0.05, 0.8, 0.05), 0x6b5a40, 0.7, 0.4, z, g);
+      } else if (p.k === 'mines') { // Claymores: curved faces out, on their little legs, firing wire back to the pit
+        for (const z of [-0.6, 0, 0.6]) {
+          solid(new THREE.CylinderGeometry(0.5, 0.5, 0.14, 8, 1, true, -0.35, 0.7).rotateY(Math.PI / 2 + Math.PI), C.olive, 0.3, 0.3, z, g);
+          solid(box(0.03, 0.2, 0.2), C.dark, 0.75, 0.12, z, g);
+        }
+        solid(box(0.7, 0.02, 0.02), C.dark, 0.35, 0.22, 0, g);
+      } else if (p.k === 'gmg') { // Mk 19 on its tripod in a sandbag ring: a fat short barrel and the ammo can
+        solid(new THREE.TorusGeometry(0.72, 0.2, 5, 10).rotateX(Math.PI / 2), C.sand, 0, 0.35, 0, g);
+        const t = group(g, 0, 0.55, 0); aimers.push([t, ry, `pad${p.slot}`]);
+        solid(box(0.55, 0.28, 0.3), MID, 0.05, 0.12, 0, t);
+        solid(new THREE.CylinderGeometry(0.07, 0.07, 0.6, 6).rotateZ(Math.PI / 2), C.dark, 0.55, 0.15, 0, t);
+        solid(box(0.25, 0.22, 0.2), 0x6a5a3a, -0.1, 0.1, 0.27, t);
+      } else if (p.k === 'javelin') { // Javelin team: the launch tube on its command launch unit, raised a little
+        solid(new THREE.TorusGeometry(0.72, 0.2, 5, 10).rotateX(Math.PI / 2), C.sand, 0, 0.35, 0, g);
+        const t = group(g, 0, 0.6, 0); aimers.push([t, ry, `pad${p.slot}`]);
+        const tube = group(t, 0, 0.1, 0); tube.rotation.z = 0.2;
+        solid(new THREE.CylinderGeometry(0.08, 0.08, 1.2, 8).rotateZ(Math.PI / 2), C.olive, 0.2, 0.08, 0, tube);
+        solid(box(0.3, 0.2, 0.22), C.dark, 0.1, -0.1, 0.16, tube); // CLU with its thermal sight
+      } else if (p.k === 'mortar') { // M120: a baseplate, the tube steep up toward the target, its bipod
+        const t = group(g, 0, 0.25, 0); aimers.push([t, ry, `pad${p.slot}`]);
+        solid(new THREE.CylinderGeometry(0.45, 0.5, 0.1, 10), C.dark, 0, 0, 0, t);
+        const tube = group(t, -0.1, 0.05, 0); tube.rotation.z = -0.55;
+        solid(new THREE.CylinderGeometry(0.09, 0.1, 1.6, 8).translate(0, 0.8, 0), C.olive, 0, 0, 0, tube);
+        for (const z of [-0.25, 0.25]) solid(new THREE.CylinderGeometry(0.025, 0.025, 1).rotateX(z > 0 ? -0.35 : 0.35), C.dark, 0.45, 0.45, z, t);
+        for (const [x, z] of [[-0.7, -0.5], [-0.7, 0.5]]) solid(box(0.35, 0.3, 0.3), 0x6a5a3a, x, 0.15, z, g); // ammo boxes
       } else {
         solid(new THREE.CylinderGeometry(0.05, 0.07, 2.4, 5), C.metal, 0, 1.4, 0, g);
         const head = group(g, 0, 2.6, 0); sweepers.push([head, ry]);
         solid(new THREE.ConeGeometry(0.45, 0.3, 8, 1, true).rotateZ(Math.PI / 2), HOT, 0.2, 0, 0, head);
       }
-      if (!GUNS.includes(p.k)) continue;
+      if (!aimT.has(`pad${p.slot}`)) aimT.set(`pad${p.slot}`, p.a); // new guns stand facing out
+      if (!GUNS.includes(p.k) && p.k !== 'mines') continue;
       const out = p.slot === s.selected ? picked : fan;
       fanPts(out, p.k, p.x, p.z, p.a, padStats(s, p).range);
     }
@@ -879,7 +909,7 @@ export function createRenderer() {
   }
 
   const WRECKS: EnemyKind[] = ['scout', 'drone', 'decoy', 'tank', 'ew', 'elite', 'recon', 'ka52', 'su25', 'sead'];
-  const KILL_SHARDS: Record<EnemyKind, number> = { swarm: 4, scout: 6, drone: 8, tank: 16, elite: 24, decoy: 5, arm: 6, ew: 16, tbm: 12, cruise: 8, atgm: 3, kab: 10, recon: 8, ka52: 18, hyper: 14, mald: 6, su25: 20, rocket: 2, sead: 22, arm2: 7 };
+  const KILL_SHARDS: Record<EnemyKind, number> = { swarm: 4, scout: 6, drone: 8, tank: 16, elite: 24, decoy: 5, arm: 6, ew: 16, tbm: 12, cruise: 8, atgm: 3, kab: 10, recon: 8, ka52: 18, hyper: 14, mald: 6, su25: 20, rocket: 2, sead: 22, arm2: 7, walker: 6, gunbot: 10, mech: 22 };
   function consume(s: State) {
     for (const e of s.events) {
       switch (e.k) {
@@ -915,6 +945,13 @@ export function createRenderer() {
           if (p) aimT.set(`pad${p.slot}`, a);
           const tip = (p?.k === 'mg' ? (p.tier === 2 ? 1.65 : 1.15) : 1.9) * PAD_VIS;
           shards(e.x + Math.cos(a) * tip, e.z + Math.sin(a) * tip, 2, C.flash, 3, 0.35, groundY(e.x, e.z) + 0.8, 2);
+          break;
+        }
+        case 'robotFire': { // a walker's burst at one of your units: tracers from its gun, sparks on the unit
+          const y = groundY(e.x, e.z) + 1.3, y2 = groundY(e.x2, e.z2) + 0.8;
+          beam(e.x, y, e.z, e.x2, y2, e.z2, 0.07, 0xff9a4a, 0.1, 2);
+          shards(e.x, e.z, 2, C.flash, 3, 0.3, y, 2);
+          shards(e.x2, e.z2, 3, C.fire, 5, 0.4, y2, 1.5);
           break;
         }
         case 'beam': { // from the HEL (sim fires from the centre), or a hop between contacts (ARC LASER, OVERKILL)
@@ -1163,7 +1200,9 @@ export function createRenderer() {
       const k = shownKind(e), m = enemyMeshes[k];
       if (m.count >= MAX_ENEMIES) continue;
       const ex = e.x + e.vx * lead, ez = e.z + e.vz * lead; // where it is now, between sim ticks
-      const gy = groundY(ex, ez), sz = e.size * VIS, f = fly(e, ex, ez, gy, dt, play), y = f.y, alt = y - gy;
+      const gy = groundY(ex, ez), sz = e.size * VIS, f = fly(e, ex, ez, gy, dt, play), alt = f.y - gy;
+      // A walker bobs with its stride while it moves.
+      const y = f.y + (ENEMIES[k].ground && f.hs > 0.2 ? 0.05 * sz * Math.abs(Math.sin(clock * (4 + f.hs) + e.id)) : 0);
       const pos = ePos[ne++ % MAX_ENEMIES]; pos.x = ex; pos.z = ez; pos.y = y; byId.set(e.id, pos);
       // A classified decoy is drawn as a ghost, so it can't be mistaken for the Shahed it copies.
       const fade = (e.locked ? 1 : Math.max(0.35, Math.min(1, (e.seenUntil - s.t) / 1.5))) * (e.ided ? 0.45 : 1);
@@ -1234,6 +1273,7 @@ export function createRenderer() {
     for (const p of s.shots) {
       const tracer = p.kind === 'tracer', stinger = p.src === 'STINGER', y0 = tracer ? 1 : 1.6;
       let f = shotFx.get(p);
+      if (!f && p.pad !== undefined) aimT.set(`pad${p.pad}`, Math.atan2(p.vz, p.vx)); // the unit's gun swings onto it
       if (!f) { // first frame: pick the launcher facing the shot, flash its muzzle
         const pts = p.src === 'PAC-3' ? pacPts : p.src === 'IRIS-T' ? irisPts : null;
         let o = [p.x, (tracer ? 1 : 1.1) + groundY(p.x, p.z), p.z];
@@ -1257,7 +1297,10 @@ export function createRenderer() {
       const blend = p.kind === 'shell' ? 0.25 : 0.6, u = Math.min(1, f.age / blend), k = (1 - u) * (1 - u) * (1 + 2 * u); // smoothstep out
       const t = byId.get(p.target), ty2 = t ? t.y : y0 + 3;
       const prog = t ? 1 - Math.min(1, Math.hypot(t.x - p.x, t.z - p.z) / f.d0) : Math.min(1, f.age);
-      const x = p.x + p.vx * lead + f.ox * k, y = y0 + (ty2 - y0) * prog + f.oy * k, z = p.z + p.vz * lead + f.oz * k;
+      const x = p.x + p.vx * lead + f.ox * k, z = p.z + p.vz * lead + f.oz * k;
+      // A grenade or mortar round arcs up and comes down on the spot it was aimed at.
+      const arc = p.kind === 'lob' ? Math.min(1, 1 - (p.life - lead) / (p.fly || 1)) : 0;
+      const y = p.kind === 'lob' ? groundY(x, z) + 1 + 4 * (p.apex ?? 2) * arc * (1 - arc) : y0 + (ty2 - y0) * prog + f.oy * k;
       const dx = x - f.px, dy = y - f.py, dz = z - f.pz, moved = dx * dx + dy * dy + dz * dz > 1e-6;
       if (moved && !tracer) {
         if (p.kind === 'shell') beam(f.px, f.py, f.pz, x, y, z, 0.22, C.fire, 0.12, 1.5);
@@ -1267,13 +1310,13 @@ export function createRenderer() {
         }
       }
       f.px = x; f.py = y; f.pz = z;
-      const m = p.kind === 'shell' ? shells : tracer ? tracers : missiles;
+      const m = p.kind === 'shell' || p.kind === 'lob' ? shells : tracer ? tracers : missiles;
       if (m.count >= MAX_SHOTS) continue;
       dummy.position.set(x, y, z);
       if (moved) dummy.lookAt(x + dx, y + dy, z + dz); else dummy.rotation.set(0, Math.atan2(p.vx, p.vz), 0);
       dummy.scale.setScalar(stinger ? 0.7 : 1);
       dummy.updateMatrix(); m.setMatrixAt(m.count, dummy.matrix);
-      m.setColorAt(m.count++, tracer ? tmpC.setHex(0xffc861).multiplyScalar(2) : p.kind === 'shell' ? tmpC.setHex(C.flash).multiplyScalar(2) : tmpC.setHex(0xf2f2ea));
+      m.setColorAt(m.count++, tracer ? tmpC.setHex(0xffc861).multiplyScalar(2) : p.kind === 'shell' ? tmpC.setHex(C.flash).multiplyScalar(2) : p.kind === 'lob' ? tmpC.setHex(0x3a3a33) : tmpC.setHex(0xf2f2ea));
     }
 
     // salvage: tech glows white, a cache gold, the rest olive crates
@@ -1417,7 +1460,10 @@ export function createRenderer() {
       const vy = (f.y - y0) / dt, yaw = angDiff(f.h, h0) / dt;
       f.acc += ((hs - f.hs) / dt - f.acc) * ease(4); f.hs = hs;
       let bank: number, pitch: number;
-      if (heli) {
+      if (ENEMIES[e.kind].ground) {
+        // On foot: upright, with a sway from side to side in step with its stride.
+        bank = hs > 0.2 ? 0.08 * Math.sin(clock * (4 + hs) + e.id) : 0; pitch = 0;
+      } else if (heli) {
         // Sideways speed relative to the nose tilts the disc; forward speed dips the nose, braking lifts it.
         const lat = -Math.sin(f.h) * e.vx + Math.cos(f.h) * e.vz, fwd = Math.cos(f.h) * e.vx + Math.sin(f.h) * e.vz;
         bank = clamp(lat * 0.18 + yaw * 0.3, 0.45); pitch = clamp(-0.1 * fwd + 0.25 * f.acc, 0.35);

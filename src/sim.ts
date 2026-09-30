@@ -3,6 +3,7 @@ import {
   TERRAIN, ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, FANS, beltAt, buildR, BUILD_MIN, PAD_GAP, START_PADS, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, VETERANCY, vetRank, deriveStats, difficulty, BACKUP_RADAR,
   BIG_KILLS, BIG_KILL_SHAKE, DROPS, DROP_KINDS, DROP_GRAB, DROP_MAX, DROP_HEAVY, CACHE, REPAIR_DROP, OVERDRIVE, MILESTONE, rank,
   RADAR_MODES, HPM_CONE, POINT_DEFENCE, SPOT_RINGS, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
+  GROUND, GROUND_LEVELS, GROUND_MODS, GROUND_RAIDS, GROUND_FIRE, AIR_ONLY, GROUND_ONLY, AIR_GUNS, GROUND_GUNS, ANTI_ARMOUR,
   TRAINING, TRAINING_BUILD, TRAINING_SEED, DIVE_SPEED, SHAHED_DIVE, LANCET, HELO, KAB_R, KAB_PAIR, KAB_FIRST, EGRESS_SPEED, TERMINAL, CRUISE_DOGLEG, CRUISE_TERMINAL, KA52, SU25, SEAD, ARM2, ARMS, SWARM, RECON, MASK, IR_SEEKER, horizon, flightAlt, MUNITIONS, AGILITY, HOMING_BOOST, HOMING_SNAP,
   type EnemyKind, type DropKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
 } from './config.ts';
@@ -30,14 +31,17 @@ export interface Enemy {
 // Ka-52 firing from standoff ·
 // egress: heading home after its attack (leaves the arena, no reward)
 export type Act = 'in' | 'loiter' | 'dive' | 'hover' | 'egress';
+// lob: a grenade or mortar round, flying to the point it was aimed at and bursting there when `life` runs out
+// (it hits nothing on the way); `fly` is its whole flight time and `apex` how high it arcs, for the view.
 export interface Shot {
-  kind: 'shell' | 'missile' | 'tracer'; x: number; z: number; vx: number; vz: number;
+  kind: 'shell' | 'missile' | 'tracer' | 'lob'; x: number; z: number; vx: number; vz: number;
   dmg: number; splash: number; life: number; target: number; src: string; // src: weapon, for the debrief
   pad?: number; // slot of the perimeter pad that fired it, credited with the kill
+  fly?: number; apex?: number;
 }
 export type Ev =
   | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect' | 'arm' | 'tbm' | 'cruise' | 'jam' | 'ident' | 'acquire' | 'lost' | 'release' | 'egress' | 'dud' | 'spot' | 'settle'; x: number; z: number; kind?: EnemyKind; n?: number }
-  | { k: 'beam' | 'rail' | 'gun'; x: number; z: number; x2: number; z2: number }
+  | { k: 'beam' | 'rail' | 'gun' | 'robotFire'; x: number; z: number; x2: number; z2: number } // robotFire: a walker shooting at a unit
   | { k: 'raid'; x: number; z: number; name: string }
   | { k: 'package'; x: number; z: number; name: string }
   | { k: 'raidStart'; x: number; z: number; name: string }
@@ -64,16 +68,17 @@ export function rand(r: { seed: number }) {
 // Same seed for everyone on the same (UTC) day.
 export const dailySeed = (date: string) => [...date].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619), 2166136261);
 // Share codes. A normal run is its seed and doctrine (same map, same schedule, same loadout): X5-<seed base 36>-<doctrine #>.
-// A daily op is its date: X5-D20260929. A code is found anywhere in the text, so a whole result line works too.
-export function seedCode(s: { seed: number; daily: string; doctrine: string }) {
-  return s.daily ? `X5-D${s.daily.replaceAll('-', '')}` : `X5-${(s.seed >>> 0).toString(36).toUpperCase()}-${Math.max(0, DOCTRINES.findIndex(d => d.id === s.doctrine))}`;
+// A ground assault is its seed and G: X5-<seed base 36>-G. A daily op is its date: X5-D20260929. A code is found
+// anywhere in the text, so a whole result line works too.
+export function seedCode(s: { seed: number; daily: string; doctrine: string; ground?: boolean }) {
+  return s.daily ? `X5-D${s.daily.replaceAll('-', '')}` : `X5-${(s.seed >>> 0).toString(36).toUpperCase()}-${s.ground ? 'G' : Math.max(0, DOCTRINES.findIndex(d => d.id === s.doctrine))}`;
 }
-export type Code = { kind: 'run'; seed: number; doctrine: string } | { kind: 'daily'; daily: string };
+export type Code = { kind: 'run'; seed: number; doctrine: string; ground: boolean } | { kind: 'daily'; daily: string };
 export function parseCode(text: string): Code | null {
   const d = /X5-D(\d{4})(\d{2})(\d{2})\b/i.exec(text);
   if (d) return { kind: 'daily', daily: `${d[1]}-${d[2]}-${d[3]}` };
-  const n = /X5-([0-9A-Z]{1,7})-(\d)\b/i.exec(text), seed = n ? parseInt(n[1], 36) : NaN;
-  return n && seed <= 0xFFFFFFFF ? { kind: 'run', seed: seed | 0, doctrine: DOCTRINES[+n[2]]?.id ?? 'standard' } : null;
+  const n = /X5-([0-9A-Z]{1,7})-(\d|G)\b/i.exec(text), seed = n ? parseInt(n[1], 36) : NaN, ground = !!n && n[2].toUpperCase() === 'G';
+  return n && seed <= 0xFFFFFFFF ? { kind: 'run', seed: seed | 0, doctrine: ground ? 'standard' : DOCTRINES[+n[2]]?.id ?? 'standard', ground } : null;
 }
 // A friend's pasted result line (hud.resultLine): its code, time survived and kills, for the daily board.
 export function parseResult(text: string) {
@@ -83,15 +88,18 @@ export function parseResult(text: string) {
 
 // The seed drives two separate streams: the spawn schedule and the perk drafts. Everything that depends on
 // how you play (detection rolls, launches) uses Math.random, so it can't shift the schedule.
-// Training (see config TRAINING) always flies STANDARD over its own map.
-export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine = 'standard', training = false) {
-  if (training) { seed = TRAINING_SEED; daily = ''; doctrine = 'standard'; }
+// Training (see config TRAINING) always flies STANDARD over its own map. A ground assault (config GROUND) is a
+// normal run of its own mode, STANDARD too.
+export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine = 'standard', training = false, ground = false) {
+  if (training) { seed = TRAINING_SEED; daily = ''; doctrine = 'standard'; ground = false; }
+  if (ground) { daily = ''; doctrine = 'standard'; }
   const doc = DOCTRINES.find(d => d.id === doctrine && !daily) ?? DOCTRINES[0];
   setMap(seed); // the map comes from the seed too: a daily op flies over the same ground for everyone
   const s = {
     phase: 'start' as Phase,
     daily, // date of the daily op, '' for a normal run
     training, // the first-run drill: scripted waves, can't be lost, no records
+    ground, // GROUND ASSAULT: walkers instead of aircraft, only the perimeter can fight them
     doctrine: doc.id,
     seed,
     world: { seed }, // normal waves; reseeded per level (see nextStage)
@@ -179,22 +187,25 @@ const pick = <T>(r: { seed: number }, a: T[]) => a[Math.floor(rand(r) * a.length
 export const visible = (s: State, e: Enemy) => e.locked || e.seenUntil > s.t;
 const NO_MOD: Mod = { name: '', desc: '' };
 // Scripted levels first, then SEAD's mix under a looping condition, with flank threats from every direction.
-export const phase = (s: State) => stageInfo(s.stage);
-export function stageInfo(i: number) {
-  if (i < LEVELS.length) return { ...LEVELS[i], mod: NO_MOD };
-  const last = LEVELS[LEVELS.length - 1], mod = MODS[(i - LEVELS.length) % MODS.length], w = { ...last.w };
+// A ground assault has levels and conditions of its own (GROUND_LEVELS, GROUND_MODS): no packages, no jammers.
+export const phase = (s: State) => stageInfo(s.stage, s.ground);
+export function stageInfo(i: number, ground = false) {
+  const levels = ground ? GROUND_LEVELS : LEVELS, mods = ground ? GROUND_MODS : MODS;
+  if (i < levels.length) return { ...levels[i], mod: NO_MOD };
+  const last = levels[levels.length - 1], mod = mods[(i - levels.length) % mods.length], w = { ...last.w };
   for (const [k, v] of Object.entries(mod.w ?? {}) as [EnemyKind, number][]) w[k] = (w[k] ?? 0) + v;
-  const loop = i - LEVELS.length; // packages and jammers get likelier every level past the scripted ones
+  if (ground) return { name: mod.name, desc: mod.desc, w, mod, pk: 0, arc: Math.PI, rate: last.rate };
+  const loop = i - levels.length; // packages and jammers get likelier every level past the scripted ones
   w.ew = (w.ew ?? 0) + Math.min(EW_MAX, EW_GROW * (loop + 1));
   return { name: mod.name, desc: mod.desc, w, mod, pk: Math.min(PK_MAX, (last.pk ?? 0) + PK_GROW * (loop + 1)), arc: Math.PI };
 }
 // Half-width around FRONT that flank threats can come from in level i.
-export const flankArc = (i: number) => Math.max(FRONT_ARC, stageInfo(i).arc ?? 0);
+export const flankArc = (i: number, ground = false) => Math.max(FRONT_ARC, stageInfo(i, ground).arc ?? 0);
 // Bearing for a group of `kinds` from one uniform draw `r`: the front, unless everything in it can fly round the
 // flanks (an escort jammer goes wherever its group does). One draw per bearing keeps the seeded streams in step.
-export function spawnBearing(i: number, kinds: EnemyKind[], r: number) {
+export function spawnBearing(i: number, kinds: EnemyKind[], r: number, ground = false) {
   const flank = kinds.every(k => k === 'ew' || ENEMIES[k].flank) && kinds.some(k => k !== 'ew');
-  return FRONT + (r * 2 - 1) * (flank ? flankArc(i) : FRONT_ARC);
+  return FRONT + (r * 2 - 1) * (flank ? flankArc(i, ground) : FRONT_ARC);
 }
 export const phaseName = (s: State) => s.training ? `T${s.stage + 1} ${TRAINING[s.stage].name}` : `L${s.stage + 1} ${phase(s).name}`;
 export const building = (s: State) => s.buildUntil > 0;
@@ -249,10 +260,14 @@ export function horizonMask(e: Enemy, r2: number) {
 // ---------- player actions ----------
 
 // Why an upgrade can't be bought right now ('' = it can).
+// A system the mode doesn't use (config AIR_ONLY, GROUND_ONLY) is OTHER MODE: left out of the shop altogether.
+export const OTHER_MODE = 'OTHER MODE';
 export const lockReason = (s: State, id: string) => {
   const u = UPGRADES.find(u => u.id === id)!;
+  if ((s.ground ? AIR_ONLY : GROUND_ONLY).includes(id)) return OTHER_MODE;
   if (u.req && s.level < u.req) return `BASE LV ${u.req}`;
-  if (u.needs && !s.lv[u.needs]) return `NEEDS ${u.needs === 'pac3' ? 'PATRIOT' : u.needs.toUpperCase()}`;
+  // On the ground, power and the magazine don't wait for the radar or the Patriot they're part of in the air.
+  if (u.needs && !s.lv[u.needs] && !(s.ground && AIR_ONLY.includes(u.needs))) return `NEEDS ${u.needs === 'pac3' ? 'PATRIOT' : u.needs.toUpperCase()}`;
   if (id === 'sweep' && !s.lv.aesa && (s.lv.sweep ?? 0) >= SWEEP_CAP) return 'NEEDS AESA';
   if (PERIM_KINDS.includes(id as PerimKind)) {
     if (s.placing) return 'PLACING';
@@ -313,8 +328,10 @@ export function draft(s: State) {
 
 // ---------- emplacements ----------
 
+// belt: rounds left on an MG's or a Mk 19's belt; charges left on a Claymore belt.
+const fullBelt = (k: PerimKind) => k === 'mines' ? GROUND_FIRE.mines.charges : k === 'gmg' ? GROUND_FIRE.gmg.belt : MG_BELT.rounds;
 function putPad(s: State, k: PerimKind, x: number, z: number, paid: number) {
-  s.perim.push({ k, x, z, a: Math.atan2(z, x), slot: s.padSeq++, cd: 0, belt: MG_BELT.rounds, hp: PAD_HP, tier: 0, paid, down: false, site: site(x, z), kills: 0 });
+  s.perim.push({ k, x, z, a: Math.atan2(z, x), slot: s.padSeq++, cd: 0, belt: fullBelt(k), hp: PAD_HP, tier: 0, paid, down: false, site: site(x, z), kills: 0 });
 }
 // Why a unit can't stand at (x, z), or '' if it can. `self`: the unit being moved (its own spot doesn't count).
 export function buildBlock(s: State, x: number, z: number, self = -1) {
@@ -390,7 +407,7 @@ export function spotScore(s: State, k: PerimKind, x: number, z: number) {
   if (k === 'ammo') return guns.filter(q => (q.x - x) ** 2 + (q.z - z) ** 2 <= AMMO_R ** 2).length + 0.01 * Math.hypot(x, z);
   if (k === 'observer') return guns.filter(q => (q.x - x) ** 2 + (q.z - z) ** 2 <= OBSERVER_EYES ** 2).length + 0.05 * Math.hypot(x, z);
   // Bearings across the threat arc: one it covers that nothing covers yet is worth 1, crossfire on a covered one 0.3.
-  const range = (k === 'mg' ? MG_TIERS[0].range : PERIM[k].range) * siteRange(site(x, z)), arc = Math.min(Math.PI, Math.max(FRONT_ARC, flankArc(s.stage)) + 0.2);
+  const range = (k === 'mg' ? MG_TIERS[0].range : PERIM[k].range) * siteRange(site(x, z)), arc = Math.min(Math.PI, Math.max(FRONT_ARC, flankArc(s.stage, s.ground)) + 0.2);
   const gr = guns.map(q => padStats(s, q).range);
   let score = 0;
   for (let i = 0; i <= 24; i++) {
@@ -689,7 +706,7 @@ function logLevel(s: State, end: 'held' | 'lost' | 'fell') {
 function endStage(s: State, held: boolean, n = held ? BUILD_TIME : BUILD_LOST) {
   logLevel(s, held ? 'held' : 'lost');
   s.buildUntil = s.t + n;
-  for (const p of s.perim) { p.hp = PAD_HP; p.down = false; } // the build window puts every unit back up
+  for (const p of s.perim) { p.hp = PAD_HP; p.down = false; if (p.k === 'mines') p.belt = fullBelt(p.k); } // the build window puts every unit back up, mines re-laid
   s.events.push({ k: 'build', n });
 }
 function nextStage(s: State) {
@@ -697,7 +714,7 @@ function nextStage(s: State) {
   // How long the last level took depends on play; reseeding per level keeps each level's waves the same for everyone.
   s.world.seed = s.seed ^ Math.imul(s.stage, 0x9E3779B1);
   s.nextRaid = s.t + LEVEL_LEN;
-  s.nextElite = s.stage >= ELITE_FROM ? s.t + LEVEL_LEN / 2 : Infinity;
+  s.nextElite = s.stage >= ELITE_FROM && !s.ground ? s.t + LEVEL_LEN / 2 : Infinity;
   s.stageAt = s.t; s.drill = 0;
   if (s.training) grant(s, TRAINING[s.stage].grant ?? []);
   s.events.push({ k: 'stage', name: phaseName(s) });
@@ -735,14 +752,14 @@ function spawn(s: State, dt: number) {
     s.spawnAcc--;
     const pkgs = PACKAGES.filter(p => s.stage >= p.from);
     if (pk && pkgs.length && rw() < pk) {
-      const p = pick(s.world, pkgs), a = spawnBearing(s.stage, Object.keys(p.g) as EnemyKind[], rw());
+      const p = pick(s.world, pkgs), a = spawnBearing(s.stage, Object.keys(p.g) as EnemyKind[], rw(), s.ground);
       spawnGroup(s, p.g, a, 1, rw);
       s.events.push({ k: 'package', x: Math.cos(a) * ARENA_R, z: Math.sin(a) * ARENA_R, name: p.name });
       continue;
     }
     let r = rw() * total, kind: EnemyKind = 'drone';
     for (const k of KINDS) { r -= w[k] ?? 0; if (r <= 0) { kind = k; break; } }
-    const a = spawnBearing(s.stage, [kind], rw()), P = ENEMIES[kind].packs;
+    const a = spawnBearing(s.stage, [kind], rw(), s.ground), P = ENEMIES[kind].packs;
     const n = P ? P[0] + Math.floor(rw() * (P[1] - P[0] + 1)) : ENEMIES[kind].pack; // only a ranged pack draws, so other spawns keep their streams
     for (let i = 0; i < n; i++) spawnEnemy(s, kind, a + (rw() - 0.5) * 0.15, ARENA_R + 2 + rw() * 6, rw);
   }
@@ -754,7 +771,7 @@ function spawn(s: State, dt: number) {
   }
   if (!s.raid && s.t >= s.nextRaid - RAID_WARN - s.st.raidWarn) {
     // Pool, bearing and size go by the level, not the clock, so pacing can't change them.
-    const r = pick(s.raidRng, RAIDS.filter(r => s.stage >= r.from)), a = spawnBearing(s.stage, Object.keys(r.g) as EnemyKind[], rand(s.raidRng));
+    const r = pick(s.raidRng, (s.ground ? GROUND_RAIDS : RAIDS).filter(r => s.stage >= r.from)), a = spawnBearing(s.stage, Object.keys(r.g) as EnemyKind[], rand(s.raidRng), s.ground);
     // Same rounding spawnGroup will use at arrival, so the briefing matches what shows up.
     const scale = raidScale(s.stage), n: Partial<Record<EnemyKind, number>> = {};
     let reward = 0;
@@ -819,6 +836,10 @@ function moveEnemies(s: State, dt: number) {
         s.stats.armsEvaded++;
         removeAt(s, i); continue;
       }
+    } else if (ENEMIES[e.kind].ground) {
+      const w = walk(s, e, d, nx, nz, dt);
+      if (w === 'gone') { removeAt(s, i); continue; }
+      if (w === 'close') homing = 2;
     } else if (e.act === 'egress') {
       // Heading home: straight out, and gone at the rim. A Su-25 with a pass left breaks away, banks round far enough
       // out and comes back in for the next one.
@@ -989,6 +1010,54 @@ function moveEnemies(s: State, dt: number) {
   }
 }
 
+// GROUND ASSAULT: a robot on foot (config GROUND). Sets the velocity it wants for steer() to ease into.
+// 'gone': a light walker's charge went off on a unit · 'close': it's on top of the unit it charges (no easing).
+function walk(s: State, e: Enemy, d: number, nx: number, nz: number, dt: number): 'gone' | 'close' | '' {
+  const scale = e.dmg / (ENEMIES[e.kind].dmg || 1); // what the war has added to its punch (difficulty)
+  const sp = e.speed * (GROUND.terrain[ground(e.x, e.z)] ?? 1) * (wired(s, e) ? GROUND.wire : 1) * (jammed(s, e) ? JAM_SLOW : 1);
+  const wob = weave(s.t, 1.2, e.wob) * ENEMIES[e.kind].wobble * Math.min(1, d / 20);
+  let dx = nx, dz = nz, go = sp;
+  e.act = 'in';
+  if (e.kind === 'walker') {
+    // Charges the nearest unit it can see (from further off if it's on high ground), and blows its charge on it.
+    let tgt: Pad | undefined, bd = Infinity;
+    for (const p of s.perim) {
+      if (p.down) continue;
+      const dd = (p.x - e.x) ** 2 + (p.z - e.z) ** 2, r = GROUND.seek * (p.site === 'high' ? TERRAIN.high.dive : 1);
+      if (dd < r * r && dd < bd) { bd = dd; tgt = p; }
+    }
+    if (tgt) {
+      const dd = Math.sqrt(bd) || 1;
+      if (dd < 1.2) { hitPad(s, tgt, e.dmg * 1.5); s.events.push({ k: 'hit', x: e.x, z: e.z, n: 1.5 }); return 'gone'; }
+      dx = (tgt.x - e.x) / dd; dz = (tgt.z - e.z) / dd; e.act = 'dive';
+      e.vx = dx * sp * 1.2; e.vz = dz * sp * 1.2;
+      return dd < HOMING_SNAP ? 'close' : '';
+    }
+  } else {
+    // Combat walkers stop to shoot at the nearest unit in reach; heavy walkers shoot on the move.
+    const G = e.kind === 'mech' ? GROUND.mech : GROUND.gun;
+    let tgt: Pad | undefined, bd = G.reach ** 2;
+    for (const p of s.perim) { const dd = (p.x - e.x) ** 2 + (p.z - e.z) ** 2; if (!p.down && dd < bd) { bd = dd; tgt = p; } }
+    e.cd -= dt;
+    if (tgt) {
+      if (e.kind === 'gunbot') { go = 0; e.act = 'hover'; }
+      if (e.cd <= 0) {
+        e.cd = G.every;
+        s.events.push({ k: 'robotFire', x: e.x, z: e.z, x2: tgt.x, z2: tgt.z });
+        hitPad(s, tgt, G.dmg * scale);
+      }
+    }
+  }
+  e.vx = dx * go - dz * wob * Math.min(1, go);
+  e.vz = dz * go + dx * wob * Math.min(1, go);
+  return '';
+}
+// Inside concertina wire (GROUND ASSAULT): walkers wade through it slowly.
+function wired(s: State, e: Enemy) {
+  const r2 = PERIM.wire.range ** 2;
+  return s.perim.some(p => p.k === 'wire' && up(p) && (e.x - p.x) ** 2 + (e.z - p.z) ** 2 < r2);
+}
+
 // A lateral weave that doesn't look machine-made: two tones, the second off the first's beat, each airframe
 // on its own phase and a slightly different tempo. Stays within ±1 like the sine it replaces.
 function weave(t: number, f: number, ph: number) {
@@ -1067,6 +1136,7 @@ function perimeter(s: State, dt: number) {
   for (const p of s.perim) {
     p.hp = Math.min(PAD_HP, p.hp + PAD_REPAIR * dt);
     if (p.down && p.hp >= PAD_HP / 2) { p.down = false; s.events.push({ k: 'padUp', x: p.x, z: p.z, n: 0, kind: p.k }); }
+    if (p.k === 'mines') claymore(s, p, dt);
   }
   const guns = s.perim.filter(p => GUNS.includes(p.k) && up(p));
   const stats = guns.map(p => padStats(s, p));
@@ -1076,13 +1146,16 @@ function perimeter(s: State, dt: number) {
     p.cd = Math.max(0, p.cd - dt);
     if (p.cd > 0 || s.ammo < w.ammo) return;
     const r2 = w.range ** 2;
-    let best: Enemy | null = null, bd = r2, brank = 2;
+    let best: Enemy | null = null, bd = r2, brank = 9;
     for (const e of s.enemies) {
       // Out of reach first: the cheap test, and it rules out most of a big swarm.
       const d = (e.x - p.x) ** 2 + (e.z - p.z) ** 2;
       if (d > r2 || !visible(s, e) || e.ided || e.incoming >= e.hp && e !== ic || ENEMIES[e.kind].pacOnly) continue;
+      if (ENEMIES[e.kind].ground ? AIR_GUNS.includes(p.k) : GROUND_GUNS.includes(p.k)) continue; // SAMs at aircraft, ground weapons at walkers
+      if (p.k === 'mortar' && d < GROUND_FIRE.mortar.min ** 2) continue; // too close for indirect fire
       if (ic && e !== ic && (ic.x - p.x) ** 2 + (ic.z - p.z) ** 2 < bd) continue; // intercept target in reach: only it
-      const rank = p.k === 'iris' && isMissile(e) ? 0 : 1; // the SAM takes missiles first
+      // The SAM takes missiles first; the Javelin the heaviest armour first.
+      const rank = p.k === 'iris' ? (isMissile(e) ? 0 : 1) : p.k === 'javelin' ? ((ENEMIES[e.kind].armour ?? 1) < 0.6 ? 0 : ENEMIES[e.kind].armour ? 1 : 2) : 1;
       if (!covers(p, e.x, e.z, w.range) || rank > brank || rank === brank && d >= bd) continue;
       bd = d; best = e; brank = rank;
     }
@@ -1090,13 +1163,21 @@ function perimeter(s: State, dt: number) {
     const t = best;
     s.ammo -= w.ammo; p.cd = 1 / w.rate;
     // Belt empty: reload. Slower out on the forward line, twice as fast with an ammo point in reach or on a road.
-    if (p.k === 'mg' && --p.belt <= 0) {
-      p.belt = MG_BELT.rounds;
-      p.cd = MG_BELT.reload * (nearAmmo(s, p) || p.site === 'road' ? AMMO_RELOAD : beltOf(p) === 'fwd' ? FWD_RELOAD : 1);
+    if ((p.k === 'mg' || p.k === 'gmg') && --p.belt <= 0) {
+      p.belt = fullBelt(p.k);
+      p.cd = (p.k === 'gmg' ? GROUND_FIRE.gmg.reload : MG_BELT.reload) * (nearAmmo(s, p) || p.site === 'road' ? AMMO_RELOAD : beltOf(p) === 'fwd' ? FWD_RELOAD : 1);
     }
     // Crossfire: the target is inside another gun's field of fire as well.
     const dmg = w.dmg * (guns.some((q, qi) => q !== p && covers(q, t.x, t.z, stats[qi].range)) ? 1 + CROSSFIRE : 1) * (p.k === 'stinger' || p.k === 'iris' ? irHit(t) : 1);
-    if (p.k === 'mg' || p.k === 'mantis') {
+    if (p.k === 'gmg' || p.k === 'mortar') {
+      // Lobbed onto where the target will be when the round comes down; it bursts there, hit or miss.
+      const G = p.k === 'gmg' ? GROUND_FIRE.gmg : GROUND_FIRE.mortar;
+      const fly = p.k === 'gmg' ? Math.sqrt(bd) / GROUND_FIRE.gmg.speed : GROUND_FIRE.mortar.flight;
+      const ax = best.x + best.vx * fly, az = best.z + best.vz * fly;
+      s.shots.push({ kind: 'lob', x: p.x, z: p.z, vx: (ax - p.x) / fly, vz: (az - p.z) / fly, dmg, splash: G.splash, life: fly, target: best.id, src: p.k === 'gmg' ? 'MK 19' : 'M120 MORTAR', pad: p.slot, fly, apex: p.k === 'gmg' ? 1.5 : GROUND_FIRE.mortar.apex });
+      best.incoming += dmg;
+      s.events.push(p.k === 'gmg' ? { k: 'gun', x: p.x, z: p.z, x2: best.x, z2: best.z } : { k: 'shot', x: p.x, z: p.z });
+    } else if (p.k === 'mg' || p.k === 'mantis') {
       // 12.7mm / 35mm tracer round, led like the PAC-3 so it actually connects
       const sp = 70, tt = Math.sqrt(bd) / sp;
       const dx = best.x + best.vx * tt - p.x, dz = best.z + best.vz * tt - p.z, d = Math.hypot(dx, dz) || 1;
@@ -1105,12 +1186,28 @@ function perimeter(s: State, dt: number) {
       s.events.push({ k: 'gun', x: p.x, z: p.z, x2: best.x, z2: best.z });
     } else {
       const d = Math.sqrt(bd) || 1;
-      const sp = p.k === 'iris' ? 25 : 15;
-      s.shots.push({ kind: 'missile', x: p.x, z: p.z, vx: (best.x - p.x) / d * sp, vz: (best.z - p.z) / d * sp, dmg, splash: 0, life: 3, target: best.id, src: p.k === 'iris' ? 'IRIS-T SLM' : 'STINGER', pad: p.slot });
+      const sp = p.k === 'iris' ? 25 : p.k === 'javelin' ? 18 : 15;
+      s.shots.push({ kind: 'missile', x: p.x, z: p.z, vx: (best.x - p.x) / d * sp, vz: (best.z - p.z) / d * sp, dmg, splash: 0, life: 3, target: best.id, src: p.k === 'iris' ? 'IRIS-T SLM' : p.k === 'javelin' ? 'JAVELIN' : 'STINGER', pad: p.slot });
       best.incoming += dmg;
       s.events.push({ k: 'missile', x: p.x, z: p.z });
     }
   });
+}
+
+// Claymore belt: a walker stepping into its arc sets off a charge, which blasts every walker in the arc. No eyes
+// needed (it's a tripwire). Spent charges are re-laid one at a time, and all of them in the build window.
+function claymore(s: State, p: Pad, dt: number) {
+  const M = GROUND_FIRE.mines;
+  p.belt = Math.min(M.charges, p.belt + dt / M.relay);
+  p.cd = Math.max(0, p.cd - dt);
+  if (p.down || p.cd > 0 || p.belt < 1) return;
+  const w = padStats(s, p), inArc = s.enemies.filter(e => ENEMIES[e.kind].ground && covers(p, e.x, e.z, w.range));
+  if (!inArc.length) return;
+  p.belt--; p.cd = 0.4;
+  const a = p.a, r = w.range * 0.5;
+  s.events.push({ k: 'hit', x: p.x + Math.cos(a) * r, z: p.z + Math.sin(a) * r, n: w.range * 0.6 });
+  s.shake = Math.min(1.5, s.shake + 0.15);
+  for (const e of inArc) damage(s, e, w.dmg, 'CLAYMORE', p.slot);
 }
 
 // The enemy presses the advantage: no bonus, and a short build window before the next level.
@@ -1171,7 +1268,7 @@ function backupRadar(s: State, dt: number) {
 // Eyes: anything close to the base or to an emplacement is seen, radar or not (NIGHT RAID shortens it).
 function spot(s: State) {
   const k = phase(s).mod.dark ? VISUAL_DARK : 1, b2 = (VISUAL_R * k) ** 2;
-  const eyes = s.perim.filter(up).map(p => ({ x: p.x, z: p.z, r2: ((p.k === 'observer' ? OBSERVER_EYES : PAD_EYES) * siteRange(p.site) * k) ** 2 }));
+  const eyes = s.perim.filter(up).map(p => ({ x: p.x, z: p.z, r2: ((p.k === 'observer' ? OBSERVER_EYES : p.k === 'javelin' ? GROUND_FIRE.javelinEyes : PAD_EYES) * siteRange(p.site) * k) ** 2 }));
   // Past this far out no unit's eyes reach (its distance out plus its eyesight, a hair over): skip the per-unit test.
   let reach = 0;
   for (const p of eyes) reach = Math.max(reach, Math.hypot(p.x, p.z) + Math.sqrt(p.r2) + 1e-3);
@@ -1271,7 +1368,7 @@ function track(s: State, dt: number) {
     // behind the one met earlier. The same picks, in the same order, as taking the best one slot at a time.
     const k = n - locks, top: Enemy[] = [], ts: number[] = [];
     for (const e of s.enemies) {
-      if (e.locked || e.ided || e.seenUntil <= s.t || e.incoming >= e.hp || e.x * e.x + e.z * e.z > tr2) continue;
+      if (e.locked || e.ided || e.seenUntil <= s.t || e.incoming >= e.hp || e.x * e.x + e.z * e.z > tr2 || ENEMIES[e.kind].ground) continue; // fire control is for aircraft
       const sc = score(s, e);
       if (!(sc > -Infinity) || top.length === k && sc <= ts[k - 1]) continue;
       let i = top.length;
@@ -1312,10 +1409,10 @@ function fire(s: State, dt: number) {
       let bd = r2;
       for (const o of s.enemies) {
         const d = o.x * o.x + o.z * o.z;
-        if (d <= bd && visible(s, o) && !o.ided && !ENEMIES[o.kind].pacOnly) { bd = d; e = o; }
+        if (d <= bd && visible(s, o) && !o.ided && !ENEMIES[o.kind].pacOnly && !ENEMIES[o.kind].ground) { bd = d; e = o; }
       }
     } else {
-      const inRange = targets.filter(e => e.x * e.x + e.z * e.z <= r2 && open(e) && (k === 'cannon' || !ENEMIES[e.kind].pacOnly));
+      const inRange = targets.filter(e => e.x * e.x + e.z * e.z <= r2 && open(e) && (k === 'cannon' || !ENEMIES[e.kind].pacOnly) && !ENEMIES[e.kind].ground);
       e = inRange[wi++ % Math.max(1, inRange.length)];
     }
     if (!e) continue;
@@ -1396,6 +1493,15 @@ function moveShots(s: State, dt: number) {
       }
     }
     p.x += p.vx * dt; p.z += p.vz * dt;
+    if (p.kind === 'lob') { // comes down where it was aimed and bursts
+      if (p.life > 0) continue;
+      const t = target(p.target);
+      if (t) t.incoming = Math.max(0, t.incoming - p.dmg);
+      explode(s, p.x, p.z, p.splash, p.dmg, p.src, p.pad);
+      s.shots[i] = s.shots[s.shots.length - 1];
+      s.shots.pop();
+      continue;
+    }
     let hit: Enemy | null = null;
     for (const e of s.enemies) {
       if (p.kind !== 'shell' && ENEMIES[e.kind].pacOnly) continue; // flies straight through anything else
@@ -1406,7 +1512,7 @@ function moveShots(s: State, dt: number) {
       const t = target(p.target);
       if (t) t.incoming = Math.max(0, t.incoming - p.dmg);
       if (hit) {
-        if (p.splash) explode(s, p.x, p.z, p.splash, p.dmg, p.src);
+        if (p.splash) explode(s, p.x, p.z, p.splash, p.dmg, p.src, p.pad);
         else damage(s, hit, p.dmg, p.src, p.pad);
         if (p.kind === 'shell' && s.st.frag) explode(s, p.x, p.z, 2.5, p.dmg * s.st.frag, p.src);
       }
@@ -1416,15 +1522,19 @@ function moveShots(s: State, dt: number) {
   }
 }
 
-function explode(s: State, x: number, z: number, r: number, dmg: number, src: string) {
+function explode(s: State, x: number, z: number, r: number, dmg: number, src: string, pad?: number) {
   s.events.push({ k: 'hit', x, z, n: r });
-  for (const e of [...s.enemies]) if ((e.x - x) ** 2 + (e.z - z) ** 2 < (r + e.size) ** 2) damage(s, e, dmg, src);
+  for (const e of [...s.enemies]) if ((e.x - x) ** 2 + (e.z - z) ** 2 < (r + e.size) ** 2) damage(s, e, dmg, src, pad);
 }
 
 // pad: the slot of the perimeter pad that dealt the blow, credited with the kill.
 function damage(s: State, e: Enemy, dmg: number, src: string, pad?: number) {
   if (e.hp <= 0) return; // already dead this frame
-  if (ENEMIES[e.kind].pacOnly && src !== 'PAC-3') return;
+  const T = ENEMIES[e.kind];
+  if (T.pacOnly && src !== 'PAC-3') return;
+  if (T.ground && pad === undefined) return; // walkers: only the perimeter can engage them
+  // Armour: guns and grenades do part; the Javelin, the mortar and mines go through it.
+  if (T.armour && !ANTI_ARMOUR.includes(s.perim.find(p => p.slot === pad)?.k as PerimKind)) dmg *= T.armour;
   if (e.id === s.marked) dmg *= PRIORITY_DMG * s.st.markDmg;
   s.stats.dmg[src] = (s.stats.dmg[src] ?? 0) + Math.min(dmg, e.hp);
   e.hp -= dmg;

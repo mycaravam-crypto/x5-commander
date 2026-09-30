@@ -117,6 +117,7 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #shop h4::before { content: '// '; }
 #shop h4 i { font-style: normal; color: var(--alert); opacity: 0.6; letter-spacing: 0.08em; }
 #shop button.needs { display: none; }
+#shop button.off, #shop section.off { display: none; } /* systems the mode (air or ground) has no use for */
 #shop section.shut h4 { opacity: 0.6; }
 #shop button { all: unset; display: grid; grid-template-columns: 1fr auto auto; gap: 8px; width: 100%; box-sizing: border-box;
   padding: 4px 6px; cursor: pointer; opacity: 0.4; border-left: 2px solid transparent; }

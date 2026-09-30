@@ -102,6 +102,7 @@ export function play(k: string, e: { n?: number; star?: boolean; drop?: string; 
     case 'shot': tone(220, 0.08, 'square', 0.025, 70); break;
     case 'missile': tone(200, 0.25, 'sawtooth', 0.02, 700); break;
     case 'gun': noise(0.04, 0.02, 3000); break;
+    case 'robotFire': noise(0.06, 0.015, 1400); break; // a walker's burst, lower than your own guns
     case 'beam': tone(1400, 0.06, 'sine', 0.025, 900); break;
     case 'rail': tone(90, 0.4, 'sawtooth', 0.08, 40); noise(0.3, 0.1, 4000); break;
     case 'dud': noise(0.12, 0.05, 600); break;

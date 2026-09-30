@@ -27,7 +27,8 @@ const DEG = Math.PI / 180;
 export const bearing = (x: number, z: number) => ((Math.atan2(z, x) * 180 / Math.PI) % 360 + 360) % 360;
 
 export type EnemyKind = 'scout' | 'drone' | 'swarm' | 'tank' | 'elite' | 'decoy' | 'arm' | 'ew' | 'tbm' | 'cruise' | 'atgm' | 'kab'
-  | 'recon' | 'ka52' | 'hyper' | 'mald' | 'su25' | 'rocket' | 'sead' | 'arm2';
+  | 'recon' | 'ka52' | 'hyper' | 'mald' | 'su25' | 'rocket' | 'sead' | 'arm2'
+  | 'walker' | 'gunbot' | 'mech'; // GROUND ASSAULT: bipedal robots on foot
 
 export interface EnemyType {
   hp: number; speed: number; reward: number;
@@ -45,6 +46,8 @@ export interface EnemyType {
   padHit?: number; // a munition fired at a unit: how much harder it hits the unit than its damage says
   mimic?: EnemyKind; // a decoy: flies, shows and is announced as this type until fire control classifies it (DECOY_ID)
   drop: number; // chance a kill leaves salvage behind (see DROPS)
+  ground?: boolean; // walks: only perimeter units can engage it (no locks, no battery weapons), see GROUND
+  armour?: number; // damage x from guns and grenades (Javelin, mortar and mines hit it in full, ANTI_ARMOUR)
 }
 
 export const ENEMIES: Record<EnemyKind, EnemyType> = {
@@ -88,9 +91,17 @@ export const ENEMIES: Record<EnemyKind, EnemyType> = {
   // Kh-58UShKE: heavier, longer-burning ARM with a memory seeker. Going dark doesn't make it veer off: it flies on at
   // where it last heard the radar, off by up to ARM2.scatter to the side, so EMCON cuts its odds instead of making it miss (ARM2).
   arm2: { name: 'Kh-58UShKE anti-radiation missile', code: 'KH-58', hp: 6, speed: 11, dmg: 8, reward: 25, size: 0.9, sig: 0.5, ir: 1.4, alt: 8, glow: 1.3, pack: 1, wobble: 0, drop: 0.04 },
+  // GROUND ASSAULT only. Bipedal robots walking in over the ground: under every radar horizon, seen by eye, and
+  // out of reach of the battery's air-defence weapons. Only the perimeter can stop them.
+  // Light walker: comes in packs, charges the nearest unit it sees with a demolition charge (GROUND.seek), else the base.
+  walker: { name: 'Light assault walker (bipedal robot)', code: 'WALKER', hp: 6, speed: 3.2, dmg: 4, reward: 7, size: 0.9, sig: 0.5, ir: 0.6, alt: 0, glow: 0.8, pack: 1, packs: [3, 6], wobble: 0.8, flank: true, ground: true, drop: 0.02 },
+  // Combat walker with a rifle-calibre gun: stops within GROUND.gun.reach of a unit and shoots it up, then walks on.
+  gunbot: { name: 'Armed combat walker (bipedal robot)', code: 'GUNBOT', hp: 18, speed: 2.2, dmg: 8, reward: 20, size: 1.2, sig: 0.7, ir: 0.8, alt: 0, glow: 1, pack: 1, packs: [1, 3], wobble: 0.4, flank: true, ground: true, armour: 0.8, drop: 0.06 },
+  // Heavy assault walker: armoured (small arms do half), slow, fires its cannon at units in reach as it comes on.
+  mech: { name: 'Heavy assault walker (bipedal robot)', code: 'MECH', hp: 110, speed: 1.3, dmg: 30, reward: 90, size: 2.1, sig: 1.3, ir: 1.3, alt: 0, glow: 1.3, pack: 1, wobble: 0, flank: true, ground: true, armour: 0.5, drop: 0.3 },
 };
 // Kills that matter get a bigger blast, a camera shake, a banner and a sound of their own (hud, render, sfx).
-export const BIG_KILLS: Partial<Record<EnemyKind, string>> = { elite: 'SU-34 SPLASHED', ew: 'JAMMER DOWN', tbm: 'BALLISTIC INTERCEPTED', hyper: 'KINZHAL INTERCEPTED', ka52: 'ALLIGATOR DOWN', su25: 'SU-25 SPLASHED', sead: 'SU-35S SPLASHED' };
+export const BIG_KILLS: Partial<Record<EnemyKind, string>> = { elite: 'SU-34 SPLASHED', ew: 'JAMMER DOWN', tbm: 'BALLISTIC INTERCEPTED', hyper: 'KINZHAL INTERCEPTED', ka52: 'ALLIGATOR DOWN', su25: 'SU-25 SPLASHED', sead: 'SU-35S SPLASHED', mech: 'HEAVY WALKER DOWN' };
 export const BIG_KILL_SHAKE = 0.5;
 // Critical-state warnings on the HUD (hud.warnings): shares of capacity a resource is critical below. sweep: radar
 // speed share while power starves it; waiting: contacts in tracking range waiting for a lock while every slot is
@@ -207,6 +218,7 @@ export const AGILITY: Record<EnemyKind, { turn: number; acc: number; hover?: boo
   tbm: { turn: 1.6, acc: 3 }, cruise: { turn: 2.4, acc: 2.5 }, atgm: { turn: 4, acc: 4 }, kab: { turn: 1.2, acc: 1.5 },
   recon: { turn: 0.8, acc: 1 }, ka52: { turn: 0, acc: 1.8, hover: true }, hyper: { turn: 1.2, acc: 3 }, mald: { turn: 2.4, acc: 2.5 },
   su25: { turn: 1.1, acc: 1.5 }, rocket: { turn: 3, acc: 4 }, sead: { turn: 0.8, acc: 1.2 }, arm2: { turn: 0, acc: 0 }, // arm2: flies its own seeker
+  walker: { turn: 0, acc: 5, hover: true }, gunbot: { turn: 0, acc: 3, hover: true }, mech: { turn: 0, acc: 1.5, hover: true }, // on foot: they stop and sidestep
 };
 export const HOMING_BOOST = 3, HOMING_SNAP = 2;
 
@@ -251,6 +263,46 @@ export const TRAINING: Drill[] = [
   { name: 'DECOYS', desc: 'decoys look like Shaheds until classified',
     tip: 'TRAINING 4/4 · DECOYS: Gerbera decoys look exactly like Shaheds and soak up locks. Fire control classifies one after holding it for a moment, then greys it out and releases it. Don\'t waste your priority target on them.',
     spawns: [{ at: 2, kind: 'decoy', n: 1 }, { at: 3, kind: 'drone', n: 1 }, { at: 10, kind: 'decoy', n: 1, off: 0.3 }, { at: 11, kind: 'drone', n: 2, off: 0.3 }, { at: 19, kind: 'decoy', n: 2, off: -0.2 }, { at: 20, kind: 'drone', n: 1, off: -0.2 }] },
+];
+
+// GROUND ASSAULT: a mode of its own (the start screen's [A]). Swarms of bipedal robots walk in over the ground,
+// and nothing but the perimeter can engage them: no radar, no Patriot, no laser or HPM. Its own levels and raids,
+// in the same shape as LEVELS and RAIDS; after the last level, GROUND_MODS loop on top of its mix.
+// Walking: speed x on each kind of ground (a river or pond is waded), x `wire` inside concertina wire, x JAM_SLOW
+// in a jammer bubble (their control links). Light walkers charge a unit they see within `seek` m (a unit on high
+// ground is seen from TERRAIN.high.dive x further). Combat walkers stop within `gun.reach` of a unit and fire bursts
+// of `gun.dmg` every `gun.every` s until it's down. Heavy walkers fire `mech.dmg` at the nearest unit in
+// `mech.reach` every `mech.every` s without stopping. Whatever reaches the base hits it for its `dmg` and is gone.
+export const GROUND = {
+  terrain: { water: 0.35, forest: 0.6, rock: 0.5, road: 1.2, grass: 1, field: 0.9 },
+  wire: 0.35, seek: 8,
+  gun: { reach: 9, every: 1.5, dmg: 2.5 },
+  mech: { reach: 16, every: 4, dmg: 9 },
+};
+// Weapons that go through armour in full (ENEMIES.armour): top-attack missiles, heavy mortar rounds, mines.
+export const ANTI_ARMOUR: PerimKind[] = ['javelin', 'mortar', 'mines'];
+export const GROUND_LEVELS: typeof LEVELS = [
+  { name: 'SKIRMISH', desc: 'packs of light walkers, straight in from the front', w: { walker: 1 }, rate: 0.4 },
+  { name: 'GUN LINE', desc: 'combat walkers stop and shoot your units up', w: { walker: 3, gunbot: 1 }, rate: 0.5 },
+  { name: 'FLANKS', desc: 'walkers from the flanks too', w: { walker: 3, gunbot: 1.5 }, rate: 0.6, arc: 70 * DEG },
+  { name: 'HEAVY WALKERS', desc: 'armoured heavy walkers: small arms do half', w: { walker: 3, gunbot: 1.5, mech: 0.3 }, rate: 0.65, arc: 100 * DEG },
+  { name: 'SWARM', desc: 'the swarm: many more light walkers, from every side', w: { walker: 6, gunbot: 1.5, mech: 0.3 }, rate: 0.8, arc: Math.PI },
+  { name: 'FULL ASSAULT', desc: 'everything at once, from every side', w: { walker: 4, gunbot: 2, mech: 0.6 }, rate: 0.85, arc: Math.PI },
+];
+export const GROUND_MODS: Mod[] = [
+  { name: 'NIGHT ASSAULT', desc: 'you see half as far', dark: true },
+  { name: 'HORDE', desc: 'many more, much weaker', spawn: 1.6, hp: 0.6, w: { walker: 6 } },
+  { name: 'ARMOURED PUSH', desc: 'heavy walkers in numbers', w: { mech: 0.8, gunbot: 1 } },
+  { name: 'LULL', desc: 'fewer walkers · rebuild', spawn: 0.6 },
+  { name: 'GUN LINE', desc: 'combat walkers everywhere', w: { gunbot: 3 } },
+];
+export const GROUND_RAIDS: typeof RAIDS = [
+  { name: 'WALKER RUSH', from: 0, g: { walker: 8 } },
+  { name: 'GUN TEAM', from: 1, g: { gunbot: 3, walker: 4 } },
+  { name: 'PINCER', from: 2, g: { walker: 6, gunbot: 2 } },
+  { name: 'ARMOURED PUSH', from: 3, g: { mech: 1, gunbot: 2, walker: 3 } },
+  { name: 'THE SWARM', from: 4, g: { walker: 16 } },
+  { name: 'HEAVY ASSAULT', from: 5, g: { mech: 2, gunbot: 3, walker: 5 } },
 ];
 
 // Attack packages (`from`: first level index): existing types flying in together from one bearing, each covering another's weakness.
@@ -451,14 +503,27 @@ export const UPGRADES: Upgrade[] = [
   U('PERIMETER', 'jammer', 'EW Jammer', 300, 1.4, Infinity, 'slows contacts nearby, drains power · +1 emplacement', 4),
   U('PERIMETER', 'observer', 'Observer Post', 100, 1.4, Infinity, 'sees 28m round itself, for every gun · +1 emplacement', 2),
   U('PERIMETER', 'ammo', 'Ammo Point', 120, 1.4, Infinity, 'guns within 10m: +25% fire rate, belts reload twice as fast · +1 emplacement', 2),
+  // GROUND ASSAULT only (GROUND_ONLY).
+  U('PERIMETER', 'wire', 'Concertina Wire', 40, 1.3, Infinity, 'obstacle belt: walkers inside 7m wade through at a third of their speed · +1 emplacement'),
+  U('PERIMETER', 'mines', 'M18A1 Claymore Belt', 70, 1.35, Infinity, 'directional mines: blast every walker in the arc that steps within 6m · 4 charges, re-laid over time · +1 emplacement'),
+  U('PERIMETER', 'gmg', 'Mk 19 Grenade Launcher', 110, 1.4, Infinity, '40mm automatic grenades, 18m: splash tears up packs of walkers · +1 emplacement', 2),
+  U('PERIMETER', 'javelin', 'FGM-148 Javelin Team', 200, 1.4, Infinity, 'top-attack missile, 28m, through any armour, heaviest walker first · thermal sight sees 26m · +1 emplacement', 3),
+  U('PERIMETER', 'mortar', 'M120 120mm Mortar', 280, 1.4, Infinity, 'indirect fire, 36m, big splash · can\'t hit inside 9m, needs eyes on the target · +1 emplacement', 4),
 ];
+// Each mode's shop: the air-defence systems are no use against robots on foot, and the ground weapons don't shoot
+// at aircraft. What the mode doesn't use is left out of its shop (sim.lockReason).
+export const AIR_ONLY = ['radar', 'range', 'sweep', 'aesa', 'res', 'persist', 'slots', 'trange', 'modes', 'pac3', 'pulse', 'missile', 'rail', 'stinger', 'iris'];
+export const GROUND_ONLY = ['wire', 'mines', 'gmg', 'javelin', 'mortar'];
 
 // Perimeter emplacements (pads) sit on fixed slots and engage any contact that can be seen (by eye or radar)
 // inside their range and field of fire, without using a lock slot. Support units don't shoot: they boost the
 // units round them. Where a unit goes decides what it covers, what it risks and what it boosts.
-export type PerimKind = 'mg' | 'mantis' | 'stinger' | 'iris' | 'jammer' | 'observer' | 'ammo';
-export const PERIM_KINDS: PerimKind[] = ['mg', 'mantis', 'stinger', 'iris', 'jammer', 'observer', 'ammo'];
-export const GUNS: PerimKind[] = ['mg', 'mantis', 'stinger', 'iris']; // units that shoot: fields of fire, crossfire
+export type PerimKind = 'mg' | 'mantis' | 'stinger' | 'iris' | 'jammer' | 'observer' | 'ammo' | 'wire' | 'mines' | 'gmg' | 'javelin' | 'mortar';
+export const PERIM_KINDS: PerimKind[] = ['mg', 'mantis', 'stinger', 'iris', 'jammer', 'observer', 'ammo', 'wire', 'mines', 'gmg', 'javelin', 'mortar'];
+export const GUNS: PerimKind[] = ['mg', 'mantis', 'stinger', 'iris', 'gmg', 'javelin', 'mortar']; // units that shoot: fields of fire, crossfire
+// Who shoots at what: SAMs and MANPADS only at aircraft; the ground weapons only at walkers. Guns take either.
+export const AIR_GUNS: PerimKind[] = ['stinger', 'iris'];
+export const GROUND_GUNS: PerimKind[] = ['gmg', 'javelin', 'mortar', 'mines'];
 // Visual spotting, radar or not: anything this close to the base, or to an emplacement, is seen. NIGHT RAID x VISUAL_DARK.
 export const VISUAL_R = 18, PAD_EYES = 15, VISUAL_DARK = 0.6; // m (an emplacement sees as far as the MG reaches)
 export const MG_BELT = { rounds: 40, reload: 3 }; // the MG feeds from its own belt, not the interceptor pool; s to reload
@@ -490,7 +555,8 @@ export const START_PADS = [{ x: -4, z: -16 }, { x: 4, z: -16 }]; // close enough
 export const SPOT_RINGS = [14, 22, 30];
 
 // Field of fire: half-width around the unit's facing (away from the base). Math.PI = all round.
-export const FANS: Record<PerimKind, number> = { mg: 60 * DEG, mantis: Math.PI, stinger: 90 * DEG, iris: Math.PI, jammer: Math.PI, observer: Math.PI, ammo: Math.PI };
+export const FANS: Record<PerimKind, number> = { mg: 60 * DEG, mantis: Math.PI, stinger: 90 * DEG, iris: Math.PI, jammer: Math.PI, observer: Math.PI, ammo: Math.PI,
+  wire: Math.PI, mines: 60 * DEG, gmg: 75 * DEG, javelin: 90 * DEG, mortar: Math.PI };
 // Veterancy: a gun gets better with the kills it has scored itself. Ranks by kill count; kept through moves and
 // tier upgrades, lost when the unit is sold.
 export const VETERANCY = [
@@ -510,6 +576,19 @@ export const PERIM = {
   jammer: { dmg: 0, rate: 0, range: 18, ammo: 0, power: 1.2 }, // power/s while anything is in range
   observer: { dmg: 0, rate: 0, range: 0, ammo: 0, power: 0 },
   ammo: { dmg: 0, rate: 0, range: 0, ammo: 0, power: 0 },
+  wire: { dmg: 0, rate: 0, range: 7, ammo: 0, power: 0 },
+  mines: { dmg: 22, rate: 0, range: 6, ammo: 0, power: 0 }, // per charge, to every walker in the arc
+  gmg: { dmg: 3.5, rate: 3, range: 18, ammo: 0, power: 0 }, // splash GROUND_FIRE.gmg; feeds from its own belt
+  javelin: { dmg: 40, rate: 0.3, range: 28, ammo: 2, power: 0 },
+  mortar: { dmg: 16, rate: 0.35, range: 36, ammo: 1, power: 0 },
+};
+// Ground weapons. gmg: grenade splash (m), belt of rounds, s to reload. mortar: splash, minimum range, round's
+// flight time (s), how high it's drawn arcing. mines: charges, s to re-lay one. javelinEyes: m its thermal sight sees.
+export const GROUND_FIRE = {
+  gmg: { splash: 2.2, belt: 32, reload: 4, speed: 35 },
+  mortar: { splash: 4, min: 9, flight: 1.8, apex: 14 },
+  mines: { charges: 4, relay: 15 },
+  javelinEyes: 26,
 };
 // Upgrades in place: a unit gets better in its slot instead of taking another one (tall or wide).
 export const MG_TIERS = [
