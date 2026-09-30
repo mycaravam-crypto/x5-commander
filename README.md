@@ -82,10 +82,10 @@ The base sits on a low plateau in farmland. Ahead, toward the front, a cleared f
 - **Warnings (beside the left panel):** chips for critical states, with an alarm blip as each comes on: hull critical (red), power low / radar starved, interceptors low, locks full with contacts waiting, guns out of ammo, units down. Each stays up a moment after its cause clears. Thresholds are `WARN` in `config.ts`.
 - **Shop:** until the radar is built, PERIMETER comes first. Rows waiting on something you don't own yet (the radar or the Patriot) are folded away, and a group with nothing else left shows only its header and what it needs. The row marked ◆ in amber is the suggested buy for the current bottleneck: a gun while there's a free unit slot, interceptors when the magazine runs low, generator when power starves the radar, hull when HP is low, ECS channels when contacts wait for a lock.
 
-### Starting out: one gun and your eyes
-A run starts with a command post and one **12.7 mm AA machine gun**, dug in on the front. There is no radar and no Patriot yet:
+### Starting out: two guns and your eyes
+A run starts with a command post and a section of two **12.7 mm AA machine guns**, dug in on the front. There is no radar and no Patriot yet:
 - **Eyesight:** anything within 18 m of the base, or 15 m of an emplacement, is seen, radar or not. NIGHT RAID cuts that to 60%. Guns placed further out see further.
-- **The MGs** fire by themselves at whatever they can see within 10 m (eyes reach further than the guns). The two starting guns stand either side of the front axis so their fields of fire cross on it. It feeds from its own 40-round belt, not the interceptor stock, and takes 3 s to reload when the belt runs dry.
+- **The MGs** fire by themselves at whatever they can see within 10 m (eyes reach further than the guns). The two starting guns stand either side of the front axis so their fields of fire cross on it. Each feeds from its own 40-round belt, not the interceptor stock, and takes 3 s to reload when the belt runs dry.
 - **What's off without a radar:** locks, the priority target, radar modes, EMCON and the emergency intercept. ARMs have nothing to home on.
 - **The shop** only offers what helps before the radar: guns and pads, hull, damage and fire rate. Power, sensors and fire control need the radar; the magazine needs the Patriot.
 - **Milestones:** from base level 3 you can buy the **AN/MPQ-65 radar** (search and fire control), then the **PAC-3 MSE battery** (the Patriot, which needs the radar). Radar and Patriot perks only turn up in drafts once you have them.
@@ -218,7 +218,7 @@ A run is a string of **levels**. Each one is 60 s of waves, then the level's **r
 5. **EW AND CRUISE:** cruise missiles going for your units (a few of them Kh-55 decoys), jammer helicopters and Orlan-10 spotters. Up to 120° either side.
 6. **SEAD:** Su-34s, anti-radiation missiles and Iskanders: the Patriot's job. Ka-52s round the flanks, and Su-25 attack runs. From here, every level has a Su-34 strike package halfway through its waves.
 
-The newer threats (Orlan-10, Ka-52, Kh-55 decoy, Kinzhal) only come in from level 5. Levels 1 to 4 bring the same threats as before (FPV packs now vary from 4 to 8).
+The newer threats (Orlan-10, Ka-52, Kh-55 decoy, Su-25, Su-35S, Kinzhal) only come in from level 5. Levels 1 to 4 bring the same threats as before (FPV packs now vary from 4 to 8).
 
 After SEAD, every level adds a **condition** on top of that mix, missiles and drones can come from any direction, and attack packages get more likely. The conditions loop in this order: **NIGHT RAID** (contacts fade twice as fast), **GROUND CLUTTER** (−30% detection), **LULL** (a breather to rebuild), **JAMMING STORM** (more jammer helicopters), **SWARM TIDE** (many more, weaker enemies), **SEAD WAVE** (strike aircraft, Su-35S SEAD fighters, ARMs, cruise missiles and the odd Kinzhal), **EW OFFENSIVE** (jammers, decoys and cruise missiles, −15% detection), **COMBINED ARMS** (Mi-28s, Ka-52s and Su-25s, swarms and cruise missiles together), **EYES IN THE SKY** (Orlan-10 spotters over Lancets and FPVs) and **HYPERSONIC** (Kinzhals among the Iskanders). Past the scripted levels, jammer helicopters also get a little likelier every level (`EW_GROW`, up to `EW_MAX`). Each strike package is announced with a *STRIKE AIRCRAFT* warning.
 
@@ -324,6 +324,9 @@ This section replaces the old `plan-mvp.md`, `plan.md` and `plan-frontline.md`; 
 - **Random maps:** every run's terrain is generated from its seed (`terrain.ts` `setMap`), with the layout rules checked in `npm test`.
 - **Tactical look on the terrain:** the green phosphor HUD is back (monospace, corner-bracket frames, scanlines) over the terrain, which gets a part-green tactical grade and a faint range / bearing grid; NIGHT RAID turns it into a night-vision scope. Phones and tablets get a lighter pipeline (no real-time shadows or bloom, smaller ground texture, capped pixel ratio), and a WebGL failure shows a message instead of a blank page.
 - **Front line, steps 1–5:** the front and widening flank arcs, levels with raids and build windows, the AA MG start with the radar and Patriot as milestones, belt slots with fields of fire, crossfire, support units and unit HP, the coverage overlay (`O`), and Kh-101 cruise missiles with the IRIS-T SLM to stop them.
+- **Threat realism:** Orlan-10 spotter, Ka-52, Su-25 attack runs with S-8 rockets, Su-35S SEAD with memory-seeker Kh-58s, Kinzhal and the Kh-55 decoy; per-type height, RCS and heat signature, a radar horizon by height, FPV swarms that hunt isolated units, and salvage that stays until clicked.
+- **Defence layers:** reaches in the real order (HPM 7, MG 10, HEL 11, MANTIS 15, Stinger 24, IRIS-T SLM 40, SLX 50, PAC-3 58, radar 68 m) on a 75 m arena; the laser and HPM are self-cueing point defence; a two-gun start with crossing fields of fire.
+- **Performance pass:** a fixed 1/60 s sim step, throttled HUD text, lighter effects on LITE, bloom that switches itself off under slow frames, and `npm run bench` with p95 and worst-case timings.
 
 ### Next: finish the front line (step 6)
 - [x] **Level card** at the end of each level: held or lost, what the next level brings, wider flank arcs.
