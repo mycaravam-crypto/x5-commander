@@ -94,7 +94,7 @@ const rng = (seed: number) => () => {
   t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 };
-const START = { x: 0, z: -17 }; // config.START_PAD: the starting MG's spot must stay open
+const START = { x: 0, z: -17 }; // kept open, as it always has been (the maps stay as they were); config.START_PADS sit in the cleared field of fire either side of it
 export const OPEN_MIN = 0.55; // share of the build zone (10.5 - 36 m) that must be buildable
 // Share of the full build zone a unit could stand on (ignores other units).
 export function openShare() {

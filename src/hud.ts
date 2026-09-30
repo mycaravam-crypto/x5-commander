@@ -17,7 +17,7 @@ const doing = (e: Enemy, dp = 0) => e.kind === 'ew' ? (e.orbit ? 'JAMMING' : 'IN
   : `ETA ${Math.max(0, (Math.hypot(e.x, e.z) - BASE_R) / e.speed).toFixed(dp)}s${e.act === 'dive' ? ' DIVE' : ''}`;
 const tag = (e: Enemy) => `TN${pad3(e.id % 1000)} ${ENEMIES[shownKind(e)].code}`; // track number + type
 const rgba = (c: number, a = 1) => `rgba(${c >> 16},${c >> 8 & 255},${c & 255},${a})`;
-const BOOT = ['COMMAND POST ....... OK', '12.7MM AA MG ... DUG IN', 'AN/MPQ-65 RADAR . NOT BUILT', 'PAC-3 MSE ....... NOT BUILT', 'EYES ON THE SKY', 'WEAPONS FREE'];
+const BOOT = ['COMMAND POST ....... OK', '2× 12.7MM AA MG DUG IN', 'AN/MPQ-65 RADAR . NOT BUILT', 'PAC-3 MSE ....... NOT BUILT', 'EYES ON THE SKY', 'WEAPONS FREE'];
 // The map's name on the start screen: its seed, as a grid reference.
 const mapName = (seed: number) => `GRID ${String.fromCharCode(65 + (seed >>> 0) % 26)}${String.fromCharCode(65 + ((seed >>> 5) >>> 0) % 26)}-${String((seed >>> 10) % 10000).padStart(4, '0')}`;
 const clock = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;

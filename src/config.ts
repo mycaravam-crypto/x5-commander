@@ -1,6 +1,9 @@
 // Every tunable number lives here.
 
-export const ARENA_R = 60;
+// Defence layers, innermost out (reach in m): HPM 7 · MG 10 · HEL 11 · MANTIS 15 · Stinger 24 · IRIS-T SLM 40 ·
+// IRIS-T SLX 50 · PAC-3 58 · radar 68+. Real reaches span ~1 km to 100+ km; the arena keeps their order and
+// stretches the ratios as far as a readable map allows. Stand-off threats sit just outside the layer they outrange.
+export const ARENA_R = 75;
 export const BASE_R = 3.5;
 export const START_CREDITS = 150;
 export const COMBO_WINDOW = 1.5; // s between kills to keep the combo
@@ -158,15 +161,15 @@ export const OVERDRIVE = { time: 12, rate: 1.5 };
 export const DIVE_SPEED = 1.7; // terminal dive: Shaheds (and the Gerberas copying them), Lancets
 export const SHAHED_DIVE = 10; // m from the battery a Shahed pitches over into its dive
 export const LANCET = { loiter: 26, time: 3, seek: 5 }; // m out it circles at, s it searches, m it spots a unit from and dives on it
-export const HELO = { standoff: 26, every: 4, ammo: 4 }; // Mi-28: m out it hovers at, s between ATGMs, ATGMs carried; then it goes home
-export const KAB_R = 32, KAB_PAIR = 2; // m out a Su-34 releases its glide bombs (and how many), then turns for home
+export const HELO = { standoff: 34, every: 4, ammo: 4 }; // Mi-28: m out it hovers at (just outside Stinger reach of the inner line), s between ATGMs, ATGMs carried; then it goes home
+export const KAB_R = 44, KAB_PAIR = 2; // m out a Su-34 releases its glide bombs (outside IRIS-T SLM reach from the base), and how many; then it turns for home
 export const KAB_FIRST = 1; // bombs a Su-34 carries on the SEAD level, where it's new: one, so the first strike teaches instead of ending the run
 export const EGRESS_SPEED = 1.4; // aircraft heading home, out of the arena (no reward, but no more harm)
 // Ballistic missiles: m out they start their terminal manoeuvres, their size, speed x in the dive, and the height
 // they're drawn coming down from.
 export const TERMINAL: Partial<Record<EnemyKind, { r: number; jink: number; boost: number; apex: number }>> = {
-  tbm: { r: 25, jink: 2.5, boost: 1, apex: 22 },
-  hyper: { r: 30, jink: 1.2, boost: 1.4, apex: 30 }, // Kinzhal: less weave, far more speed
+  tbm: { r: 30, jink: 2.5, boost: 1, apex: 22 },
+  hyper: { r: 36, jink: 1.2, boost: 1.4, apex: 30 }, // Kinzhal: less weave, far more speed
 };
 export const TBM_TERMINAL = TERMINAL.tbm!;
 // Kh-101 (and the Kh-55 decoy): inside `r` m of its target it jinks `jink` hard, speeds up x`speed` and pops up
@@ -175,13 +178,13 @@ export const CRUISE_TERMINAL = { r: 12, jink: 1.6, speed: 1.2, pop: 2.5 };
 // Ka-52: m out it settles at, s it takes to settle before the first salvo (the moment to kill it), s between
 // salvos, ATGMs per salvo and in all, s it stays popped up after firing, m it hovers at masked, m of strafe
 // sideways, m its ATGMs reach a unit from, and how much harder an ATGM hits a unit than its damage says.
-export const KA52 = { standoff: 30, settle: 4, every: 5, salvo: 2, ammo: 6, pop: 1.5, maskAlt: 1.2, strafe: 0.5, reach: 32 };
+export const KA52 = { standoff: 36, settle: 4, every: 5, salvo: 2, ammo: 6, pop: 1.5, maskAlt: 1.2, strafe: 0.5, reach: 36 };
 // Su-25: m out it fires, S-8s per salvo and their spread (rad), attack passes, m out it turns back in for the next
 // one, m its rockets reach a unit from, s of pop-up and flares per run (IR seekers x `flares` meanwhile), m of pop-up.
-export const SU25 = { release: 24, salvo: 4, spread: 0.06, passes: 2, turn: 52, reach: 20, pop: 2.5, flares: 0.4, popup: 3 };
+export const SU25 = { release: 24, salvo: 4, spread: 0.06, passes: 2, turn: 64, reach: 20, pop: 2.5, flares: 0.4, popup: 3 };
 // Su-35S SEAD: m out it holds station at, s between Kh-58s while the radar radiates (x the radar mode's armEvery),
 // Kh-58s carried, s it waits on station at most before going home.
-export const SEAD = { standoff: 42, every: 7, ammo: 4, time: 45 };
+export const SEAD = { standoff: 56, every: 7, ammo: 4, time: 45 }; // inside PAC-3 reach, outside IRIS-T SLX
 // Kh-58: s of motor, m its memory aim can be off the radar to the side, radar downtime x an ARM hit's.
 export const ARM2 = { life: 20, scatter: 10, stun: 1.5 };
 // FPV swarm: normal spawns bring ENEMIES.swarm.packs (4-8). Each FPV hunts the most isolated unit within `seek` m
@@ -191,7 +194,7 @@ export const SWARM = { seek: 8, isolated: 1 };
 // Orlan-10: m out it circles at, s it stays on station before heading home, rad half-width of the sector it spots
 // for (round its own bearing, so the sector moves as it circles), damage x on impacts in that sector, unit search
 // range x for Lancets and FPVs in it.
-export const RECON = { orbit: 38, time: 40, arc: 0.5, dmg: 1.25, seek: 1.6 };
+export const RECON = { orbit: 48, time: 40, arc: 0.5, dmg: 1.25, seek: 1.6 };
 export const CRUISE_DOGLEG = 0.7; // rad off its launch bearing a Kh-101 routes through before turning in on its target
 // How hard each type manoeuvres (sim.steer). Fixed wings swing their heading at up to `turn` rad/s; rotorcraft and
 // quadcopters (`hover`) ease their whole velocity toward the one they want, so they slow into a hover and sidestep.
@@ -237,7 +240,7 @@ export const TRAINING_BUILD = 6; // s between waves
 export interface Drill { name: string; desc: string; tip: string; grant?: string[]; spawns: { at: number; kind: EnemyKind; n: number; off?: number; r?: number }[] }
 export const TRAINING: Drill[] = [
   { name: 'EYESIGHT', desc: 'guns fire at what they can see',
-    tip: 'TRAINING 1/4 · EYESIGHT: no radar yet. Anything close to the base or a gun is seen, and guns fire at it by themselves. Buy a second gun in the shop [Tab] and click open ground in the dashed ring to build it.',
+    tip: 'TRAINING 1/4 · EYESIGHT: no radar yet. Anything close to the base or a gun is seen, and guns fire at it by themselves. Buy a third gun in the shop [Tab] and click open ground in the dashed ring to build it.',
     spawns: [{ at: 2, kind: 'drone', n: 1 }, { at: 7, kind: 'scout', n: 2 }, { at: 14, kind: 'drone', n: 2, off: 0.25 }, { at: 20, kind: 'scout', n: 3, off: -0.2 }] },
   { name: 'RADAR', desc: 'see far, lock, and let the Patriot shoot', grant: ['radar', 'pac3'],
     tip: 'TRAINING 2/4 · RADAR: radar and Patriot online. The radar sees far beyond your eyes, fire control locks what it sees, and the Patriot fires at every lock. Click a contact to make it the priority target.',
@@ -334,7 +337,7 @@ export const ARM_VEER = 0.6; // rad an ARM swings off its heading once the radar
 export const ARM_TURN = 1.5; // rad/s; limited, so a late EMCON still gets hit
 export const ARM_LIFE = 16; // s of motor, then it falls short
 export const ARM_EVERY = 10; // s between ARM launches per Su-34 inside ARM_LAUNCH_R
-export const ARM_LAUNCH_R = 52;
+export const ARM_LAUNCH_R = 64; // inside the radar's reach, so every launch is seen
 // Radar modes [V] (EMCON [F] silences whichever is set). range/sig: detection range and chance · drain: power ·
 // sector: rad of arc searched (FOCUSED dwells on the bearing you last clicked or your priority target, revisiting
 // it much faster; LTAMDS AESA widens it) · armR/armEvery: Su-34 ARM launch range and interval · lpi: ARMs only
@@ -346,7 +349,7 @@ export const RADAR_MODES = [
 ];
 export const LPI_R = 15; // m: a blind ARM passes 40m out on a 0.6 rad veer at ~23m, so LPI makes it miss
 export const DECOY_ID = 1.5; // s of lock before the ECS classifies a decoy (÷ radar resolution)
-export const EW_ORBIT = 38; // Mi-8 jammers stand off at this range and circle
+export const EW_ORBIT = 48; // Mi-8 jammers stand off at this range and circle (outside IRIS-T SLM, inside SLX and PAC-3)
 export const EW_ARC = 0.4; // rad half-width of each jammed sector
 export const EW_JAM = 0.35; // detection chance multiplier inside a jammed sector
 
@@ -372,14 +375,17 @@ export function difficulty(t: number) {
 
 // cannon = PAC-3 MSE (hit-to-kill, lead intercept), pulse = HEL laser, missile = IRIS-T SLX (blast-frag), rail = HPM microwave.
 export type WeaponKind = 'cannon' | 'pulse' | 'missile' | 'rail';
+// The laser and HPM are point defence: short reach, but hard-hitting inside it (the HPM fries a cone, HPM_CONE).
 export const WEAPONS: Record<WeaponKind, {
   dmg: number; rate: number; range: number; speed: number; ammo: number; power: number; splash: number;
 }> = {
-  cannon: { dmg: 5, rate: 2.5, range: 45, speed: 60, ammo: 1, power: 0, splash: 0 },
-  pulse: { dmg: 2, rate: 6, range: 38, speed: 0, ammo: 0, power: 1.5, splash: 0 },
-  missile: { dmg: 12, rate: 0.7, range: 60, speed: 30, ammo: 3, power: 0, splash: 4 },
-  rail: { dmg: 40, rate: 0.35, range: 70, speed: 0, ammo: 0, power: 25, splash: 0 },
+  cannon: { dmg: 5, rate: 2.5, range: 58, speed: 60, ammo: 1, power: 0, splash: 0 },
+  pulse: { dmg: 4, rate: 9, range: 11, speed: 0, ammo: 0, power: 1, splash: 0 },
+  missile: { dmg: 12, rate: 0.7, range: 50, speed: 30, ammo: 3, power: 0, splash: 4 },
+  rail: { dmg: 40, rate: 0.8, range: 7, speed: 0, ammo: 0, power: 10, splash: 0 },
 };
+export const HPM_CONE = 50 * DEG; // half-width of the HPM's beam
+export const POINT_DEFENCE: WeaponKind[] = ['pulse', 'rail']; // cue themselves on the nearest threat in reach: no lock needed
 
 export const MODES = ['CLOSEST', 'WEAKEST', 'RICHEST', 'FASTEST'] as const;
 
@@ -411,7 +417,7 @@ export interface Upgrade {
 export const SWEEP_CAP = 8; // Scan Rate levels a rotating radar can take; LTAMDS AESA lifts it
 const U = (group: string, id: string, name: string, base: number, mult: number, max: number, desc: string, req?: number, needs?: string): Upgrade =>
   ({ group, id, name, base, mult, max, desc, req, needs });
-// The run starts with one AA machine gun and eyes. The search radar and the Patriot are bought, from these base levels.
+// The run starts with two AA machine guns and eyes. The search radar and the Patriot are bought, from these base levels.
 export const RADAR_REQ = 3, PAC3_REQ = 3; // the Patriot needs the radar, so it comes right after it
 const R = 'radar';
 
@@ -433,9 +439,9 @@ export const UPGRADES: Upgrade[] = [
   U('WEAPONS', 'dmg', 'Lethality Enhancer', 70, 1.45, Infinity, '+25% all weapon damage'),
   U('WEAPONS', 'rate', 'Salvo Doctrine', 80, 1.5, Infinity, '+15% all fire rate'),
   U('WEAPONS', 'pac3', 'PAC-3 MSE Battery', 300, 1, 1, 'hit-to-kill interceptors on the locks · the only answer to ballistic missiles', PAC3_REQ, R),
-  U('WEAPONS', 'pulse', 'HEL 50kW Laser', 250, 1.7, Infinity, 'power beam · +40%/lv', undefined, R),
+  U('WEAPONS', 'pulse', 'HEL 50kW Laser', 250, 1.7, Infinity, 'point-defence beam, 11 m, fast and hard-hitting · +40%/lv', undefined, R),
   U('WEAPONS', 'missile', 'IRIS-T SLX', 400, 1.7, Infinity, 'homing blast-frag · +40%/lv', undefined, R),
-  U('WEAPONS', 'rail', 'HPM Leonidas', 700, 1.7, Infinity, 'microwave, hits the whole line · +40%/lv', undefined, R),
+  U('WEAPONS', 'rail', 'HPM Leonidas', 700, 1.7, Infinity, 'microwave cone, fries everything within 7 m of it · +40%/lv', undefined, R),
   U('MAGAZINE', 'acap', 'M903 Canisters', 40, 1.4, Infinity, '+25 interceptor capacity', undefined, 'pac3'),
   U('MAGAZINE', 'aprod', 'GMT Reload', 50, 1.45, Infinity, '+1.5 interceptors/s', undefined, 'pac3'),
   U('PERIMETER', 'mg', '12.7mm AA MG', 60, 1.5, Infinity, 'belt-fed gun on what it can see, short range · +1 emplacement'),
@@ -470,14 +476,18 @@ export const beltAt = (x: number, z: number): Belt => { const d = Math.hypot(x, 
 export const BUILD_MIN = 10.5, PAD_GAP = 3.5; // m: clear of the base compound, and between units
 const BUILD_R = [20, 31, 34, 34, 36]; // m, by base level (the last entry repeats)
 export const buildR = (level: number) => BUILD_R[Math.min(level, BUILD_R.length) - 1];
-const PAD_CAP = [2, 5, 7, 11, 12, 13, 14, 15, 16];
+const PAD_CAP = [3, 5, 7, 11, 12, 13, 14, 15, 16]; // lv1: the two starting MGs and one more
 export const perimSlots = (level: number) => PAD_CAP[Math.min(level, PAD_CAP.length) - 1];
 // Terrain (terrain.ts `site`): where a unit stands gives it a character, as well as a belt.
 // high: up against a rock outcrop, +20% range and eyes, but on the skyline: FPVs and Lancets dive on it from twice as
 //   far, and a cruise missile rates it higher. treeline: at the edge of the woods, never dived on or found by a cruise
 //   missile, but -15% range. road: MG belts reload as fast as with an ammo point in reach.
 export const TERRAIN = { high: { range: 1.2, dive: 2, value: 100 }, treeline: { range: 0.85 } };
-export const START_PAD = { x: 0, z: -17 }; // the starting MG: main line, on the front axis
+// The starting kit: a section of two MGs either side of the front axis, on the main line. With 10 m guns one alone
+// can't cover the approach. Both spots are in the cleared near field of fire, which every map keeps open.
+export const START_PADS = [{ x: -4, z: -16 }, { x: 4, z: -16 }]; // close enough that both fields of fire cross on the axis
+// Distances (m) the auto-placer samples the threat arc at when it scores a spot: where incoming paths are worth covering.
+export const SPOT_RINGS = [14, 22, 30];
 
 // Field of fire: half-width around the unit's facing (away from the base). Math.PI = all round.
 export const FANS: Record<PerimKind, number> = { mg: 60 * DEG, mantis: Math.PI, stinger: 90 * DEG, iris: Math.PI, jammer: Math.PI, observer: Math.PI, ammo: Math.PI };
@@ -493,10 +503,10 @@ export const VETERANCY = [
 export const vetRank = (kills: number) => VETERANCY.reduce((r, v, i) => kills >= v.kills ? i : r, 0);
 export const CROSSFIRE = 0.2; // +damage on a target inside another gun's field of fire too
 export const PERIM = {
-  mg: { dmg: 1.5, rate: 6, range: 15, ammo: 0, power: 0 },
-  mantis: { dmg: 1.2, rate: 10, range: 16, ammo: 0.15, power: 0 },
-  stinger: { dmg: 7, rate: 0.8, range: 26, ammo: 1, power: 0 },
-  iris: { dmg: 10, rate: 0.5, range: 30, ammo: 2, power: 0 }, // IRIS-T SLM: medium-range SAM, missiles first
+  mg: { dmg: 3, rate: 6, range: 10, ammo: 0, power: 0 }, // short reach, so each burst counts more
+  mantis: { dmg: 1.2, rate: 10, range: 15, ammo: 0.15, power: 0 },
+  stinger: { dmg: 7, rate: 0.8, range: 24, ammo: 1, power: 0 },
+  iris: { dmg: 10, rate: 0.5, range: 40, ammo: 2, power: 0 }, // IRIS-T SLM: medium-range SAM, missiles first
   jammer: { dmg: 0, rate: 0, range: 18, ammo: 0, power: 1.2 }, // power/s while anything is in range
   observer: { dmg: 0, rate: 0, range: 0, ammo: 0, power: 0 },
   ammo: { dmg: 0, rate: 0, range: 0, ammo: 0, power: 0 },
@@ -505,7 +515,7 @@ export const PERIM = {
 export const MG_TIERS = [
   { name: '12.7mm AA MG', cost: 0, ...PERIM.mg },
   { name: 'TWIN 12.7mm', cost: 110, ...PERIM.mg, rate: 11 },
-  { name: 'ZU-23-2', cost: 240, ...PERIM.mg, dmg: 3, rate: 8, range: 20 },
+  { name: 'ZU-23-2', cost: 240, ...PERIM.mg, dmg: 6, rate: 8, range: 12 },
 ];
 // Support units.
 export const OBSERVER_EYES = 28; // m an observer post sees round itself
@@ -584,7 +594,7 @@ export const baseLevel = (bought: number) => {
 // What each base level builds. Every level also adds an M903 launcher (up to 8) and 2 perimeter pads.
 // Stat effects are applied in deriveStats; `desc` is what the level-up card shows.
 export const BASE_LEVELS: { name: string; desc: string }[] = [
-  { name: 'COMMAND POST', desc: 'command post and the first 12.7mm AA gun' },
+  { name: 'COMMAND POST', desc: 'command post and a section of two 12.7mm AA guns' },
   { name: 'POWER PLANT', desc: 'EPP-III generators: +2 power/s' },
   { name: 'COMMUNICATIONS', desc: 'OE-349 datalink: raids announced 5s earlier · +1s contact memory' },
   { name: 'SURVEILLANCE RADAR', desc: 'TRML-4D: keeps searching at half range while the MPQ-65 is knocked out' },
@@ -628,14 +638,14 @@ export function deriveStats(lv: Record<string, number>, perks: string[], level =
     backupRadar: level >= 4,
     armStun: level >= 7 ? 0.5 : 1,
     powerCap: 60 + 40 * L('cap'),
-    radarRange: (42 + 7 * L('range')) * p.range,
+    radarRange: (68 + 7 * L('range')) * p.range, // outranges every shooter
     sweep: 2.5 * (1 + 0.2 * L('sweep')) * (L('aesa') ? 1.25 : 1) * p.sweep, // rad/s; with AESA: revisits/rev-equivalent
     aesa: L('aesa') > 0,
     res: 1 + 0.15 * L('res'),
     persist: (4.5 + 1.5 * L('persist') + (level >= 3 ? 1 : 0)) * p.persist,
     drain: (1.5 + 0.25 * radarLv) * p.drain,
     slots: 2 + L('slots') + p.addSlots + (level >= 6 ? 1 : 0),
-    trackRange: (45 + 6 * L('trange')) * p.trange,
+    trackRange: (62 + 6 * L('trange')) * p.trange, // just past PAC-3 reach
     modes: 1 + L('modes'),
     ammoCap: 40 + 25 * L('acap'),
     ammoProd: (3 + 1.5 * L('aprod')) * p.aprod,

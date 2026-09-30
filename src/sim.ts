@@ -1,8 +1,8 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, LEVEL_LEN, BUILD_TIME, BUILD_LOST, ELITE_FROM, PK_GROW, PK_MAX, EW_GROW, EW_MAX,
-  TERRAIN, ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, FANS, beltAt, buildR, BUILD_MIN, PAD_GAP, START_PAD, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, VETERANCY, vetRank, deriveStats, difficulty, BACKUP_RADAR,
+  TERRAIN, ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, FANS, beltAt, buildR, BUILD_MIN, PAD_GAP, START_PADS, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, VETERANCY, vetRank, deriveStats, difficulty, BACKUP_RADAR,
   BIG_KILLS, BIG_KILL_SHAKE, DROPS, DROP_KINDS, DROP_GRAB, DROP_MAX, DROP_HEAVY, CACHE, REPAIR_DROP, OVERDRIVE, MILESTONE, rank,
-  RADAR_MODES, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
+  RADAR_MODES, HPM_CONE, POINT_DEFENCE, SPOT_RINGS, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   TRAINING, TRAINING_BUILD, TRAINING_SEED, DIVE_SPEED, SHAHED_DIVE, LANCET, HELO, KAB_R, KAB_PAIR, KAB_FIRST, EGRESS_SPEED, TERMINAL, CRUISE_DOGLEG, CRUISE_TERMINAL, KA52, SU25, SEAD, ARM2, ARMS, SWARM, RECON, MASK, IR_SEEKER, horizon, flightAlt, MUNITIONS, AGILITY, HOMING_BOOST, HOMING_SNAP,
   type EnemyKind, type DropKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
 } from './config.ts';
@@ -106,7 +106,7 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     kills: 0,
     combo: 0,
     lastKill: -99,
-    lv: { mg: 1, ...doc.lv } as Record<string, number>, // the starting MG counts toward its own price
+    lv: { mg: START_PADS.length, ...doc.lv } as Record<string, number>, // the starting MGs count toward the price of the next
     bought: 0,
     level: 1,
     perks: [] as string[],
@@ -166,8 +166,8 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     shake: 0,
   };
   s.sweepSpeed = s.st.sweep;
-  // The starting kit: one AA machine gun on the main line, facing the front.
-  putPad(s, 'mg', START_PAD.x, START_PAD.z, 0);
+  // The starting kit: a section of AA machine guns on the main line, facing the front.
+  for (const p of START_PADS) putPad(s, 'mg', p.x, p.z, 0);
   s.hp = s.st.maxHp; s.power = s.st.powerCap; s.ammo = s.st.ammoCap;
   return s;
 }
@@ -396,7 +396,7 @@ export function spotScore(s: State, k: PerimKind, x: number, z: number) {
   for (let i = 0; i <= 24; i++) {
     const a = FRONT + (i / 12 - 1) * arc, c = Math.cos(a), sn = Math.sin(a);
     let mine = 0, theirs = false;
-    for (const r of [14, 22, 30]) {
+    for (const r of SPOT_RINGS) {
       if (covers(p, c * r, sn * r, range)) mine++;
       theirs ||= guns.some((q, qi) => covers(q, c * r, sn * r, gr[qi]));
     }
@@ -1305,9 +1305,19 @@ function fire(s: State, dt: number) {
     s.cooldown[k] = Math.max(0, s.cooldown[k] - dt);
     if (!w || s.cooldown[k] > 0) continue;
     const r2 = (w.range * (ic ? 1 : D.range)) ** 2;
-    // Spread weapons over locks; fall back to any lock in range.
-    const inRange = targets.filter(e => e.x * e.x + e.z * e.z <= r2 && open(e) && (k === 'cannon' || !ENEMIES[e.kind].pacOnly));
-    const e = inRange[wi++ % Math.max(1, inRange.length)];
+    // Point defence (laser, HPM) cues itself: the nearest threat it can see inside its bubble, lock or not (an
+    // emergency intercept still has it on the one target). The rest spread over the locks in range.
+    let e: Enemy | undefined;
+    if (POINT_DEFENCE.includes(k) && !ic) {
+      let bd = r2;
+      for (const o of s.enemies) {
+        const d = o.x * o.x + o.z * o.z;
+        if (d <= bd && visible(s, o) && !o.ided && !ENEMIES[o.kind].pacOnly) { bd = d; e = o; }
+      }
+    } else {
+      const inRange = targets.filter(e => e.x * e.x + e.z * e.z <= r2 && open(e) && (k === 'cannon' || !ENEMIES[e.kind].pacOnly));
+      e = inRange[wi++ % Math.max(1, inRange.length)];
+    }
     if (!e) continue;
     const ammo = w.ammo * D.cost, power = w.power * D.cost;
     if (s.ammo < ammo || s.power < power) continue;
@@ -1346,12 +1356,13 @@ function fire(s: State, dt: number) {
         hit.push(next);
       }
     } else {
-      const d = Math.hypot(e.x, e.z) || 1, dx = e.x / d, dz = e.z / d;
-      s.events.push({ k: 'rail', x: 0, z: 0, x2: dx * w.range, z2: dz * w.range });
+      // HPM: a cone toward the target, HPM_CONE either side, out to its reach. Everything in it is hit.
+      const a0 = Math.atan2(e.z, e.x);
+      s.events.push({ k: 'rail', x: 0, z: 0, x2: Math.cos(a0) * w.range, z2: Math.sin(a0) * w.range });
       for (const o of [...s.enemies]) {
-        const along = o.x * dx + o.z * dz;
-        if (along < 0 || along > w.range) continue;
-        if (Math.abs(o.x * dz - o.z * dx) < o.size + 0.6) damage(s, o, w.dmg, 'HPM');
+        const r = w.range + o.size * 0.5;
+        if (o.x * o.x + o.z * o.z > r * r || Math.abs(angDiff(Math.atan2(o.z, o.x), a0)) > HPM_CONE) continue;
+        damage(s, o, w.dmg, 'HPM');
       }
       s.shake = Math.min(1.5, s.shake + 0.25);
     }
