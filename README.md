@@ -35,6 +35,37 @@ The game runs entirely in the browser, with no backend and no asset files. `dist
 | `GET /api/scores[?daily=YYYY-MM-DD&limit=N]` | `{ rows, total }`: the top runs with their rank |
 | `POST /api/scores` `{ name, time, kills, level, earned, seed?, daily? }` | `{ run, total, daily }`: the logged run and where it placed |
 
+A run must be plausible to be logged (no more than 20 kills a second, at most 6 hours), and one client can log 20 runs per 10 minutes. There are no accounts or signed runs yet, so a determined cheat can still post a fake score.
+
+### Production
+
+`npm start` runs the production server (`server/index.ts`): it serves the built `dist/` and the scoreboard API on one port, with no packages needed at run time. It gzips and caches the hashed assets, and sets a Content-Security-Policy and other security headers. It answers `GET /healthz` and shuts down cleanly on SIGTERM.
+
+```sh
+npm ci && npm run build
+npm start        # http://localhost:8080
+```
+
+Or with Docker, keeping the database in a volume:
+
+```sh
+docker build -t x5-commander .
+docker run -p 8080:8080 -v x5-data:/data x5-commander
+```
+
+| Variable | Default | |
+|---|---|---|
+| `PORT` / `HOST` | `8080` / `0.0.0.0` | Where to listen |
+| `X5_SCORES_DB` | `data/scores.db` (`/data/scores.db` in Docker) | The SQLite file |
+| `X5_DIST` | `dist` | The built game |
+| `X5_TRUST_PROXY` | off | `1` behind a reverse proxy: rate-limit by `X-Forwarded-For` |
+| `X5_CORS_ORIGINS` | none | Comma-separated origins allowed to call the API from another site |
+| `X5_POST_LIMIT` | `20` | Runs one client may log per 10 minutes |
+
+Run it behind HTTPS (a reverse proxy or your platform's load balancer). SQLite needs one instance on a persistent disk, so don't scale it out. Back the database up with `sqlite3 scores.db ".backup backup.db"`.
+
+The GitHub Pages build is static. To give it a scoreboard, run the server somewhere, set the repository variable `SCORES_API` to its `…/api/scores` URL, and put the Pages origin in that server's `X5_CORS_ORIGINS`.
+
 ## Controls
 
 | Input                  | Action                                    |

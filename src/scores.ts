@@ -5,7 +5,8 @@ export type Board = { rows: Row[]; total: number };
 export type Posted = { run: Row; total: number; daily: { rank: number; total: number } | null };
 export type Run = { name: string; time: number; kills: number; level: number; earned: number; seed: string; daily: string };
 
-const API = `${import.meta.env.BASE_URL}api/scores`;
+// VITE_SCORES_API at build time points a game hosted elsewhere (GitHub Pages) at a scoreboard server; default: same origin.
+const API = import.meta.env.VITE_SCORES_API || `${import.meta.env.BASE_URL}api/scores`;
 const call = async <T>(init?: RequestInit, q = ''): Promise<T | null> => {
   try {
     const r = await fetch(API + q, init);
@@ -13,7 +14,15 @@ const call = async <T>(init?: RequestInit, q = ''): Promise<T | null> => {
   } catch { return null; }
 };
 export const fetchBoard = (daily = '', limit = 10) => call<Board>(undefined, `?limit=${limit}${daily ? `&daily=${daily}` : ''}`);
-export const postRun = (run: Run) => call<Posted>({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(run) });
+// Logs a run: where it placed, or why it wasn't logged ('busy': too many runs from here lately; 'rejected'; 'offline').
+export async function postRun(run: Run): Promise<Posted | 'busy' | 'rejected' | 'offline'> {
+  try {
+    const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(run) });
+    if (r.status === 429) return 'busy';
+    if (r.status === 400) return 'rejected';
+    return r.ok && r.headers.get('content-type')?.includes('json') ? await r.json() as Posted : 'offline';
+  } catch { return 'offline'; }
+}
 
 export const loadCallsign = () => { try { return localStorage.getItem('x5-callsign') ?? ''; } catch { return ''; } };
 export const saveCallsign = (n: string) => { try { localStorage.setItem('x5-callsign', n); } catch { /* storage blocked: skip */ } };

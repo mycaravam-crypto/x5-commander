@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "test": "node src/sim.check.ts && node server/scores.check.ts",
+    "test": "node src/sim.check.ts && node server/scores.check.ts && node server/index.check.ts",
+    "start": "node --disable-warning=ExperimentalWarning server/index.ts",
     "balance": "node src/balance.ts",
     "bench": "node src/bench.ts"
   },
