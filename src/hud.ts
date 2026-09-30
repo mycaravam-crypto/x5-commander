@@ -3,7 +3,8 @@ import { play as sound } from './sfx.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import { mapSeed } from './terrain.ts';
 import type { Records } from './config.ts';
-import { fetchBoard, fetchMe, postRun, signup, login, logout, boardHtml as scoreboardHtml, placedHtml, accountHtml, saveCallsign, type Me } from './scores.ts';
+import { fetchBoard, fetchMe, fetchProfile, saveProfile, postRun, signup, login, logout, boardHtml as scoreboardHtml, placedHtml, accountHtml, profileHtml, saveCallsign, type Me, type Profile } from './scores.ts';
+import { avatarFor, avatarCode, SHAPES, EMBLEMS, COLORS, type Avatar } from '../server/career.ts';
 import { seedCode, beltOf, stageInfo, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, noAmmo, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const byId = new Map<string, HTMLElement>(); // the HUD's elements are fixed: look each up once
@@ -208,7 +209,12 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   // ---- overlay ----
   const overlay = $('overlay');
   overlay.onclick = e => {
-    const a = (e.target as HTMLElement).closest<HTMLElement>('[data-a]')?.dataset.a;
+    const el = e.target as HTMLElement;
+    const pilot = el.closest<HTMLElement>('[data-p]')?.dataset.p;
+    if (pilot) return openProfile(pilot);
+    if (el.classList.contains('pfmodal')) return closeProfile(); // a tap beside the card
+    const a = el.closest<HTMLElement>('[data-a]')?.dataset.a;
+    if (a?.startsWith('pf-')) return profileAction(a);
     if (a === 'start') actions.start();
     else if (a === 'daily') actions.start('daily');
     else if (a === 'training') actions.start('training');
@@ -308,6 +314,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         <button class="btn" data-a="restart">REDEPLOY [R]</button> <button class="btn" data-a="share">COPY RESULT [C]</button></div>`;
     }
     overlay.innerHTML = html;
+    pf = null; // a new screen closes any profile card
     overlay.classList.toggle('on', !!html);
     if (s.phase === 'start' || (s.phase === 'over' && !s.training)) showScores(s);
     if (s.phase === 'start') { shownSeed = NaN; showOverlay(s); }
@@ -372,9 +379,48 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     saveCallsign(r.data.user.name);
     showScores(s); // signed in: a debrief logs its run now, the start screen shows the player
   }
+  // ---- pilot profiles: a card over the overlay; your own has the patch picker and motto ----
+  let pf: { profile: Profile; edit?: { draft: Avatar; motto: string; msg?: string } } | null = null;
+  function drawProfile() {
+    let m = overlay.querySelector<HTMLElement>('.pfmodal');
+    if (!pf) { m?.remove(); return; }
+    if (!m) { m = document.createElement('div'); m.className = 'pfmodal'; overlay.appendChild(m); }
+    m.innerHTML = profileHtml(pf.profile, pf.edit);
+  }
+  async function openProfile(name: string) {
+    const p = await fetchProfile(name);
+    if (!p) return;
+    const own = me?.name === p.name;
+    pf = { profile: p, edit: own ? { draft: avatarFor(p.name, p.avatar), motto: p.motto } : undefined };
+    drawProfile();
+  }
+  const closeProfile = () => { pf = null; drawProfile(); };
+  async function profileAction(a: string) {
+    if (a === 'pf-close') return closeProfile();
+    const edit = pf?.edit;
+    if (!pf || !edit) return;
+    const motto = overlay.querySelector<HTMLInputElement>('.pfedit input[name=motto]');
+    if (motto) edit.motto = motto.value;
+    const step = /^pf-(shape|emblem|color)([+-]1)$/.exec(a);
+    if (step) {
+      const k = step[1] as keyof Avatar, n = { shape: SHAPES, emblem: EMBLEMS, color: COLORS }[k].length;
+      edit.draft = { ...edit.draft, [k]: (edit.draft[k] + +step[2] + n) % n };
+      edit.msg = '';
+      return drawProfile();
+    }
+    if (a === 'pf-save') {
+      const r = await saveProfile({ avatar: avatarCode(edit.draft), motto: edit.motto });
+      if (!pf) return;
+      if (!r.ok) { edit.msg = r.status === 0 ? 'SCOREBOARD OFFLINE' : r.error; return drawProfile(); }
+      pf = { profile: r.data.profile, edit: { draft: avatarFor(r.data.profile.name, r.data.profile.avatar), motto: r.data.profile.motto, msg: 'SAVED ✓' } };
+      drawProfile();
+      if (lastState) showScores(lastState); // the new patch on the board and your line
+    }
+  }
+
   async function signOut() {
     await logout();
-    me = null;
+    me = null; pf = null;
     if (lastState) showScores(lastState);
   }
 

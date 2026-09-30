@@ -1,13 +1,16 @@
 // The game's API, as connect-style middleware under /api (server/index.ts, and vite.config.ts for dev and preview):
 //   GET  /api/scores[?daily=YYYY-MM-DD&limit=N]   → { rows, total }: players' best runs, ranked; total = players
 //   POST /api/scores  { time, kills, level, earned, seed?, daily? }   (signed in) → { run, total, best, daily }
-//   GET  /api/me                                  → { user: null | { name, best, runs, total } }
+//   GET  /api/me                                  → { user: null | { name, avatar, motto, best, runs, total, career } }
+//   GET  /api/profile?name=CALLSIGN               → { profile: { name, avatar, motto, joined, career, best, total, recent } }
+//   POST /api/profile { avatar?, motto? }         (signed in) → { profile }
 //   POST /api/signup  { name, password }          → { user }, and the session cookie
 //   POST /api/login   { name, password }          → { user }, and the session cookie
 //   POST /api/logout                              → {}, and the cookie cleared
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { parseRun, TOP, type Scores } from './scores.ts';
 import { parseName, parsePassword, SESSION_DAYS, NAME_MIN, NAME_MAX, PASSWORD_MIN, type User } from './accounts.ts';
+import { parseAvatar, avatarCode, parseMotto, MOTTO_MAX } from './career.ts';
 
 export type ApiOptions = {
   // Runs one client may log per window (by IP). Reads aren't limited.
@@ -95,12 +98,23 @@ export function scoresApi(scores: Scores, opts: ApiOptions = {}) {
         const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || TOP));
         return send(200, scores.board(/^\d{4}-\d{2}-\d{2}$/.test(daily) ? daily : '', limit));
       }
+      // A pilot's public profile: patch, motto, career, best run with its rank, and latest runs.
+      const profileOf = (name: string) => {
+        const p = accounts.profile(name);
+        if (!p) return null;
+        const { best, total } = scores.player(p.id);
+        return { name: p.name, avatar: p.avatar, motto: p.motto, joined: p.created, career: scores.career(p.id), best, total, recent: scores.recent(p.id) };
+      };
       if (route === 'me' && get) {
-        const u = accounts.user(token(req));
-        return send(200, { user: u && { name: u.name, ...scores.player(u.id) } });
+        const u = accounts.user(token(req)), p = u && accounts.profile(u.name);
+        return send(200, { user: u && p && { name: u.name, avatar: p.avatar, motto: p.motto, ...scores.player(u.id), career: scores.career(u.id) } });
       }
-      if (!['scores', 'signup', 'login', 'logout'].includes(route)) return send(404, { error: 'not found' });
-      if (req.method !== 'POST') { res.setHeader('Allow', route === 'scores' ? 'GET, POST' : 'POST'); return send(405, { error: 'method' }); }
+      if (route === 'profile' && get) {
+        const p = profileOf(url.searchParams.get('name') ?? '');
+        return p ? send(200, { profile: p }) : send(404, { error: 'no such pilot' });
+      }
+      if (!['scores', 'signup', 'login', 'logout', 'profile'].includes(route)) return send(404, { error: 'not found' });
+      if (req.method !== 'POST') { res.setHeader('Allow', route === 'scores' || route === 'profile' ? 'GET, POST' : 'POST'); return send(405, { error: 'method' }); }
       if (foreign(req)) return send(403, { error: 'cross-site' });
       if (!String(req.headers['content-type'] ?? '').includes('application/json')) return send(415, { error: 'json only' });
       const ip = clientIp(req);
@@ -109,6 +123,26 @@ export function scoresApi(scores: Scores, opts: ApiOptions = {}) {
         accounts.logout(token(req));
         setCookie(req, res, '', 0);
         return send(200, {});
+      }
+      if (route === 'profile') {
+        const user = accounts.user(token(req));
+        if (!user) return send(401, { error: 'sign in to edit your profile' });
+        const wait = runLimit(`p${user.id}`);
+        if (wait) { res.setHeader('Retry-After', String(wait)); return send(429, { error: 'too many changes' }); }
+        const body = await readJson(req) as Record<string, unknown> | null;
+        const change: { avatar?: string; motto?: string } = {};
+        if (body?.avatar !== undefined) {
+          const a = parseAvatar(body.avatar);
+          if (!a) return send(400, { error: 'bad patch' });
+          change.avatar = avatarCode(a);
+        }
+        if (body?.motto !== undefined) {
+          const m = parseMotto(body.motto);
+          if (m === null) return send(400, { error: `motto: up to ${MOTTO_MAX} characters` });
+          change.motto = m;
+        }
+        accounts.setProfile(user.id, change);
+        return send(200, { profile: profileOf(user.name) });
       }
       if (route === 'scores') {
         const user: User | null = accounts.user(token(req));

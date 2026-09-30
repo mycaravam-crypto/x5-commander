@@ -4,6 +4,7 @@ import { createHash, randomBytes, scrypt, timingSafeEqual, type ScryptOptions } 
 import type { DatabaseSync } from 'node:sqlite';
 
 export type User = { id: number; name: string };
+export type Profile = User & { avatar: string; motto: string; created: string };
 
 export const NAME_MIN = 3, NAME_MAX = 16, PASSWORD_MIN = 8, PASSWORD_MAX = 200;
 export const SESSION_DAYS = 90;
@@ -46,6 +47,13 @@ export function openAccounts(db: DatabaseSync) {
       expires INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id);`);
+  // Profiles (added after accounts): the unit patch ('' = the one from the callsign) and a motto.
+  const cols = (db.prepare('PRAGMA table_info(users)').all() as { name: string }[]).map(c => c.name);
+  if (!cols.includes('avatar')) db.exec("ALTER TABLE users ADD COLUMN avatar TEXT NOT NULL DEFAULT ''");
+  if (!cols.includes('motto')) db.exec("ALTER TABLE users ADD COLUMN motto TEXT NOT NULL DEFAULT ''");
+  const profile = db.prepare('SELECT id, name, avatar, motto, created FROM users WHERE name = ?');
+  const setAvatar = db.prepare('UPDATE users SET avatar = ? WHERE id = ?');
+  const setMotto = db.prepare('UPDATE users SET motto = ? WHERE id = ?');
   const byName = db.prepare('SELECT id, name, pw FROM users WHERE name = ?');
   const insertUser = db.prepare('INSERT INTO users (name, pw) VALUES (?, ?)');
   const insertSession = db.prepare('INSERT INTO sessions (hash, user_id, expires) VALUES (?, ?, ?)');
@@ -84,6 +92,12 @@ export function openAccounts(db: DatabaseSync) {
     },
     user: (token: string | undefined): User | null => token ? (bySession.get(sha(token), Date.now()) as User | undefined) ?? null : null,
     logout: (token: string | undefined) => { if (token) dropSession.run(sha(token)); },
+    profile: (name: string) => (profile.get(name.toUpperCase()) as Profile | undefined) ?? null,
+    // Changes what's given (already checked: an avatar code, a motto).
+    setProfile(userId: number, p: { avatar?: string; motto?: string }) {
+      if (p.avatar !== undefined) setAvatar.run(p.avatar, userId);
+      if (p.motto !== undefined) setMotto.run(p.motto, userId);
+    },
   };
 }
 export type Accounts = ReturnType<typeof openAccounts>;

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openScores, parseRun, TOP } from './scores.ts';
 import { parseName, parsePassword, hashPassword, verifyPassword } from './accounts.ts';
+import { xpOf } from './career.ts';
 
 const ok = (c: unknown, msg: string) => { if (!c) throw new Error(msg); };
 const run = (time: number, kills: number, daily = '') => ({ time, kills, level: 3, earned: 1000, seed: 'X5-ABC-0', daily });
@@ -33,6 +34,19 @@ ok(!d.best && d.run.rank === 2 && d.daily?.rank === 1 && d.daily.total === 1, "a
 ok(s.board('2026-09-30').rows.length === 1 && s.board('2026-09-29').total === 0, 'daily boards hold only their op');
 for (let i = 0; i < 20; i++) s.add(await acct(`X${i}X`), run(1 + i, 0));
 ok(s.board('').rows.length === TOP && s.board('', 50).rows.length === 24, 'the board shows the top players only');
+
+// Careers: totals over an account's runs, promotions and medals as runs are logged.
+const fresh = await acct('ROOKIE');
+const first = s.add(fresh, run(400, 150));
+ok(first.promoted === 1 && first.medals.includes('sortie') && first.medals.includes('blooded') && first.medals.includes('hold'), 'a first big run promotes and wins medals');
+const second = s.add(fresh, run(10, 1));
+ok(second.promoted === null && second.medals.length === 0, 'a small run wins nothing new');
+const c = s.career(fresh.id);
+ok(c.runs === 2 && c.kills === 151 && c.time === 410 && c.bestTime === 400 && c.bestKills === 150 && c.streak === 1, 'career totals');
+ok(s.recent(fresh.id).length === 2 && s.recent(fresh.id)[0].time === 10, 'recent runs, newest first');
+ok(s.board('', 50).rows.find(r => r.name === 'ROOKIE')?.xp === xpOf(c) && xpOf(c) === 233, 'board rows carry career XP, as xpOf counts it');
+s.accounts.setProfile(fresh.id, { avatar: '1.2.3', motto: 'Eyes up' });
+ok(s.accounts.profile('rookie')?.motto === 'Eyes up' && s.board('', 50).rows.find(r => r.name === 'ROOKIE')?.avatar === '1.2.3', 'profiles keep a patch and motto');
 
 // Accounts
 ok(await s.accounts.signup('alpha', 'password1') === 'taken', 'a callsign can only be taken once');

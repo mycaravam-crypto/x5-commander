@@ -49,6 +49,15 @@ try {
   ok(busy.status === 429 && Number(busy.headers.get('retry-after')) > 0, 'an account logging too many runs is held off');
   ok((await anon('/scores')).json.rows.length === 1, 'the board is public');
 
+  const edit = await you('/profile', { avatar: '2.4.1', motto: '  Talk to me,   Goose ' });
+  ok(edit.status === 200 && edit.json.profile.avatar === '2.4.1' && edit.json.profile.motto === 'Talk to me, Goose', 'edit your profile');
+  ok((await you('/profile', { avatar: '9.9.9' })).status === 400 && (await you('/profile', { motto: 'x'.repeat(61) })).status === 400, 'bad profile edits are refused');
+  ok((await anon('/profile', { motto: 'hi' })).status === 401, 'editing needs an account');
+  const pub = (await anon('/profile?name=iceman')).json.profile;
+  ok(pub.name === 'ICEMAN' && pub.motto === 'Talk to me, Goose' && pub.career.runs === 2 && pub.recent.length === 2 && pub.best.rank === 1 && !('pw' in pub) && !('id' in pub), 'profiles are public, without secrets');
+  ok((await anon('/profile?name=nobody')).status === 404, 'no such pilot');
+  ok((await you('/me')).json.user.career.runs === 2 && (await you('/me')).json.user.avatar === '2.4.1', '/me has the career and patch');
+  ok((await anon('/scores')).json.rows[0].avatar === '2.4.1', 'the board shows patches');
   ok((await you('/logout', {})).status === 200 && (await you('/me')).json.user === null, 'sign out');
   ok((await you('/scores', run(60, 5))).status === 401, 'signed out, runs are refused again');
   ok((await you('/login', { name: 'ICEMAN', password: 'nope-nope' })).status === 401, 'a wrong password is refused');
