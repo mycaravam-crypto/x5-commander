@@ -3,14 +3,14 @@
 # it lives in shared/, with a backup from before each deploy in shared/backups/.
 #
 # Usage:
-#   X5_DEPLOY_HOST=mycaravam@vi0lins.de ./deploy/rollback.sh                   # the release before the live one
-#   X5_DEPLOY_HOST=mycaravam@vi0lins.de ./deploy/rollback.sh 20260930101500    # a specific release
-#   X5_DEPLOY_HOST=mycaravam@vi0lins.de ./deploy/rollback.sh --list            # the releases there are
+#   X5_DEPLOY_HOST=user@your-server ./deploy/rollback.sh                   # the release before the live one
+#   X5_DEPLOY_HOST=user@your-server ./deploy/rollback.sh 20260930101500    # a specific release
+#   X5_DEPLOY_HOST=user@your-server ./deploy/rollback.sh --list            # the releases there are
 # Optional: X5_DEPLOY_PATH (/var/www/x5-commander)
 
 set -euo pipefail
 
-HOST="${X5_DEPLOY_HOST:?Set X5_DEPLOY_HOST, e.g. mycaravam@vi0lins.de}"
+HOST="${X5_DEPLOY_HOST:?Set X5_DEPLOY_HOST, e.g. user@your-server}"
 REMOTE_PATH="${X5_DEPLOY_PATH:-/var/www/x5-commander}"
 
 if [[ "${1:-}" == "--list" ]]; then

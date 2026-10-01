@@ -1,4 +1,4 @@
-name: Deploy to x5.vi0lins.de
+name: Deploy
 
 on:
   push:
@@ -29,7 +29,7 @@ jobs:
     timeout-minutes: 15
     environment:
       name: production
-      url: https://x5.vi0lins.de
+      url: ${{ vars.X5_DOMAIN && format('https://{0}', vars.X5_DOMAIN) || '' }}
     steps:
       # Until the secrets are set (see deploy/Caddyfile and the README), a push skips instead of failing; a deploy run by
       # hand fails, so a skipped deploy never looks like a green one.
@@ -60,19 +60,25 @@ jobs:
 
       - name: Trust server host key
         if: steps.ready.outputs.ok
+        env:
+          X5_DEPLOY_HOST: ${{ secrets.X5_DEPLOY_HOST }}
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H vi0lins.de >> ~/.ssh/known_hosts
+          ssh-keyscan -H "${X5_DEPLOY_HOST#*@}" >> ~/.ssh/known_hosts
 
       - name: Deploy
         if: steps.ready.outputs.ok
         env:
           X5_DEPLOY_HOST: ${{ secrets.X5_DEPLOY_HOST }}
           X5_DEPLOY_PATH: ${{ secrets.X5_DEPLOY_PATH }}
+          X5_DOMAIN: ${{ vars.X5_DOMAIN }}
         run: ./deploy/deploy.sh
 
       - name: Check the live site
         if: steps.ready.outputs.ok
+        env:
+          X5_DOMAIN: ${{ vars.X5_DOMAIN }}
         run: |
-          for i in $(seq 10); do curl -sf https://x5.vi0lins.de/healthz && exit 0; sleep 3; done
-          echo "::error::https://x5.vi0lins.de/healthz isn't answering (DNS or the Caddy block missing?)"; exit 1
+          if [ -z "$X5_DOMAIN" ]; then echo "::warning::X5_DOMAIN variable not set: skipping the live site check"; exit 0; fi
+          for i in $(seq 10); do curl -sf "https://$X5_DOMAIN/healthz" && exit 0; sleep 3; done
+          echo "::error::https://$X5_DOMAIN/healthz isn't answering (DNS or the Caddy block missing?)"; exit 1
