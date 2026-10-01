@@ -205,6 +205,38 @@ export function createRenderer() {
   let terrainG = new THREE.Group(), terrainKey = NaN;
   const SEG = coarse ? 128 : 240;
   const groundMat = new THREE.MeshLambertMaterial();
+  // Battle damage on the ground for the rest of the run: scorch marks and craters where things came down (see
+  // scar). A canvas over the middle of the map, blended into the ground's colour in its shader.
+  const SCAR_R = 90, SCAR_N = coarse ? 512 : 1024, SCAR_K = SCAR_N / (2 * SCAR_R);
+  const scarCv = document.createElement('canvas');
+  scarCv.width = scarCv.height = SCAR_N;
+  const scarG = scarCv.getContext('2d')!;
+  const scarTex = new THREE.CanvasTexture(scarCv);
+  scarTex.colorSpace = THREE.SRGBColorSpace;
+  let scarDirty = false, scarWait = 0;
+  groundMat.onBeforeCompile = sh => {
+    sh.uniforms.scarMap = { value: scarTex };
+    sh.vertexShader = 'varying vec2 vScar;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>\nvScar = vec2(position.x, -position.z) / ${(2 * SCAR_R).toFixed(1)} + 0.5;`);
+    sh.fragmentShader = 'uniform sampler2D scarMap;\nvarying vec2 vScar;\n' + sh.fragmentShader.replace('#include <map_fragment>', '#include <map_fragment>\nvec4 scar = texture2D(scarMap, vScar);\ndiffuseColor.rgb = mix(diffuseColor.rgb, scar.rgb, scar.a);');
+  };
+  // The woods, for battle damage: the trees, where each one's crown is in its instanced mesh, and what's happened
+  // to it (0 standing, 1 scorched, 2 blown down). Bucketed on a 6 m grid to find the ones near a blast.
+  type Tree = ReturnType<typeof treeList>[number];
+  let wood: { t: Tree[]; trunk: THREE.InstancedMesh; pine: THREE.InstancedMesh; leaf: THREE.InstancedMesh; crown: Int32Array; hurt: Uint8Array; cells: Map<number, number[]> } | null = null;
+  const WOOD_CELL = 6, woodKey = (i: number, j: number) => i * 4096 + j;
+  const treeCol = (t: Tree, c: THREE.Color) => c.setHex(t.pine ? 0x2f4a26 : 0x4b6a2c).multiplyScalar(0.8 + 0.4 * ((t.s * 13.7) % 1));
+  const treeD = new THREE.Object3D(), yawQ = new THREE.Quaternion(), UP = new THREE.Vector3(0, 1, 0), leanAx = new THREE.Vector3();
+  // Tree `i` standing, or leaning `lean` rad away from (dx, dz).
+  function setTree(i: number, lean = 0, dx = 1, dz = 0) {
+    const w = wood!, t = w.t[i];
+    treeD.position.set(t.x, groundY(t.x, t.z) - 0.05, t.z);
+    yawQ.setFromAxisAngle(UP, t.x * 7.1 + t.z);
+    treeD.quaternion.setFromAxisAngle(leanAx.set(dz, 0, -dx).normalize(), lean).multiply(yawQ);
+    treeD.scale.set(t.s, t.s * (t.pine ? 1.25 : 1), t.s);
+    treeD.updateMatrix();
+    w.trunk.setMatrixAt(i, treeD.matrix);
+    (t.pine ? w.pine : w.leaf).setMatrixAt(w.crown[i], treeD.matrix);
+  }
   const dispose = (o: THREE.Object3D) => o.traverse(c => {
     const m = c as THREE.Mesh;
     m.geometry?.dispose();
@@ -229,14 +261,15 @@ export function createRenderer() {
       const pine = instanced(mergeGeometries([new THREE.ConeGeometry(0.95, 1.8, 7).translate(0, 1.6, 0), new THREE.ConeGeometry(0.7, 1.4, 7).translate(0, 2.4, 0)])!, new THREE.MeshLambertMaterial(), n);
       const leaf = instanced(new THREE.IcosahedronGeometry(1, 0).scale(1, 0.9, 1).translate(0, 1.9, 0), new THREE.MeshLambertMaterial(), n);
       const d = new THREE.Object3D(), c = new THREE.Color();
-      for (const t of list) {
-        d.position.set(t.x, groundY(t.x, t.z) - 0.05, t.z); d.rotation.set(0, t.x * 7.1 + t.z, 0); d.scale.set(t.s, t.s * (t.pine ? 1.25 : 1), t.s);
-        d.updateMatrix();
-        trunk.setMatrixAt(trunk.count++, d.matrix);
-        const m = t.pine ? pine : leaf;
-        m.setMatrixAt(m.count, d.matrix);
-        m.setColorAt(m.count++, c.setHex(t.pine ? 0x2f4a26 : 0x4b6a2c).multiplyScalar(0.8 + 0.4 * ((t.s * 13.7) % 1)));
-      }
+      wood = { t: list, trunk, pine, leaf, crown: new Int32Array(n), hurt: new Uint8Array(n), cells: new Map() };
+      list.forEach((t, i) => {
+        const m = t.pine ? pine : leaf, k = woodKey(Math.floor(t.x / WOOD_CELL), Math.floor(t.z / WOOD_CELL));
+        wood!.crown[i] = m.count++; trunk.count++;
+        setTree(i);
+        m.setColorAt(wood!.crown[i], treeCol(t, c));
+        const cell = wood!.cells.get(k);
+        if (cell) cell.push(i); else wood!.cells.set(k, [i]);
+      });
       for (const m of [trunk, pine, leaf]) { m.castShadow = !coarse; m.receiveShadow = true; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; terrainG.add(m); }
       // Rock outcrops: a cluster of boulders each.
       const rocks = instanced(new THREE.DodecahedronGeometry(1, 0), new THREE.MeshStandardMaterial({ color: 0x8a867a, roughness: 0.95 }), ROCKS.length * 6);
@@ -1036,6 +1069,87 @@ export function createRenderer() {
     bl.x[i] = x; bl.z[i] = z; bl.r[i] = r; bl.life[i] = bl.max[i] = life;
   }
 
+  // Battle damage. A scar on the ground at (x, z): ragged scorch out to `r` m (`dark` scales it), and with `crater`
+  // a blasted bowl that many m across the middle, a rim of thrown-up earth and clods round it.
+  function scar(x: number, z: number, r: number, crater = 0, dark = 1) {
+    const cx = (x + SCAR_R) * SCAR_K, cy = (z + SCAR_R) * SCAR_K, R = Math.max(1, r * SCAR_K);
+    if (cx - R < 2 || cy - R < 2 || cx + R > SCAR_N - 2 || cy + R > SCAR_N - 2) return; // off the scarred part of the map
+    const blot = (bx: number, by: number, br: number, rgb: string, a: number) => {
+      const g = scarG.createRadialGradient(bx, by, 0, bx, by, br);
+      g.addColorStop(0, `rgba(${rgb},${a})`); g.addColorStop(0.55, `rgba(${rgb},${a * 0.6})`); g.addColorStop(1, `rgba(${rgb},0)`);
+      scarG.fillStyle = g; scarG.beginPath(); scarG.arc(bx, by, br, 0, TAU); scarG.fill();
+    };
+    for (let i = 0; i < 4; i++) { // a few overlapping blots, so it's ragged rather than a disc
+      const a = Math.random() * TAU, d = Math.random() * R * 0.35;
+      blot(cx + Math.cos(a) * d, cy + Math.sin(a) * d, R * (0.6 + Math.random() * 0.4), '24,20,16', 0.45 * dark);
+    }
+    if (crater) {
+      const Q = crater * SCAR_K * 0.5;
+      scarG.fillStyle = 'rgba(70,58,42,0.75)'; // clods thrown out round it
+      for (let i = 0; i < 6 + crater * 6; i++) {
+        const a = Math.random() * TAU, d = Q * (1.2 + Math.random() * 1.8), w = Math.max(0.8, Q * 0.15 * (0.5 + Math.random()));
+        scarG.fillRect(cx + Math.cos(a) * d - w / 2, cy + Math.sin(a) * d - w / 2, w, w);
+      }
+      blot(cx, cy, Q * 1.35, '118,98,70', 0.6); // a rim of fresh earth
+      // The bowl: in shadow under the wall nearest the sun (it lights from -x, -z), the far wall catching it.
+      blot(cx - Q * 0.2, cy - Q * 0.2, Q * 0.9, '20,16,12', 0.9);
+      blot(cx + Q * 0.3, cy + Q * 0.3, Q * 0.4, '96,80,58', 0.35);
+    }
+    scarDirty = true;
+  }
+  // A blast at (x, z) in the woods: trees within `r` m are blown down away from it, burnt, and a couple catch light;
+  // out to twice that, they're scorched and lean away.
+  function blastTrees(x: number, z: number, r: number) {
+    if (!wood || r <= 0) return;
+    const w = wood, c0 = Math.floor((x - 2 * r) / WOOD_CELL), c1 = Math.floor((x + 2 * r) / WOOD_CELL), d0 = Math.floor((z - 2 * r) / WOOD_CELL), d1 = Math.floor((z + 2 * r) / WOOD_CELL);
+    let lit = 0, hit = false;
+    for (let ci = c0; ci <= c1; ci++) for (let cj = d0; cj <= d1; cj++) for (const i of w.cells.get(woodKey(ci, cj)) ?? []) {
+      const t = w.t[i], dx = t.x - x, dz = t.z - z, d = Math.hypot(dx, dz), crown = t.pine ? w.pine : w.leaf;
+      if (d > 2 * r || w.hurt[i] === 2) continue;
+      const a = d > 0.05 ? 0 : Math.random() * TAU, ux = d > 0.05 ? dx : Math.cos(a), uz = d > 0.05 ? dz : Math.sin(a);
+      if (d < r) {
+        w.hurt[i] = 2;
+        setTree(i, 1.3 + Math.random() * 0.25, ux, uz);
+        crown.setColorAt(w.crown[i], tmpC.setHex(0x2a2820));
+        w.trunk.setColorAt(i, tmpC.setScalar(0.35));
+        if (lit < 2 && Math.random() < 0.5) { lit++; burn(t.x, t.z, 0.6); }
+      } else if (!w.hurt[i]) {
+        w.hurt[i] = 1;
+        setTree(i, 0.25 * (2 - d / r), ux, uz);
+        crown.setColorAt(w.crown[i], treeCol(t, tmpC).lerp(SCORCHED, 0.6));
+      } else continue;
+      hit = true;
+    }
+    if (hit) for (const m of [w.trunk, w.pine, w.leaf]) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
+  }
+  const SCORCHED = new THREE.Color(0x3a3424);
+  // Something comes down at (x, z): `r` m of scorch with a crater `crater` m across, trees blown down within
+  // `trees` m. In the water it's a splash instead, and leaves nothing. Returns whether it was the water.
+  function impact(x: number, z: number, r: number, crater = 0, trees = 0) {
+    if (groundY(x, z) < WATER_Y) {
+      puffs(x, WATER_Y + 0.3, z, 2 + Math.ceil(r * 2), Math.max(0.6, r * 0.6), 1.2, 0.85);
+      shards(x, z, 6 + Math.ceil(r * 4), 0xcfe6f0, 4 + r * 2, 0.4, WATER_Y + 0.1, 1);
+      wave(x, WATER_Y + 0.05, z, Math.max(1.5, r * 2), 0xcfe6f0, 0.8, 0.7);
+      return true;
+    }
+    scar(x, z, r, crater);
+    blastTrees(x, z, trees);
+    return false;
+  }
+  // A new run (or a new map) starts on clean ground, with the woods standing again.
+  let scarRun: State | null = null;
+  function healGround() {
+    scarG.clearRect(0, 0, SCAR_N, SCAR_N); scarDirty = true;
+    if (!wood) return;
+    wood.t.forEach((t, i) => {
+      if (!wood!.hurt[i]) return;
+      wood!.hurt[i] = 0; setTree(i);
+      (t.pine ? wood!.pine : wood!.leaf).setColorAt(wood!.crown[i], treeCol(t, tmpC));
+      wood!.trunk.setColorAt(i, tmpC.setScalar(1));
+    });
+    for (const m of [wood.trunk, wood.pine, wood.leaf]) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
+  }
+
   function traverse(s: State, dt: number, play: boolean) {
     const claimed = new Map<number, number>(), foes = new Map<number, Enemy>();
     for (const o of s.enemies) foes.set(o.id, o);
@@ -1092,8 +1206,11 @@ export function createRenderer() {
           }
           // Aircraft come down in one piece-ish; missiles and FPVs just go up in the blast.
           if (f && WRECKS.includes(e.kind!)) { f.x = e.x; f.z = e.z; wreck(f, T.size * VIS); }
-          else if (f && GAIT[e.kind!] && e.kind !== 'crawler') down(f, T.size * VIS); // a mini-walker goes up with its charge
-          else if (T.size > 1.5) gwave(e.x, e.z, T.size * 3, C.fire, 0.5, 0.6); // debris lands
+          else if (T.ground) { // a walker blows up where it stands, and topples (a mini-walker goes up with its charge)
+            impact(e.x, e.z, T.size * 2, T.size * 0.8, T.size * 1.2);
+            if (f && GAIT[e.kind!] && e.kind !== 'crawler') down(f, T.size * VIS);
+          }
+          else if (T.size > 1.5) { gwave(e.x, e.z, T.size * 3, C.fire, 0.5, 0.6); impact(e.x, e.z, T.size * 1.5, 0, T.size * 0.6); } // debris lands
           break;
         }
         case 'hit': {
@@ -1106,10 +1223,10 @@ export function createRenderer() {
           e.n ? (wave(e.x, y, e.z, e.n, C.fire, 0.35, 1.2), shards(e.x, e.z, 6, C.fire, 10, 0.8, y, 1.5), puffs(e.x, y, e.z, 2, e.n * 0.5, 1)) : shards(e.x, e.z, 2, C.flash, 6, 0.4, y, 1.5);
           break;
         }
-        case 'baseHit': { const y = groundY(e.x, e.z) + 0.8; boom(e.x * 0.5, y, e.z * 0.5, 2.5, 18); puffs(e.x * 0.5, y, e.z * 0.5, 6, 2.5, 3, 0.2); groundFlash = 1; break; }
+        case 'baseHit': { const y = groundY(e.x, e.z) + 0.8; boom(e.x * 0.5, y, e.z * 0.5, 2.5, 18); puffs(e.x * 0.5, y, e.z * 0.5, 6, 2.5, 3, 0.2); groundFlash = 1; impact(e.x * 0.5, e.z * 0.5, 3.5, 2); break; }
         case 'dud': puffs(e.x * 0.5, groundY(e.x, e.z) + 0.8, e.z * 0.5, 3, 1.2, 2, 0.2); break; // a foam decoy: a puff, no blast
         case 'padHit': shards(e.x, e.z, 4, C.fire, 6, 0.6, groundY(e.x, e.z) + 0.8, 1.5); break;
-        case 'padDown': { const y = groundY(e.x, e.z) + 0.6; boom(e.x, y, e.z, 1.6, 14); puffs(e.x, y, e.z, 5, 1.8, 4, 0.15); break; }
+        case 'padDown': { const y = groundY(e.x, e.z) + 0.6; boom(e.x, y, e.z, 1.6, 14); puffs(e.x, y, e.z, 5, 1.8, 4, 0.15); impact(e.x, e.z, 3.5, 2.2, 2.5); break; }
         case 'gun': { // MG / MANTIS: the pad's turret swings onto the target, muzzle flash at the barrel tip
           const a = Math.atan2(e.z2 - e.z, e.x2 - e.x), p = s.perim.find(p => Math.abs(p.x - e.x) + Math.abs(p.z - e.z) < 0.01);
           if (p) aimT.set(`pad${p.slot}`, a);
@@ -1215,7 +1332,10 @@ export function createRenderer() {
   function render(s: State, dt: number, lead = 0) {
     clock += dt; walkTime.value = clock;
     if (mapSeed !== terrainKey) buildTerrain(); // a new run, a new map
+    if (s !== scarRun) { scarRun = s; healGround(); }
     consume(s);
+    // The scars go up to the GPU a few times a second at most: a whole canvas each time.
+    if (scarDirty && (scarWait -= dt) <= 0) { scarTex.needsUpdate = true; scarDirty = false; scarWait = coarse ? 0.5 : 0.25; }
     const key = `${s.level}${s.st.radar}${!!s.st.weapons.cannon}${s.st.aesa}${!!s.st.weapons.pulse}${s.lv.missile ?? 0}${!!s.st.weapons.rail}|${s.perim.map(p => `${p.slot}${p.k}${p.tier}${p.down ? 'd' : ''}${p.x},${p.z}${Object.values(p.mods ?? {}).join('+')}`).join()}|${s.selected}`;
     if (key !== baseKey) { baseKey = key; buildBase(s); }
     covMesh.visible = showCov;
@@ -1791,13 +1911,13 @@ export function createRenderer() {
           smoke(x0, y0, z0, P[j], P[j + 1], P[j + 2], 0.25 * sz, 1.8, 0.3);
           beam(x0, y0, z0, P[j], P[j + 1], P[j + 2], 0.2 * sz, C.fire, 0.12, 1.6);
         }
-        const gy = groundY(P[j], P[j + 2]);
-        if (P[j + 1] <= gy + 0.2 || wk.life[i] <= 0) { // impact
+        const gy = Math.max(groundY(P[j], P[j + 2]), WATER_Y);
+        if (P[j + 1] <= gy + 0.2 || wk.life[i] <= 0) { // impact: a crater and the trees round it flattened, or a splash
           wk.life[i] = 0;
+          const wet = impact(P[j], P[j + 2], sz * 1.8, sz * 0.7, sz * 1.2);
           boom(P[j], gy + 0.4, P[j + 2], sz * 0.6, 10);
           gwave(P[j], P[j + 2], sz * 2.5, C.fire, 0.6, 0.8);
-          puffs(P[j], gy + 0.3, P[j + 2], 4, sz * 0.8, 1.5, 0.5); // dust kicked up
-          burn(P[j], P[j + 2], sz * 0.4);
+          if (!wet) { puffs(P[j], gy + 0.3, P[j + 2], 4, sz * 0.8, 1.5, 0.5); burn(P[j], P[j + 2], sz * 0.4); } // dust kicked up, and it burns
           continue;
         }
       }
@@ -1830,8 +1950,8 @@ export function createRenderer() {
       if (t >= dur) { // landed
         bo.dur[i] = 0;
         const x = A[j + 3], y = A[j + 4], z = A[j + 5];
-        if (bo.blast[i]) { boom(x, y, z, bo.blast[i], 10); gwave(x, z, bo.blast[i] * 1.4, C.fire, 0.5, 0.8); }
-        else shards(x, z, 3, C.fire, 5, 0.4, y, 1.5);
+        if (bo.blast[i]) { boom(x, y, z, bo.blast[i], 10); gwave(x, z, bo.blast[i] * 1.4, C.fire, 0.5, 0.8); impact(x, z, bo.blast[i] * 2.5, bo.blast[i]); }
+        else { shards(x, z, 3, C.fire, 5, 0.4, y, 1.5); scar(x + (Math.random() - 0.5) * 1.6, z + (Math.random() - 0.5) * 1.6, 0.45, 0, 0.8); } // a pock where it strikes
         continue;
       }
       const at = (u: number, v: THREE.Vector3) => v.set(A[j] + (A[j + 3] - A[j]) * u, A[j + 1] + (A[j + 4] - A[j + 1]) * u + 4 * bo.apex[i] * u * (1 - u), A[j + 2] + (A[j + 5] - A[j + 2]) * u);
