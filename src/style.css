@@ -152,6 +152,11 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 #padcard button { font: inherit; font-size: 10px; color: var(--hot); background: transparent; border: 1px solid var(--mid); padding: 3px 7px; margin: 5px 3px 2px 0; cursor: pointer; letter-spacing: 0; }
 #padcard button.on { background: var(--hot); color: var(--bg); }
 #padcard button:disabled { color: var(--mid); opacity: 0.6; cursor: default; }
+#padcard .mods { margin-top: 3px; }
+#padcard .mods small { display: inline-block; width: 46px; color: var(--mid); }
+#padcard .mods button { margin: 2px 3px 0 0; padding: 2px 5px; }
+#padcard button.on:disabled { color: var(--bg); opacity: 1; }
+#padcard { max-width: 340px; }
 #target { --c: var(--hot); }
 #target b { color: var(--hot); }
 #log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.55; }

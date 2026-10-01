@@ -112,7 +112,8 @@ The GitHub Pages build is static. To give it a scoreboard, run the server somewh
 |------------------------|-------------------------------------------|
 | Space / Enter          | Start game                                |
 | T (start screen)       | Training: a 3-minute drill of four waves  |
-| A (start screen)       | Ground assault: bipedal robots on foot, only the perimeter can fight them |
+| A (start screen)       | Ground assault: hold the line against robots on foot, only the perimeter can fight them |
+| H (start screen)       | Horde test: a ground assault that skips ahead to THE TIDE, a thousand walkers |
 | S (start screen)       | Play a seed: paste a seed code or a friend's result line |
 | Space (in play)        | Emergency intercept                       |
 | G                      | Cycle fire discipline: CONSERVE / BALANCED / MAXIMUM |
@@ -147,7 +148,7 @@ The first time you meet each threat or mechanic, a short tip explains it. Tips d
 
 **Training.** A first-run drill of four short scripted waves on a fixed map, each with its lesson on screen: **eyesight** (guns fire at what they can see; build a third gun), **radar** (the radar and Patriot are handed over: see far, lock, mark a priority target), **ARMs and EMCON** (ARM salvos: go silent with `F`, then radiate again) and **decoys** (Gerberas among Shaheds, classified and greyed out once locked). The battery can't fall in training and no records are kept. The start screen offers it first until you've finished it once; `T` there starts it any time.
 
-**Ground assault.** A mode of its own (`A` on the start screen, on the map shown there): instead of aircraft, swarms of **bipedal robots** walk in over the ground, and **only perimeter defenses can engage them**. The radar, the Patriot, the laser and the HPM are out of the shop (and wouldn't touch a walker: fire control doesn't lock them and the battery's weapons can't hurt them), and so are the Stinger and IRIS-T SLM, which only shoot at aircraft. Walkers are seen by eye (base, guns, observer posts, a Javelin's thermal sight). Rivers, ponds, woods and rock slow them down. See *Ground assault* under Gameplay. The HUD drops the radar, fire-control and intercept readouts and touch buttons, which have nothing to do here. Its records are kept apart from the air war's, unlock no doctrines and aren't logged on the leaderboard; its seed code ends in `-G`.
+**Ground assault.** A mode of its own (`A` on the start screen, on the map shown there), played as a **front-line tower defence**: instead of aircraft, **robots on foot** (each modelled on a real prototype) march down from the **north** across a front about 80 m wide, and **only perimeter defenses can engage them**. The base holds a line (a HESCO wall across its front), and you build in a band in front of it, not a ring round it. Every gun can be **upgraded in its pit** (MK II, MK III) and **fitted out**: ammunition, a sensor and a piece of kit. The radar, the Patriot and the battery's own laser and HPM are out of the shop (fire control doesn't lock a walker and the battery's weapons can't hurt one), and so are the Stinger and IRIS-T SLM, which only shoot at aircraft; the perimeter gets its own laser and microwave array instead. Walkers are engaged when a unit sees them (by eye, thermal sight or ground radar); the battalion's drone feed shows the ones beyond sight dimmed, so you can watch the tide come on. Rivers, ponds, woods and rock slow them down. Every fifth level is **THE TIDE**: a thousand mini-walkers in a wall. `H` on the start screen is a **horde test** that goes straight there (base level 5, 4,000 credits, a 45 s build window; no records, seed code `-H`). See *Ground assault* under Gameplay. The HUD drops the radar, fire-control and intercept readouts and touch buttons, which have nothing to do here. Its records are kept apart from the air war's, unlock no doctrines and aren't logged on the leaderboard; its seed code ends in `-G`.
 
 **Pause menu.** Resume or quit to the menu, SFX and music volumes, the coverage overlay mode, RESET TIPS, and a compact help panel: the key systems in a line each, and every hotkey.
 
@@ -372,16 +373,25 @@ Spawn rate, HP and damage grow **logarithmically** with play time, and raid size
 **Signatures and height.** Each type has a radar cross-section (`sig`), a heat signature (`ir`) and a height (`alt`) in `ENEMIES`. The radar sees anything flying under 3.5 m only closer in, in proportion to its height (**radar horizon**: an FPV inside about 73% of range, a Kh-101 or a masked Ka-52 about 64%), and one under 2 m over woods or a rock outcrop is lost in the clutter (−60% detection chance). The TRML-4D backup radar has the same horizon; eyes don't. IR seekers (Stinger, IRIS-T SLM, IRIS-T SLX) hit hot targets harder and cold ones softer: a Su-34 takes +21% and a helicopter +14%, an electric Lancet or FPV about −20%.
 
 ### Ground assault
-Its own levels, one new problem at a time, then looping conditions (NIGHT ASSAULT, HORDE, ARMOURED PUSH, LULL, GUN LINE):
-**1 SKIRMISH** packs of light walkers from the front · **2 GUN LINE** combat walkers · **3 FLANKS** from ±70° · **4 HEAVY WALKERS** armoured walkers · **5 SWARM** many more light walkers, from every side · **6 FULL ASSAULT**. Every level still ends with a raid (WALKER RUSH, GUN TEAM, PINCER, ARMOURED PUSH, THE SWARM, HEAVY ASSAULT).
+A front-line defence. Everything comes from the north (the red arc), along a front 40 m either side of the axis, and walks on the base; there are no flank levels. You build in the band in front of the base: 22 m either side of the axis and 24 m out at base level 1, growing to 40 m by 40 m, and up to 6 m behind the base's centre on the wings. The line can field 4 more units than the air war's ring. Raids come on as a wall, rank after rank across the whole front. Walkers on foot move at the pace real legged robots manage.
 
-| Walker                  | What it does |
-|-------------------------|--------------|
-| Light assault walker    | Comes in packs of 3–6. Charges the nearest unit it sees within 8 m (further if that unit is on high ground) and blows its demolition charge on it; otherwise walks on the base |
-| Armed combat walker     | Stops within 9 m of a unit and shoots it up in bursts until it's down, then walks on. Lightly armoured (guns do 80%) |
-| Heavy assault walker    | Slow and tough, fires its cannon at a unit within 16 m every 4 s without stopping. Armoured: machine guns, the MANTIS and the Mk 19 do half. Hits the base hard |
+Its own levels, one new problem at a time, then looping conditions (NIGHT ASSAULT, HORDE, ARMOURED PUSH, LULL, GUN LINE, SIEGE):
+**1 SKIRMISH** light walkers and mini-walkers · **2 GUN LINE** combat walkers · **3 DOGS OF WAR** armed robot dogs · **4 BREACHERS** breachers and heavy walkers · **5 THE TIDE** · **6 FIRE SUPPORT** mortar walkers · **7 FULL ASSAULT**. Every level ends with a raid (WALKER RUSH, GUN TEAM, PACK HUNT, BREACH, ARMOURED PUSH, BARRAGE, HEAVY ASSAULT), and every fifth one is **THE TIDE**: 1,000 mini-walkers and 20 light walkers in a wall (250 more and another 20 each time round, and from the second one, siege walkers leading). Machine guns alone can't stop it: it wants splash.
 
-Perimeter defenses for this mode (on top of the MG, MANTIS, EW jammer, observer post and ammo point, which work here too):
+**The walkers and their real-world prototypes.** None of these is fielded as a weapon today, but each is modelled on a machine that exists:
+
+| Walker | Modelled on | What it does |
+|--------|-------------|--------------|
+| Swarm mini-walker | small expendable bipeds used the way DARPA's OFFSET program (2017–2021) used swarms of hundreds of small robots | Knee-high, cheap and slow (1.2 m/s), comes by the dozen and by the thousand in THE TIDE. Charges a unit within 4 m, otherwise walks on the base |
+| Light assault walker | Unitree G1 humanoid (2024: 1.3 m, 35 kg, ~2 m/s) | Packs of 3–6. Charges the nearest unit it sees within 8 m (further if that unit is on high ground) and blows its demolition charge on it |
+| Armed robot dog | Ghost Robotics Vision 60 with the SWORD SPUR rifle (2021); the PLA's rifle-armed Unitree quadrupeds (2024) | Fast (3 m/s), fires on the run at a unit within 7 m. Not bipedal: the one four-legged walker |
+| Armed combat walker | Foundation's Phantom humanoid (2025, marketed for defence work); Russia's FEDOR humanoid firing pistols (2017) | Stops within 9 m of a unit and shoots it up in bursts until it's down, then walks on. Lightly armoured (guns do 80%) |
+| Breacher | Boston Dynamics Atlas (agile, carries loads) | Goes for your wire and Claymores within 14 m and cuts them (the unit is down until repaired), then walks on. Wire doesn't slow it |
+| Fire-support walker | Agility Robotics Digit (a logistics biped) carrying a 60 mm mortar | Stops 22 m from the nearest unit it sees, out of reach of most guns, and lobs a round on it every 5 s (3 m splash) |
+| Heavy assault walker | Hankook Mirae Method-2 (2016: 4 m tall, 1.6 t, piloted) | Slow and tough, fires its cannon at a unit within 16 m every 4 s without stopping. Armoured: machine guns, the MANTIS and the Mk 19 do half. Hits the base hard |
+| Siege walker | Suidobashi Kuratas (2012: 4 m, 4.5 t, piloted), scaled up | Leads THE TIDE from level 10. Very heavily armoured (small arms do 35%), crushes any unit it walks over, wire doesn't slow it, and its cannon (24 m, splash) outranges most of your guns |
+
+**Perimeter defenses for this mode** (on top of the MG, MANTIS, EW jammer, observer post and ammo point, which work here too):
 
 | Unit | Reach | What it does |
 |------|-------|--------------|
@@ -389,9 +399,36 @@ Perimeter defenses for this mode (on top of the MG, MANTIS, EW jammer, observer 
 | M18A1 Claymore belt | 6 m, 60° arc facing out | Directional mines: a walker stepping into the arc sets off a charge that blasts every walker in it, armour or not. No eyes needed. 4 charges, re-laid one every 15 s and all of them in the build window |
 | Mk 19 grenade launcher | 18 m | 40 mm automatic grenades lobbed onto where the target will be: 2.2 m splash tears up packs. Feeds from its own 32-round belt (base level 2) |
 | FGM-148 Javelin team | 28 m | Top-attack missile that goes through any armour, heaviest walker first. Its command launch unit's thermal sight sees 26 m. Uses the ammunition pool (base level 3) |
+| XM813 30 mm RWS | 20 m, 180° | Bushmaster chain gun on a remote weapon station: half again of the way through armour (base level 3) |
+| LOCUST 20 kW laser | 22 m, 180° | A beam that burns one walker after another where it stands: no ammunition, draws power while it fires, half the way through armour (base level 3) |
 | M120 120 mm mortar | 36 m, not inside 9 m | Indirect fire: a round lands on the target's predicted spot 1.8 s later with a 4 m splash, through armour. Needs something to see the target (an observer post or a Javelin sight is ideal). Uses the ammunition pool (base level 4) |
+| Leonidas HPM | 13 m, 60° cone | Epirus's high-power microwave array: every pulse fries every robot in its cone, armour or not (it's the electronics it kills), and stuns what's left standing for 1.5 s (a heavy or siege walker for 40% of that). Heavy on power (base level 4) |
+| Hydra-70 rocket pod | 15–45 m | A salvo of 8 rockets onto the thickest pack it can see, scattered round it (3 m splash each, through armour), then 12 s to reload. Uses the ammunition pool (base level 5) |
 
-Power and the ammunition pool (Generator, Battery Banks, M903 Canisters, GMT Reload) don't wait for a radar or a Patriot here.
+**Upgrades in the pit.** Click a unit: every gun (not just the MG) takes **MK II** (+35% damage, +8% range) and **MK III** (+80%, +15%) for a share of its shop price, and has three **fitting slots**. Fitting another item in a slot replaces what was there; items show on the unit (armour plates, a sensor box, a radar panel, tier chevrons):
+
+| Slot | Item | Fits | Effect |
+|------|------|------|--------|
+| AMMO | AP / API rounds | MG, MANTIS, 30 mm | 75% of the way through armour, −10% damage |
+| AMMO | Airburst HE (AHEAD) | MANTIS, 30 mm, Mk 19 | rounds burst over the pack: +1.5 m splash, −20% damage |
+| AMMO | Incendiary (API-T / thermite) | MG, MANTIS, 30 mm, Mk 19, mortar, rockets | what it hits burns: 40% of the hit again every second for 3 s |
+| AMMO | DPICM cluster rounds | mortar, rockets | +60% splash, −25% damage |
+| AMMO | Precision-guided (PGMM / APKWS) | Mk 19, mortar, rockets | rounds follow the target down, +20% damage |
+| AMMO | Multi-purpose warhead (Javelin F) | Javelin | 2.5 m blast-frag splash, −15% damage |
+| AMMO | Adaptive optics / Beam splitter | laser | +40% damage and +15% range / a second beam at 60% |
+| AMMO | Wide-aperture array / High-PRF pulses | HPM | 90° cone, −15% damage / pulses 40% faster, stuns twice as long, +30% power |
+| AMMO | Triple-strand razor wire | wire | walkers wade at a fifth of their speed and are cut (1 damage/s) |
+| AMMO | M7 Spider networked mines | Claymores | 6 charges, re-laid twice as fast |
+| SENSOR | Thermal sight (FLIR) | every gun, Claymores | +12 m eyes, sees as well at night, +10% range |
+| SENSOR | Ground surveillance radar (EchoGuard) | every gun, observer, wire, ammo point | sees 36 m round itself, day or night, for every gun; 0.3 power/s |
+| SENSOR | Fire-control computer + rangefinder | every gun | +20% damage, +10% fire rate |
+| KIT | Autoloader / ammo booster | MG, MANTIS, Mk 19, Javelin, mortar, 30 mm, rockets | +30% fire rate, belts twice as long |
+| KIT | Ballistic armour kit | every gun, observer, ammo point, jammer | x2 unit HP |
+| KIT | Stabilised RWS mount | MG, Mk 19, Javelin, 30 mm, laser | fires all round (360° field of fire) |
+| KIT | Long barrel / extended range | MG, MANTIS, Mk 19, mortar, 30 mm, rockets | +25% range, −10% fire rate |
+| KIT | Capacitor bank | laser, HPM | −40% power drawn |
+
+Tiers and fittings count toward the base level like any purchase, and what's sunk into a unit comes back (in part) when it's sold. Power and the ammunition pool (Generator, Battery Banks, M903 Canisters, GMT Reload) don't wait for a radar or a Patriot here; the laser and HPM live on the generators.
 
 ### The battery
 The base is laid out like a Patriot site. Every base level builds something that changes what it can do, plus an M903 launcher once you have the Patriot (up to 8), and 2 more perimeter pads:
@@ -445,7 +482,8 @@ This section replaces the old `plan-mvp.md`, `plan.md` and `plan-frontline.md`; 
 - **Front line, steps 1–5:** the front and widening flank arcs, levels with raids and build windows, the AA MG start with the radar and Patriot as milestones, belt slots with fields of fire, crossfire, support units and unit HP, the coverage overlay (`O`), and Kh-101 cruise missiles with the IRIS-T SLM to stop them.
 - **Threat realism:** Orlan-10 spotter, Ka-52, Su-25 attack runs with S-8 rockets, Su-35S SEAD with memory-seeker Kh-58s, Kinzhal and the Kh-55 decoy; per-type height, RCS and heat signature, a radar horizon by height, FPV swarms that hunt isolated units, and salvage that stays until clicked.
 - **Defence layers:** reaches in the real order (HPM 7, MG 10, HEL 11, MANTIS 15, Stinger 24, IRIS-T SLM 40, SLX 50, PAC-3 58, radar 68 m) on a 75 m arena; the laser and HPM are self-cueing point defence; a two-gun start with crossing fields of fire.
-- **Ground assault:** a second mode (`A` on the start screen): bipedal robot swarms on foot that only the perimeter can engage, five new perimeter defenses (concertina wire, Claymores, Mk 19, Javelin, M120 mortar), its own levels, raids and records, and a HUD without the radar and fire-control controls.
+- **Ground assault:** a second mode (`A` on the start screen): robot swarms on foot that only the perimeter can engage, five new perimeter defenses (concertina wire, Claymores, Mk 19, Javelin, M120 mortar), its own levels, raids and records, and a HUD without the radar and fire-control controls.
+- **Ground assault as a front-line tower defence:** one front (north), a build band in front of a walled base, MK II / III upgrades and AMMO / SENSOR / KIT fittings on every gun, four new perimeter units (XM813 30 mm, LOCUST laser, Leonidas HPM, Hydra-70 rocket pod), five new walkers each modelled on a real prototype (mini-walker, robot dog, breacher, mortar walker, siege walker), THE TIDE of a thousand walkers every fifth level, and `H`, a horde test that goes straight to it. `npm run bench` times the tide too.
 - **Performance pass:** a fixed 1/60 s sim step, throttled HUD text, lighter effects on LITE, bloom that switches itself off under slow frames, and `npm run bench` with p95 and worst-case timings.
 
 ### Next: finish the front line (step 6)

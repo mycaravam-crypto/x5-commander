@@ -1,6 +1,8 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
 import { newGame, update, stageInfo, spawnGroupAt, seedCode, parseCode, parseResult, buy, skipBuild, cruiseTarget, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive, noAmmo, spotted, irHit, shownKind, horizonMask, boss, bossHp, bossReach, bossStandoff, upkeep } from './sim.ts';
 import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, START_PADS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, TERRAIN, AMMO_RELOAD, GUNS, HELO, LANCET, MILESTONE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE, VETERANCY, TRAINING, TRAINING_BUILD, DOCTRINES, RAIDS, EW_MAX, RECON, KA52, SU25, SEAD as SEAD_FTR, ARM2, ARM_STUN, ARM_LIFE, MASK, horizon, flightAlt, KINDS, ARENA_R, BOSS, bossLevel, bossFor, resupply, RESUPPLY, UPKEEP, type DmgCat } from './config.ts';
+import { buyMod, padHp, fanOf, padEyes, modCost, padUpgradeCost, inZone, spawnAt, unitCap, GROUND_EXTRA } from './sim.ts';
+import { GROUND_FIRE, UNIT_TIERS, tideFor, HORDE_TEST, groundZone, FRONT_LINE, GROUND } from './config.ts';
 import { site, PONDS, ROCKS, FARMS, mapSeed, openShare, OPEN_MIN, ground, riverZ, RIVER_W } from './terrain.ts';
 
 // Deterministic: Math.random is seeded too, so a failure replays exactly.
@@ -1115,6 +1117,7 @@ ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies stan
 }
 // GROUND ASSAULT: walkers on foot, and only the perimeter can engage them.
 {
+  const byDist = (q: { x: number; z: number }[]) => q.sort((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z)); // the band is a grid: nearest first, like the air war's rings
   const gq = () => { const g = newGame(1, '', 'standard', false, true); Object.assign(g, { phase: 'play', spawnAcc: -1e9, nextRaid: 1e9, level: 5 }); g.perim.length = 0; g.st.maxHp = g.hp = 1e9; return g; };
   const put = (g: State, k: string, x: number, z: number) => { g.credits += 1e6; ok(buy(g, k), `buy ${k} on the ground`); ok(placePad(g, x, z), `place ${k}`); return g.perim[g.perim.length - 1]; };
   // A walker at polar (a, r) around the base, standing still unless `speed`.
@@ -1141,7 +1144,7 @@ ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies stan
   // Battery weapons can't touch a walker, and fire control doesn't lock one: the perimeter can.
   {
     const g = gq(); g.lv.radar = g.lv.pac3 = g.lv.pulse = g.lv.rail = 1; g.st = deriveStats(g.lv, [], 5); g.st.maxHp = g.hp = 1e9;
-    const q = freeSpots(g).find(q => !site(q.x, q.z) && Math.hypot(q.x, q.z) < 13)!;
+    const q = byDist(freeSpots(g)).find(q => !site(q.x, q.z) && Math.hypot(q.x, q.z) < 13)!;
     const e = walker(g, 'walker', q.x * 0.45, q.z * 0.45), hp = e.hp; // right by the battery, in reach of all of it
     run(g, 3);
     ok(e.hp === hp && !e.locked && g.enemies.includes(e), 'PAC-3, HEL and HPM don\'t engage a walker');
@@ -1152,7 +1155,7 @@ ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies stan
   // Armour: an MG does half to a heavy walker; a Javelin goes through.
   {
     const dealt = (k: string, kind: 'walker' | 'mech') => {
-      const g = gq(), q = freeSpots(g).find(q => !site(q.x, q.z) && Math.hypot(q.x, q.z) < 14)!, p = put(g, k, q.x, q.z);
+      const g = gq(), q = byDist(freeSpots(g)).find(q => !site(q.x, q.z) && Math.hypot(q.x, q.z) < 14)!, p = put(g, k, q.x, q.z);
       const e = walker(g, kind, q.x * 1.5, q.z * 1.5); e.hp = e.maxHp = 1e9;
       run(g, 10); ok(p.kills === 0, 'a punching bag');
       return g.stats.dmg[k === 'mg' ? 'MG' : 'JAVELIN'] ?? 0;
@@ -1163,7 +1166,7 @@ ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies stan
   // Wire: a walker wades through it at a third of its speed.
   {
     const moved = (wire: boolean) => {
-      const g = gq(), q = freeSpots(g).find(q => Math.hypot(q.x, q.z) > 16)!;
+      const g = gq(), q = byDist(freeSpots(g)).find(q => Math.hypot(q.x, q.z) > 16)!;
       if (wire) put(g, 'wire', q.x, q.z);
       const e = walker(g, 'walker', q.x * 1.1, q.z * 1.1, 3); e.hp = e.maxHp = 1e9; e.dmg = 0;
       const x0 = e.x, z0 = e.z; run(g, 0.5);
@@ -1173,22 +1176,22 @@ ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies stan
   }
   // Claymores: a pack stepping into the arc goes up with one charge; mortars can't hit inside their minimum range.
   {
-    const g = gq(), q = freeSpots(g).find(q => Math.hypot(q.x, q.z) > 15 && !site(q.x, q.z))!, p = put(g, 'mines', q.x, q.z);
+    const g = gq(), q = byDist(freeSpots(g)).find(q => Math.hypot(q.x, q.z) > 15 && !site(q.x, q.z))!, p = put(g, 'mines', q.x, q.z);
     const out = { x: q.x / Math.hypot(q.x, q.z), z: q.z / Math.hypot(q.x, q.z) };
     for (let i = 0; i < 3; i++) walker(g, 'walker', q.x + out.x * 3 + i * 0.3, q.z + out.z * 3);
     run(g, 0.2);
     ok(g.enemies.length === 0 && p.belt < 4 && p.belt >= 2.9, `one Claymore charge takes out the pack (${g.enemies.length} left, ${p.belt.toFixed(2)} charges)`);
-    const m = gq(), mq = freeSpots(m).find(q => Math.hypot(q.x, q.z) < 13 && !site(q.x, q.z))!, mp = put(m, 'mortar', mq.x, mq.z);
+    const m = gq(), mq = byDist(freeSpots(m)).find(q => Math.hypot(q.x, q.z) < 13 && !site(q.x, q.z))!, mp = put(m, 'mortar', mq.x, mq.z);
     const close = walker(m, 'walker', mq.x * 1.3, mq.z * 1.3); close.hp = 1e9;
     run(m, 4); ok(m.shots.length === 0 && mp.cd === 0 && close.hp === 1e9, 'mortar holds fire inside its minimum range');
   }
   // Combat walkers stop and shoot a unit in reach; light walkers charge one and blow up on it.
   {
-    const g = gq(), q = freeSpots(g).find(q => Math.hypot(q.x, q.z) > 16 && !site(q.x, q.z))!, p = put(g, 'wire', q.x, q.z);
+    const g = gq(), q = byDist(freeSpots(g)).find(q => Math.hypot(q.x, q.z) > 16 && !site(q.x, q.z))!, p = put(g, 'wire', q.x, q.z);
     const e = walker(g, 'gunbot', q.x * 1.3, q.z * 1.3, 2); e.hp = e.maxHp = 1e9;
     run(g, 8);
     ok(p.hp < 30 && Math.hypot(e.x - q.x, e.z - q.z) < 9.5 && e.act === 'hover', `a combat walker stops to shoot up a unit (pad hp ${p.hp.toFixed(1)})`);
-    const h = gq(), hq = freeSpots(h).find(q => Math.hypot(q.x, q.z) > 16 && !site(q.x, q.z))!, hp = put(h, 'wire', hq.x, hq.z);
+    const h = gq(), hq = byDist(freeSpots(h)).find(q => Math.hypot(q.x, q.z) > 16 && !site(q.x, q.z))!, hp = put(h, 'wire', hq.x, hq.z);
     walker(h, 'walker', hq.x * 1.25, hq.z * 1.25, 3);
     run(h, 5);
     ok(h.enemies.length === 0 && hp.hp < 30, 'a light walker charges a unit and blows its charge on it');
@@ -1203,6 +1206,123 @@ ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies stan
     });
     ok(g.t > 400 && g.stats.kills.mech! > 0, `a ground bot holds (${g.t.toFixed(0)}s, ${g.kills} kills)`);
     ok(!g.stats.dmg['PAC-3'] && !g.stats.dmg.HEL && !g.stats.dmg.HPM, 'nothing but the perimeter dealt damage');
+  }
+}
+
+// GROUND ASSAULT as a front-line tower defence: one front, a band to build in, upgrades and fittings per unit,
+// new weapons and walkers, THE TIDE.
+{
+  const byDist = (q: { x: number; z: number }[]) => q.sort((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z));
+  const gq = () => { const g = newGame(1, '', 'standard', false, true); Object.assign(g, { phase: 'play', spawnAcc: -1e9, nextRaid: 1e9, level: 5 }); g.perim.length = 0; g.st.maxHp = g.hp = 1e9; g.ammo = g.st.ammoCap = 1e9; g.power = g.st.powerCap = 1e9; return g; };
+  const put = (g: State, k: string, x: number, z: number) => { g.credits += 1e6; ok(buy(g, k), `buy ${k}`); ok(placePad(g, x, z), `place ${k}`); const p = g.perim[g.perim.length - 1]; g.selected = p.slot; return p; };
+  const open = (g: State, d: number) => byDist(freeSpots(g)).find(q => Math.hypot(q.x, q.z) > d && !site(q.x, q.z) && Math.abs(q.x) < 8)!;
+  const bot = (g: State, kind: Parameters<typeof spawnAt>[1], x: number, z: number, speed = 0) => { const e = spawnAt(g, kind, x, z); e.speed = speed; e.vx = e.vz = 0; return e; };
+
+  // Everything comes from the north, along the front line.
+  {
+    const g = newGame(3, '', 'standard', false, true); g.phase = 'play'; g.st.maxHp = g.hp = 1e9;
+    const seen = new Set<number>(); let bad = 0, n = 0;
+    run(g, 700, () => { for (const e of g.enemies) if (!seen.has(e.id)) { seen.add(e.id); n++; if (e.z > FRONT_LINE.z + 1 || Math.abs(e.x) > FRONT_LINE.w + 12) bad++; } });
+    ok(n > 300 && bad === 0 && g.stage >= 4, `walkers only come in from the north (${n} seen, ${bad} elsewhere, L${g.stage + 1})`);
+  }
+  // You build in a band in front of the base, not round it; the line holds more units than the air war's ring.
+  {
+    const g = gq(), Z = groundZone(5);
+    ok(inZone(g, 30, -20) && !inZone(g, 0, Z.back + 2) && !inZone(g, 0, -Z.d - 2) && !inZone(g, Z.w + 2, -10), 'the build zone is a band in front of the base');
+    ok(freeSpots(g).every(q => inZone(g, q.x, q.z) && q.z <= Z.back) && buildBlock(g, 0, 14) === 'OUTSIDE BUILD ZONE', 'nothing goes up behind the base');
+    ok(unitCap(g) === perimSlots(5) + GROUND_EXTRA && unitCap(newGame(1)) === perimSlots(1), 'the ground line holds more units');
+  }
+  // THE TIDE: every fifth level a thousand mini-walkers come on as a wall across the front.
+  {
+    ok(tideFor(4).g.crawler === 1000 && !tideFor(4).g.titan && tideFor(9).g.crawler! > 1000 && tideFor(9).g.titan === 1, 'THE TIDE: a thousand, more each time, siege walkers from the second');
+    const g = newGame(9, '', 'standard', false, true, true); g.phase = 'play'; g.st.maxHp = g.hp = 1e9;
+    ok(g.horde && g.level === HORDE_TEST.level && g.credits === HORDE_TEST.credits && building(g), 'a horde test starts at base level 5 with credits and a build window');
+    const c = parseCode(seedCode(g));
+    ok(seedCode(g).endsWith('-H') && c?.kind === 'run' && c.ground && c.horde === true, 'a horde test\'s code round-trips');
+    let briefed = 0;
+    run(g, 140, () => { if (g.raid && !briefed) briefed = g.raid.n.crawler ?? -1; });
+    const crawlers = g.enemies.filter(e => e.kind === 'crawler' && e.raid).length;
+    ok(phase(g).name === 'THE TIDE' && briefed === 1000 && g.raidName === 'THE TIDE' && g.raidLeft >= 900 && crawlers >= 900, `THE TIDE arrives (${briefed} briefed, ${crawlers} on the field, ${g.raidLeft} left)`);
+  }
+  // Upgrades in the pit: MK II / III for every gun in a ground assault (the MG keeps its own line; nothing new in the air war).
+  {
+    const g = gq(), q = open(g, 14), p = put(g, 'gmg', q.x, q.z), d0 = padStats(g, p).dmg, c = padUpgradeCost(p, true);
+    ok(c < Infinity && padUpgradeCost(p, false) === Infinity, 'tiers are a ground assault\'s');
+    ok(upgradePad(g) && p.tier === 1 && Math.abs(padStats(g, p).dmg / d0 - UNIT_TIERS[1].dmg) < 1e-9 && padUpgradeCost(p, true) > c, 'MK II hits harder, MK III costs more');
+  }
+  // Fittings: one per slot, replaced not stacked, only for the kinds they suit, and they do what they say.
+  {
+    const g = gq(), q = open(g, 14), p = put(g, 'mg', q.x, q.z);
+    ok(modCost(g, p, 'optics') === Infinity && !buyMod(g, 'optics'), 'a laser\'s optics don\'t fit an MG');
+    const e0 = padEyes(p), f0 = fanOf(p);
+    ok(buyMod(g, 'flir') && padEyes(p) === e0 + 12 && buyMod(g, 'gsr') && p.mods!.SENSOR === 'gsr' && padEyes(p) === 36, 'a thermal sight adds eyes; a ground radar replaces it in the slot');
+    ok(buyMod(g, 'rwsm') && fanOf(p) === Math.PI && f0 < Math.PI, 'a stabilised mount fires all round');
+    ok(buyMod(g, 'plates') && padHp(p) === PAD_HP * 2 && p.hp === PAD_HP * 2, 'an armour kit doubles the unit\'s HP');
+    ok(modCost(newGame(1), { ...p, mods: {} }, 'flir') === Infinity, 'no fittings in the air war');
+    // AP rounds: most of the way through a heavy walker's armour.
+    const dealt = (ap: boolean) => {
+      const h = gq(), hq = open(h, 14), hp = put(h, 'mg', hq.x, hq.z);
+      if (ap) buyMod(h, 'ap');
+      const e = bot(h, 'mech', hq.x * 1.4, hq.z * 1.4); e.hp = e.maxHp = 1e9;
+      run(h, 6); return h.stats.dmg.MG ?? 0;
+    };
+    ok(dealt(true) > dealt(false) * 1.4, `AP rounds through armour (${dealt(true).toFixed(0)} vs ${dealt(false).toFixed(0)})`);
+  }
+  // Incendiary: a hit keeps burning after the shot.
+  {
+    const g = gq(), q = open(g, 14), p = put(g, 'mg', q.x, q.z); buyMod(g, 'inc');
+    const e = bot(g, 'gunbot', q.x * 1.4, q.z * 1.4); e.hp = e.maxHp = 1e9;
+    run(g, 1); g.perim.length = 0; const h0 = e.hp; run(g, 1.5);
+    ok(e.burnT > 0 && e.hp < h0 && (g.stats.dmg.INCENDIARY ?? 0) > 0 && p.kills === 0, 'incendiary rounds keep burning');
+  }
+  // The laser burns a walker down with power, no ammunition; the HPM fries every robot in its cone, through armour, and stuns.
+  {
+    const laser = (power: boolean) => {
+      const g = gq(), q = open(g, 14), p = put(g, 'hel', q.x, q.z), a0 = g.ammo;
+      if (!power) { g.power = 0; g.st.gen = 0; }
+      const e = bot(g, 'walker', q.x * 1.5, q.z * 1.5);
+      run(g, 3);
+      return !g.enemies.includes(e) && p.kills === 1 && g.ammo === a0;
+    };
+    ok(laser(true) && !laser(false), 'the laser burns a walker down on power alone, and not without it');
+    const h = gq(), hq = open(h, 14), hp = put(h, 'hpm', hq.x, hq.z), u = { x: hq.x / Math.hypot(hq.x, hq.z), z: hq.z / Math.hypot(hq.x, hq.z) };
+    const pack = [-1, 0, 1].map(i => bot(h, i ? 'gunbot' : 'mech', hq.x + u.x * 6 - u.z * i * 1.5, hq.z + u.z * 6 + u.x * i * 1.5));
+    for (const e of pack) e.hp = e.maxHp = 1e9;
+    run(h, 0.1);
+    ok(pack.every(e => e.hp < 1e9 && e.stun > 0) && pack[1].maxHp - pack[1].hp === pack[0].maxHp - pack[0].hp && hp.cd > 0, 'one HPM pulse hits the whole pack, armour or not, and stuns it');
+    const st = pack[0], x0 = st.x; st.speed = 3; run(h, 0.2);
+    ok(st.x === x0, 'a stunned walker stands still');
+  }
+  // The rocket pod: a salvo of 8 onto the thickest pack, and it tears it up.
+  {
+    const g = gq(), q = open(g, 12); put(g, 'rockets', q.x, q.z); put(g, 'observer', q.x + 4, q.z);
+    const u = { x: q.x / Math.hypot(q.x, q.z), z: q.z / Math.hypot(q.x, q.z) };
+    bot(g, 'walker', q.x + u.x * 30 + 8, q.z + u.z * 30); // a lone one, nearer the edge
+    for (let i = 0; i < 12; i++) bot(g, 'walker', q.x + u.x * 25 + (i % 4) * 0.8, q.z + u.z * 25 + Math.floor(i / 4) * 0.8);
+    run(g, 0.1);
+    ok(g.shots.filter(s => s.kind === 'lob').length === GROUND_FIRE.rockets.salvo, 'a salvo of rockets');
+    run(g, 2);
+    ok(g.stats.kills.walker! >= 8, `the salvo tears up the pack (${g.stats.kills.walker} kills)`);
+  }
+  // Walkers: breachers cut wire, mortar walkers shell from out of reach, robot dogs fire on the run, siege walkers crush.
+  {
+    const g = gq(), q = open(g, 16), w = put(g, 'wire', q.x, q.z);
+    const e = bot(g, 'sapper', q.x * 1.4, q.z * 1.4, 2); e.hp = e.maxHp = 1e9;
+    run(g, 8);
+    ok(w.down && g.enemies.includes(e), 'a breacher cuts the wire and walks on');
+    const h = gq(), hq = open(h, 12), hp = put(h, 'wire', hq.x, hq.z), u = { x: hq.x / Math.hypot(hq.x, hq.z), z: hq.z / Math.hypot(hq.x, hq.z) };
+    const a = bot(h, 'arty', hq.x + u.x * 28, hq.z + u.z * 28, 1.5); a.hp = a.maxHp = 1e9;
+    run(h, 12);
+    const d = Math.hypot(a.x - hq.x, a.z - hq.z);
+    ok(hp.hp < PAD_HP && d > GROUND.arty.stand - 1.5 && d < GROUND.arty.stand + 0.5, `a mortar walker stops ${d.toFixed(1)}m out and shells the unit`);
+    const k = gq(), kq = open(k, 14), kp = put(k, 'wire', kq.x, kq.z);
+    const dog = bot(k, 'dog', kq.x * 1.35, kq.z * 1.35, 3); dog.hp = dog.maxHp = 1e9;
+    const d0 = Math.hypot(dog.x, dog.z); run(k, 1.5);
+    ok(kp.hp < PAD_HP && Math.hypot(dog.x, dog.z) < d0 - 1, 'a robot dog fires on the run');
+    const t = gq(), tq = open(t, 14), tp = put(t, 'gmg', tq.x, tq.z);
+    const ti = bot(t, 'titan', tq.x * 1.3, tq.z * 1.3, 2); ti.hp = ti.maxHp = 1e9; ti.cd = 1e9;
+    run(t, 6);
+    ok(tp.down && ENEMIES.titan.armour! < ENEMIES.mech.armour!, 'a siege walker crushes the unit it walks over');
   }
 }
 

@@ -3,7 +3,8 @@ import {
   TERRAIN, ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, FANS, beltAt, buildR, BUILD_MIN, PAD_GAP, START_PADS, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, VETERANCY, vetRank, deriveStats, difficulty, BACKUP_RADAR,
   BIG_KILLS, BIG_KILL_SHAKE, DROPS, DROP_KINDS, DROP_GRAB, DROP_MAX, DROP_HEAVY, CACHE, REPAIR_DROP, OVERDRIVE, MILESTONE, rank,
   type Stats, RADAR_MODES, resupply, UPKEEP, HPM_CONE, POINT_DEFENCE, SPOT_RINGS, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
-  GROUND, GROUND_LEVELS, GROUND_MODS, GROUND_RAIDS, GROUND_FIRE, AIR_ONLY, GROUND_ONLY, AIR_GUNS, GROUND_GUNS, ANTI_ARMOUR,
+  GROUND, GROUND_LEVELS, GROUND_MODS, GROUND_RAIDS, GROUND_FIRE, AIR_ONLY, GROUND_ONLY, AIR_GUNS, GROUND_GUNS, ANTI_ARMOUR, PIERCE, FRONT_LINE, groundZone, tideFor, HORDE_TEST,
+  UNIT_TIERS, UNIT_MODS, unitMod, BURN, type ModSlot, type ModFx,
   BOSS, BOSSES, DMG_CAT, bossOf, bossLevel, bossFor, type DmgCat,
   TRAINING, TRAINING_BUILD, TRAINING_SEED, DIVE_SPEED, SHAHED_DIVE, LANCET, HELO, KAB_R, KAB_PAIR, KAB_FIRST, EGRESS_SPEED, TERMINAL, CRUISE_DOGLEG, CRUISE_TERMINAL, KA52, SU25, SEAD, ARM2, ARMS, SWARM, RECON, MASK, IR_SEEKER, horizon, flightAlt, MUNITIONS, AGILITY, HOMING_BOOST, HOMING_SNAP,
   type EnemyKind, type DropKind, type PerimKind, type WeaponKind, type Mod, type RaidObjective,
@@ -28,6 +29,8 @@ export interface Enemy {
   tgt: number; // cruise missile, Ka-52's ATGM: slot of the unit it's going for, -1 = the base
   pop: number; // Ka-52: s left exposed (settling, or popped up to fire), masked in the trees otherwise · Su-25: s left of its pop-up, flares out · S-70: s its bay stays open
   adapt: DmgCat | ''; weak: DmgCat | ''; // boss: the weapon family it has countermeasures against, and the one it's weak to
+  stun: number; // walker: s left knocked out by an HPM pulse (stands still, doesn't fire)
+  burn: number; burnT: number; burnPad: number; // walker: damage/s it's burning for, s left, the unit that set it alight
 }
 // in: inbound · loiter: Lancet circling, searching · dive: terminal dive (a cruise missile's pop-up) · hover: Mi-28 or
 // Ka-52 firing from standoff ·
@@ -40,6 +43,7 @@ export interface Shot {
   dmg: number; splash: number; life: number; target: number; src: string; // src: weapon, for the debrief
   pad?: number; // slot of the perimeter pad that fired it, credited with the kill
   fly?: number; apex?: number;
+  guided?: boolean; // a guided round (UNIT_MODS pgm): comes down on its target wherever it has walked to
 }
 export type Ev =
   | { k: 'shot' | 'missile' | 'kill' | 'hit' | 'baseHit' | 'detect' | 'arm' | 'tbm' | 'cruise' | 'jam' | 'ident' | 'acquire' | 'lost' | 'release' | 'egress' | 'dud' | 'spot' | 'settle' | 'bossOn' | 'bossLeft'; x: number; z: number; kind?: EnemyKind; n?: number }
@@ -54,11 +58,14 @@ export type Ev =
   | { k: 'pickup'; x: number; z: number; drop: DropKind; n: number; id: string } // n: credits (cache); id: upgrade (tech)
   | { k: 'intercept'; x: number; z: number }
   | { k: 'padHit' | 'padDown' | 'padUp' | 'padSold' | 'padMoved' | 'padRank'; x: number; z: number; n: number; kind: PerimKind }
+  | { k: 'padMod'; x: number; z: number; n: number; kind: PerimKind; id: string }
+  | { k: 'robotLob'; x: number; z: number; x2: number; z2: number; n: number } // a mortar walker's round landing on (x2, z2), splash n
   | { k: 'level' | 'warning' | 'buy' | 'placing' | 'lock' | 'over' | 'trained' | 'emcon' | 'radarDown' | 'aesa' | 'radarOnline' | 'pac3' | 'discipline' | 'radarMode' | 'killChain' | 'counterSead' | 'lastStand' };
 
 export type Phase = 'start' | 'play' | 'pause' | 'perk' | 'over';
 export interface Drop { id: number; k: DropKind; x: number; z: number; v: number } // v: the kill's reward (a cache scales with it); on the ground until clicked
-export interface Pad { k: PerimKind; x: number; z: number; a: number; slot: number; cd: number; belt: number; hp: number; tier: number; paid: number; down: boolean; site: Site; kills: number }
+// mods: what it's fitted with, one per slot (GROUND ASSAULT, UNIT_MODS).
+export interface Pad { k: PerimKind; x: number; z: number; a: number; slot: number; cd: number; belt: number; hp: number; tier: number; paid: number; down: boolean; site: Site; kills: number; mods?: Partial<Record<ModSlot, string>> }
 
 // mulberry32: tiny seeded PRNG, so a seed replays the same schedule (daily op, tests).
 export function rand(r: { seed: number }) {
@@ -72,15 +79,16 @@ export const dailySeed = (date: string) => [...date].reduce((h, c) => Math.imul(
 // Share codes. A normal run is its seed and doctrine (same map, same schedule, same loadout): X5-<seed base 36>-<doctrine #>.
 // A ground assault is its seed and G: X5-<seed base 36>-G. A daily op is its date: X5-D20260929. A code is found
 // anywhere in the text, so a whole result line works too.
-export function seedCode(s: { seed: number; daily: string; doctrine: string; ground?: boolean }) {
-  return s.daily ? `X5-D${s.daily.replaceAll('-', '')}` : `X5-${(s.seed >>> 0).toString(36).toUpperCase()}-${s.ground ? 'G' : Math.max(0, DOCTRINES.findIndex(d => d.id === s.doctrine))}`;
+// A horde test (HORDE_TEST) is X5-<seed>-H.
+export function seedCode(s: { seed: number; daily: string; doctrine: string; ground?: boolean; horde?: boolean }) {
+  return s.daily ? `X5-D${s.daily.replaceAll('-', '')}` : `X5-${(s.seed >>> 0).toString(36).toUpperCase()}-${s.horde ? 'H' : s.ground ? 'G' : Math.max(0, DOCTRINES.findIndex(d => d.id === s.doctrine))}`;
 }
-export type Code = { kind: 'run'; seed: number; doctrine: string; ground: boolean } | { kind: 'daily'; daily: string };
+export type Code = { kind: 'run'; seed: number; doctrine: string; ground: boolean; horde?: boolean } | { kind: 'daily'; daily: string };
 export function parseCode(text: string): Code | null {
   const d = /X5-D(\d{4})(\d{2})(\d{2})\b/i.exec(text);
   if (d) return { kind: 'daily', daily: `${d[1]}-${d[2]}-${d[3]}` };
-  const n = /X5-([0-9A-Z]{1,7})-(\d|G)\b/i.exec(text), seed = n ? parseInt(n[1], 36) : NaN, ground = !!n && n[2].toUpperCase() === 'G';
-  return n && seed <= 0xFFFFFFFF ? { kind: 'run', seed: seed | 0, doctrine: ground ? 'standard' : DOCTRINES[+n[2]]?.id ?? 'standard', ground } : null;
+  const n = /X5-([0-9A-Z]{1,7})-(\d|G|H)\b/i.exec(text), seed = n ? parseInt(n[1], 36) : NaN, tag = n?.[2].toUpperCase(), horde = tag === 'H', ground = tag === 'G' || horde;
+  return n && seed <= 0xFFFFFFFF ? { kind: 'run', seed: seed | 0, doctrine: ground ? 'standard' : DOCTRINES[+n[2]]?.id ?? 'standard', ground, ...horde ? { horde } : {} } : null;
 }
 // A friend's pasted result line (hud.resultLine): its code, time survived and kills, for the daily board.
 export function parseResult(text: string) {
@@ -92,8 +100,10 @@ export function parseResult(text: string) {
 // how you play (detection rolls, launches) uses Math.random, so it can't shift the schedule.
 // Training (see config TRAINING) always flies STANDARD over its own map. A ground assault (config GROUND) is a
 // normal run of its own mode, STANDARD too.
-export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine = 'standard', training = false, ground = false) {
-  if (training) { seed = TRAINING_SEED; daily = ''; doctrine = 'standard'; ground = false; }
+// A horde test (HORDE_TEST) is a ground assault that skips ahead to THE TIDE.
+export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine = 'standard', training = false, ground = false, horde = false) {
+  if (training) { seed = TRAINING_SEED; daily = ''; doctrine = 'standard'; ground = horde = false; }
+  if (horde) ground = true;
   if (ground) { daily = ''; doctrine = 'standard'; }
   const doc = DOCTRINES.find(d => d.id === doctrine && !daily) ?? DOCTRINES[0];
   setMap(seed); // the map comes from the seed too: a daily op flies over the same ground for everyone
@@ -102,6 +112,7 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     daily, // date of the daily op, '' for a normal run
     training, // the first-run drill: scripted waves, can't be lost, no records
     ground, // GROUND ASSAULT: walkers instead of aircraft, only the perimeter can fight them
+    horde, // HORDE TEST: a ground assault started just before THE TIDE; no records
     doctrine: doc.id,
     seed,
     world: { seed }, // normal waves; reseeded per level (see nextStage)
@@ -180,6 +191,13 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
   s.sweepSpeed = s.st.sweep;
   // The starting kit: a section of AA machine guns on the main line, facing the front.
   for (const p of START_PADS) putPad(s, 'mg', p.x, p.z, 0);
+  if (horde) {
+    // Base level and credits to build a line with, a build window, then THE TIDE's level (nextStage).
+    const L = HORDE_TEST.level;
+    s.bought = 1.5 * (L - 1) * L; s.level = L; s.credits = HORDE_TEST.credits;
+    s.st = deriveStats(s.lv, [], L, doc.id);
+    s.stage = GROUND_LEVELS.findIndex(l => l.name === 'THE TIDE') - 1; s.buildUntil = HORDE_TEST.build;
+  }
   s.hp = s.st.maxHp; s.power = s.st.powerCap; s.ammo = s.st.ammoCap;
   return s;
 }
@@ -198,7 +216,7 @@ export function stageInfo(i: number, ground = false) {
   if (i < levels.length) return { ...levels[i], mod: NO_MOD };
   const last = levels[levels.length - 1], mod = mods[(i - levels.length) % mods.length], w = { ...last.w };
   for (const [k, v] of Object.entries(mod.w ?? {}) as [EnemyKind, number][]) w[k] = (w[k] ?? 0) + v;
-  if (ground) return { name: mod.name, desc: mod.desc, w, mod, pk: 0, arc: Math.PI, rate: last.rate };
+  if (ground) return { name: mod.name, desc: mod.desc, w, mod, pk: 0, arc: FRONT_ARC, rate: last.rate }; // the front never moves: north
   const loop = i - levels.length; // packages and jammers get likelier every level past the scripted ones
   w.ew = (w.ew ?? 0) + Math.min(EW_MAX, EW_GROW * (loop + 1));
   return { name: mod.name, desc: mod.desc, w, mod, pk: Math.min(PK_MAX, (last.pk ?? 0) + PK_GROW * (loop + 1)), arc: Math.PI };
@@ -275,10 +293,14 @@ export const lockReason = (s: State, id: string) => {
   if (id === 'sweep' && !s.lv.aesa && (s.lv.sweep ?? 0) >= SWEEP_CAP) return 'NEEDS AESA';
   if (PERIM_KINDS.includes(id as PerimKind)) {
     if (s.placing) return 'PLACING';
-    if (s.perim.length >= perimSlots(s.level)) return 'PADS FULL';
+    if (s.perim.length >= unitCap(s)) return 'PADS FULL';
   }
   return '';
 };
+
+// Units the base can field: a ground assault's line holds GROUND_EXTRA more (it has nothing else to spend on).
+export const GROUND_EXTRA = 4;
+export const unitCap = (s: State) => perimSlots(s.level) + (s.ground ? GROUND_EXTRA : 0);
 
 export const cost = (s: State, id: string) => {
   const u = UPGRADES.find(u => u.id === id)!;
@@ -332,16 +354,46 @@ export function draft(s: State) {
 
 // ---------- emplacements ----------
 
-// belt: rounds left on an MG's or a Mk 19's belt; charges left on a Claymore belt.
-const fullBelt = (k: PerimKind) => k === 'mines' ? GROUND_FIRE.mines.charges : k === 'gmg' ? GROUND_FIRE.gmg.belt : MG_BELT.rounds;
+// What a unit's fittings (UNIT_MODS) add up to: multipliers start at 1, the rest unset.
+// Worked out once per fit-out (a new fit replaces the `mods` object, so the cache can't go stale).
+const NO_FX: ModFx = {}, fxCache = new WeakMap<object, ModFx>();
+export function modFx(p: { mods?: Pad['mods'] }): ModFx {
+  if (!p.mods) return NO_FX;
+  let out = fxCache.get(p.mods);
+  if (out) return out;
+  fxCache.set(p.mods, out = {});
+  for (const id of Object.values(p.mods)) {
+    const m = id && unitMod(id);
+    if (!m) continue;
+    for (const [k, v] of Object.entries(m.fx) as [keyof ModFx, number | boolean][]) {
+      if (typeof v === 'boolean') (out as Record<string, unknown>)[k] = v;
+      else if (k === 'eyes' || k === 'radar' || k === 'pierce' || k === 'burn' || k === 'cut' || k === 'split') (out as Record<string, number>)[k] = Math.max((out as Record<string, number>)[k] ?? 0, v);
+      else (out as Record<string, number>)[k] = ((out as Record<string, number>)[k] ?? 1) * v;
+    }
+  }
+  return out;
+}
+// A unit's full HP: an armour kit doubles it.
+export const padHp = (p: { mods?: Pad['mods'] }) => PAD_HP * (modFx(p).hp ?? 1);
+// Field of fire, half-width: a stabilised mount turns it all round, a wide-aperture array widens an HPM's cone.
+export const fanOf = (p: { k: PerimKind; mods?: Pad['mods'] }) => { const f = modFx(p); return f.fan ? Math.PI : Math.min(Math.PI, FANS[p.k] * (f.cone ?? 1)); };
+// belt: rounds left on an MG's or a Mk 19's belt; charges left on a Claymore belt. An autoloader or Spider mines hold more.
+const fullBelt = (p: { k: PerimKind; mods?: Pad['mods'] }) => Math.round((p.k === 'mines' ? GROUND_FIRE.mines.charges : p.k === 'gmg' ? GROUND_FIRE.gmg.belt : MG_BELT.rounds) * (modFx(p).belt ?? 1));
 function putPad(s: State, k: PerimKind, x: number, z: number, paid: number) {
-  s.perim.push({ k, x, z, a: Math.atan2(z, x), slot: s.padSeq++, cd: 0, belt: fullBelt(k), hp: PAD_HP, tier: 0, paid, down: false, site: site(x, z), kills: 0 });
+  s.perim.push({ k, x, z, a: Math.atan2(z, x), slot: s.padSeq++, cd: 0, belt: fullBelt({ k }), hp: PAD_HP, tier: 0, paid, down: false, site: site(x, z), kills: 0, mods: {} });
+}
+// Inside the build zone: a ring round the base in the air war; in a ground assault, a band in front of the base,
+// facing the one direction the walkers come from.
+export function inZone(s: State, x: number, z: number) {
+  if (!s.ground) return Math.hypot(x, z) <= buildR(s.level);
+  const Z = groundZone(s.level);
+  return Math.abs(x) <= Z.w && z <= Z.back && z >= -Z.d;
 }
 // Why a unit can't stand at (x, z), or '' if it can. `self`: the unit being moved (its own spot doesn't count).
 export function buildBlock(s: State, x: number, z: number, self = -1) {
   const d = Math.hypot(x, z);
   if (d < BUILD_MIN) return 'BASE COMPOUND';
-  if (d > buildR(s.level)) return 'OUTSIDE BUILD ZONE';
+  if (!inZone(s, x, z)) return 'OUTSIDE BUILD ZONE';
   const g = ground(x, z);
   if (g === 'water' || g === 'rock' || g === 'forest') return g.toUpperCase();
   if (s.perim.some(p => p.slot !== self && (p.x - x) ** 2 + (p.z - z) ** 2 < PAD_GAP * PAD_GAP)) return 'TOO CLOSE';
@@ -351,6 +403,11 @@ export const beltOf = (p: { x: number; z: number }) => beltAt(p.x, p.z);
 // Open spots the auto-placer and the bots choose from: rings 2.5 m apart, about 3 m apart along each ring.
 export function freeSpots(s: State, self = -1) {
   const out: { x: number; z: number }[] = [];
+  if (s.ground) { // the band in front of the base: a 3 m grid
+    const Z = groundZone(s.level);
+    for (let z = -Z.d + 0.5; z <= Z.back; z += 3) for (let x = -Z.w + 0.5; x <= Z.w; x += 3) if (!buildBlock(s, x, z, self)) out.push({ x, z });
+    return out;
+  }
   for (let r = BUILD_MIN + 0.5; r <= buildR(s.level); r += 2.5) {
     const n = Math.floor(TAU * r / 3);
     for (let i = 0; i < n; i++) {
@@ -373,13 +430,18 @@ const up = (p: Pad) => !p.down;
 // Range and eyes x for a unit on this ground: further from high ground, shorter from the treeline.
 const siteRange = (t: Site) => t === 'high' ? TERRAIN.high.range : t === 'treeline' ? TERRAIN.treeline.range : 1;
 // Inside the unit's range and field of fire.
-export const covers = (p: { x: number; z: number; a: number; k: PerimKind }, x: number, z: number, range: number) =>
-  (x - p.x) ** 2 + (z - p.z) ** 2 <= range * range && Math.abs(angDiff(Math.atan2(z - p.z, x - p.x), p.a)) <= FANS[p.k];
+// `fan`: its field of fire's half-width, when the caller has it worked out already (hot loops).
+export const covers = (p: { x: number; z: number; a: number; k: PerimKind; mods?: Pad['mods'] }, x: number, z: number, range: number, fan = fanOf(p)) =>
+  (x - p.x) ** 2 + (z - p.z) ** 2 <= range * range && (fan >= Math.PI || Math.abs(angDiff(Math.atan2(z - p.z, x - p.x), p.a)) <= fan);
 const nearAmmo = (s: State, p: Pad) => s.perim.some(q => q.k === 'ammo' && up(q) && (q.x - p.x) ** 2 + (q.z - p.z) ** 2 <= AMMO_R ** 2);
 // What a unit fires with right now: its tier, the battery's weapon upgrades and perks, an ammo point in reach.
+// In a ground assault, its tier (UNIT_TIERS, MK II / III) and fittings (UNIT_MODS) too.
 export function padStats(s: State, p: Pad) {
   const w = p.k === 'mg' ? MG_TIERS[p.tier] : PERIM[p.k], v = VETERANCY[vetRank(p.kills)];
-  return { ...w, range: w.range * siteRange(p.site) * v.range, dmg: w.dmg * s.st.padDmg * v.dmg, rate: w.rate * s.st.padRate * v.rate * (nearAmmo(s, p) ? AMMO_RATE : 1) * (overdrive(s) ? OVERDRIVE.rate : 1) };
+  const T = p.k === 'mg' ? UNIT_TIERS[0] : UNIT_TIERS[p.tier] ?? UNIT_TIERS[0], f = modFx(p);
+  return { ...w, range: w.range * siteRange(p.site) * v.range * T.range * (f.range ?? 1), dmg: w.dmg * s.st.padDmg * v.dmg * T.dmg * (f.dmg ?? 1),
+    rate: w.rate * s.st.padRate * v.rate * (nearAmmo(s, p) ? AMMO_RATE : 1) * (overdrive(s) ? OVERDRIVE.rate : 1) * (f.rate ?? 1),
+    power: w.power * (f.power ?? 1), splash: f.splash ?? 0, burn: f.burn ?? 0, guided: !!f.guided, split: f.split ?? 0 };
 }
 // A gun that's up but can't fire: the interceptor pool is short of a round for it (MGs feed from their belts).
 export const noAmmo = (s: State, p: Pad) => GUNS.includes(p.k) && up(p) && s.ammo < padStats(s, p).ammo;
@@ -395,12 +457,36 @@ export function cruiseTarget(s: State, e: { x: number; z: number }) {
   return best;
 }
 function hitPad(s: State, p: Pad, dmg: number) {
+  if (p.down) return;
   p.hp -= dmg;
   s.events.push({ k: 'padHit', x: p.x, z: p.z, n: dmg, kind: p.k });
   if (p.hp <= 0) { p.hp = 0; p.down = true; s.events.push({ k: 'padDown', x: p.x, z: p.z, n: 0, kind: p.k }); }
 }
-export const padName = (p: Pad) => p.k === 'mg' ? MG_TIERS[p.tier].name : UPGRADES.find(u => u.id === p.k)!.name;
-export const padUpgradeCost = (p: Pad) => p.k === 'mg' && p.tier + 1 < MG_TIERS.length ? MG_TIERS[p.tier + 1].cost : Infinity;
+export const padName = (p: Pad) => p.k === 'mg' ? MG_TIERS[p.tier].name : `${UPGRADES.find(u => u.id === p.k)!.name}${UNIT_TIERS[p.tier]?.name ? ` ${UNIT_TIERS[p.tier].name}` : ''}`;
+// The next tier in place: the MG's own line anywhere; in a ground assault every other gun has MK II and MK III.
+export const nextTierName = (p: Pad) => p.k === 'mg' ? MG_TIERS[p.tier + 1]?.name : UNIT_TIERS[p.tier + 1]?.name;
+export const padUpgradeCost = (p: Pad, ground = false) => p.k === 'mg' ? (p.tier + 1 < MG_TIERS.length ? MG_TIERS[p.tier + 1].cost : Infinity)
+  : ground && GUNS.includes(p.k) && p.tier + 1 < UNIT_TIERS.length ? Math.round(UPGRADES.find(u => u.id === p.k)!.base * UNIT_TIERS[p.tier + 1].cost) : Infinity;
+// What can go in a unit's slot (ground assault only), and what it costs to fit (Infinity if it can't).
+export const modsFor = (p: Pad) => UNIT_MODS_FOR(p.k);
+const UNIT_MODS_FOR = (k: PerimKind) => UNIT_MODS.filter(m => m.for.includes(k));
+export const modCost = (s: State, p: Pad, id: string) => {
+  const m = unitMod(id);
+  return !s.ground || !m || !m.for.includes(p.k) || p.mods?.[m.slot] === id ? Infinity : m.cost;
+};
+// Fit the picked unit with `id`, replacing whatever was in that slot. Counts toward the base level like any purchase.
+export function buyMod(s: State, id: string) {
+  const p = selectedPad(s), c = p ? modCost(s, p, id) : Infinity;
+  if (!p || s.credits < c || s.phase !== 'play') return false;
+  const m = unitMod(id)!, was = padHp(p);
+  s.credits -= c; p.paid += c; s.bought++;
+  p.mods = { ...p.mods, [m.slot]: id };
+  p.hp = Math.min(padHp(p), p.hp + Math.max(0, padHp(p) - was)); // armour goes on whole
+  if (p.belt > fullBelt(p)) p.belt = fullBelt(p);
+  s.events.push({ k: 'padMod', x: p.x, z: p.z, n: 0, kind: p.k, id });
+  purchased(s);
+  return true;
+}
 export const sellValue = (s: State, p: Pad) => Math.round(p.paid * (building(s) ? 1 : SELL_REFUND));
 
 // How much a unit of `k` on `slot` would add: the bearings of the threat arc it covers that nothing covers yet
@@ -468,7 +554,7 @@ export function movePad(s: State, x: number, z: number) {
 // Done building: start the next level now.
 export function skipBuild(s: State) { if (building(s) && s.phase === 'play') s.buildUntil = s.t; }
 export function upgradePad(s: State) {
-  const p = selectedPad(s), c = p ? padUpgradeCost(p) : Infinity;
+  const p = selectedPad(s), c = p ? padUpgradeCost(p, s.ground) : Infinity;
   if (!p || s.credits < c || s.phase !== 'play') return false;
   s.credits -= c; p.paid += c; p.tier++; s.bought++;
   s.events.push({ k: 'padUp', x: p.x, z: p.z, n: p.tier, kind: p.k });
@@ -518,7 +604,7 @@ export function collectDrop(s: State, x: number, z: number) {
     case 'cache': n = Math.round((CACHE.flat + CACHE.reward * best.v) * s.st.credits); s.credits += n; s.earned += n; break;
     case 'ammo': s.ammo = s.st.ammoCap; break;
     case 'power': s.power = s.st.powerCap; break;
-    case 'repair': s.hp = Math.min(s.st.maxHp, s.hp + s.st.maxHp * REPAIR_DROP); for (const p of s.perim) { p.hp = PAD_HP; p.down = false; } break;
+    case 'repair': s.hp = Math.min(s.st.maxHp, s.hp + s.st.maxHp * REPAIR_DROP); for (const p of s.perim) { p.hp = padHp(p); p.down = false; } break;
     case 'overdrive': s.overdriveUntil = Math.max(s.overdriveUntil, s.t) + OVERDRIVE.time; break;
     case 'tech': {
       // A free level: doesn't count toward the base level, like a doctrine's. Nothing open yet: credits instead.
@@ -643,7 +729,7 @@ export function update(s: State, dt: number) {
   if (s.training) s.hp = Math.max(1, s.hp); // training can't be lost
   if (s.hp <= 0) {
     s.hp = 0; s.phase = 'over';
-    if (building(s)) s.stats.levels[s.stats.levels.length - 1].end = 'fell'; // between levels: the one just fought
+    if (building(s)) { if (s.stats.levels.length) s.stats.levels[s.stats.levels.length - 1].end = 'fell'; } // between levels: the one just fought
     else logLevel(s, 'fell');
     s.events.push({ k: 'over' });
   }
@@ -657,10 +743,10 @@ export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2
     id: s.nextId++, kind, x, z, vx: -Math.cos(a) * speed, vz: -Math.sin(a) * speed,
     hp, maxHp: hp, speed, dmg: T.dmg * d.dmg,
     reward: Math.round(T.reward * d.pay), size: T.size, seenUntil: -1, locked: false, incoming: 0, wob: rnd() * TAU,
-    born: s.t, cd: kind === 'tank' ? 1 : kind === 'scout' ? LANCET.time : kind === 'recon' ? RECON.time : 3, act: 'in',
+    born: s.t, cd: kind === 'tank' ? 1 : kind === 'scout' ? LANCET.time : kind === 'recon' ? RECON.time : T.ground ? 0.5 : 3, act: 'in',
     ammo: B ? B.ammo : kind === 'tank' ? HELO.ammo : kind === 'ka52' ? KA52.ammo : kind === 'su25' ? SU25.passes : kind === 'sead' ? SEAD.ammo : kind === 'elite' ? (s.stage <= ELITE_FROM ? KAB_FIRST : KAB_PAIR) : 0,
     wx: NaN, wz: NaN, aim: NaN, lockT: 0, ided: false, orbit: false, raid: 0, pkg: 0, hold: B ? B.time : kind === 'ew' ? a : kind === 'sead' ? SEAD.time : NaN, tgt: -1, pop: 0,
-    adapt: '', weak: '',
+    adapt: '', weak: '', stun: 0, burn: 0, burnT: 0, burnPad: -1,
   });
   const e = s.enemies[s.enemies.length - 1];
   if (flies(kind) === 'cruise') {
@@ -676,6 +762,25 @@ export function spawnEnemy(s: State, kind: EnemyKind, a: number, r = ARENA_R + 2
   return e;
 }
 
+// GROUND ASSAULT: a walker steps in at (x, z) on the northern line, heading for the base.
+export const spawnAt = (s: State, kind: EnemyKind, x: number, z: number, rnd = Math.random) => spawnEnemy(s, kind, Math.atan2(z, x), Math.hypot(x, z), rnd);
+// A ground raid comes on as a wall: ranks across the whole front (FRONT_LINE), the biggest walkers in the front rank,
+// each rank FRONT_LINE.rank m behind the one before, walkers FRONT_LINE.file m apart (jittered, so it isn't a parade).
+function spawnRanks(s: State, g: Partial<Record<EnemyKind, number>>, scale: number, rw: () => number) {
+  const id = s.nextPkg++, out: Enemy[] = [], kinds: EnemyKind[] = [];
+  for (const [kind, n] of Object.entries(g) as [EnemyKind, number][]) for (let i = groupCount(kind, n, scale) * ENEMIES[kind].pack; i > 0; i--) kinds.push(kind);
+  kinds.sort((a, b) => ENEMIES[b].size - ENEMIES[a].size);
+  const W = FRONT_LINE.w, per = Math.floor(2 * W / FRONT_LINE.file);
+  kinds.forEach((kind, i) => {
+    const rank = Math.floor(i / per), inRank = Math.min(per, kinds.length - rank * per), j = i % per;
+    const x = -W + (j + 0.5) * 2 * W / inRank + (rw() - 0.5) * FRONT_LINE.file * 0.6, z = FRONT_LINE.z - rank * FRONT_LINE.rank - rw() * FRONT_LINE.rank * 0.5;
+    const e = spawnAt(s, kind, x, z, rw);
+    e.pkg = id; out.push(e);
+  });
+  return out;
+}
+// Raids grow level by level; THE TIDE is the size it says.
+const raidScaleOf = (s: State) => s.ground && bossLevel(s.stage) ? 1 : raidScale(s.stage);
 // Packs of `kind` a group of `n` brings at `scale`. One escort jammer is enough, however big the group.
 export const groupCount = (kind: EnemyKind, n: number, scale: number) => kind === 'ew' || bossOf(kind) ? n : Math.max(1, Math.round(n * scale));
 
@@ -700,7 +805,7 @@ function spawnGroup(s: State, g: Partial<Record<EnemyKind, number>>, a: number, 
   return out;
 }
 
-export const spawnGroupAt = (s: State, g: Partial<Record<EnemyKind, number>>, a: number, scale: number) => spawnGroup(s, g, a, scale, Math.random); // for the checks
+export const spawnGroupAt = (s: State, g: Partial<Record<EnemyKind, number>>, a: number, scale: number) => s.ground ? spawnRanks(s, g, scale, Math.random) : spawnGroup(s, g, a, scale, Math.random); // for the checks
 // The level's raid has resolved: build window, then the next level.
 // The debrief's line for the level in progress: how long it took, kills, HP lost, and how it ended.
 function logLevel(s: State, end: 'held' | 'lost' | 'fell') {
@@ -711,14 +816,15 @@ function logLevel(s: State, end: 'held' | 'lost' | 'fell') {
 function endStage(s: State, held: boolean, n = held ? BUILD_TIME : BUILD_LOST) {
   logLevel(s, held ? 'held' : 'lost');
   s.buildUntil = s.t + n;
-  for (const p of s.perim) { p.hp = PAD_HP; p.down = false; if (p.k === 'mines') p.belt = fullBelt(p.k); } // the build window puts every unit back up, mines re-laid
+  for (const p of s.perim) { p.hp = padHp(p); p.down = false; if (p.k === 'mines') p.belt = fullBelt(p); } // the build window puts every unit back up, mines re-laid
   s.events.push({ k: 'build', n });
 }
 function nextStage(s: State) {
   s.stage++; s.buildUntil = 0;
   // How long the last level took depends on play; reseeding per level keeps each level's waves the same for everyone.
   s.world.seed = s.seed ^ Math.imul(s.stage, 0x9E3779B1);
-  s.nextRaid = s.t + LEVEL_LEN;
+  // A horde test gets to THE TIDE quickly: that's what it's for.
+  s.nextRaid = s.t + (s.horde && bossLevel(s.stage) ? HORDE_TEST.tideIn + RAID_WARN : LEVEL_LEN);
   s.nextElite = s.stage >= ELITE_FROM && !s.ground ? s.t + LEVEL_LEN / 2 : Infinity;
   s.stageAt = s.t; s.drill = 0;
   if (s.training) grant(s, TRAINING[s.stage].grant ?? []);
@@ -828,7 +934,10 @@ function spawn(s: State, dt: number) {
     for (const k of KINDS) { r -= w[k] ?? 0; if (r <= 0) { kind = k; break; } }
     const a = spawnBearing(s.stage, [kind], rw(), s.ground), P = ENEMIES[kind].packs;
     const n = P ? P[0] + Math.floor(rw() * (P[1] - P[0] + 1)) : ENEMIES[kind].pack; // only a ranged pack draws, so other spawns keep their streams
-    for (let i = 0; i < n; i++) spawnEnemy(s, kind, a + (rw() - 0.5) * 0.15, ARENA_R + 2 + rw() * 6, rw);
+    if (s.ground) { // in on the northern line, somewhere along the front, the pack bunched together
+      const x0 = ((a - FRONT) / FRONT_ARC) * FRONT_LINE.w;
+      for (let i = 0; i < n; i++) spawnAt(s, kind, x0 + (rw() - 0.5) * (3 + n * 0.3), FRONT_LINE.z - rw() * (2 + n * 0.25), rw);
+    } else for (let i = 0; i < n; i++) spawnEnemy(s, kind, a + (rw() - 0.5) * 0.15, ARENA_R + 2 + rw() * 6, rw);
   }
   if (s.t >= s.nextElite) {
     s.nextElite = Infinity;
@@ -840,11 +949,13 @@ function spawn(s: State, dt: number) {
     // Pool, bearing and size go by the level, not the clock, so pacing can't change them.
     // Every BOSS_EVERY-th level a boss leads it instead (the draws are made all the same, to keep the stream in step).
     // Air war only: GROUND ASSAULT keeps its own raids.
+    // A ground assault's boss raid is THE TIDE instead (tideFor), straight down the front.
     const drawn = pick(s.raidRng, (s.ground ? GROUND_RAIDS : RAIDS).filter(r => s.stage >= r.from)), B = !s.ground && bossLevel(s.stage) ? bossFor(s.stage) : undefined;
-    const r = B ? { name: B.name, g: { [B.kind]: 1, ...B.g } as Partial<Record<EnemyKind, number>>, obj: 'boss' as RaidObjective } : drawn;
-    const a = spawnBearing(s.stage, Object.keys(r.g) as EnemyKind[], rand(s.raidRng), s.ground);
+    const tide = s.ground && bossLevel(s.stage);
+    const r = B ? { name: B.name, g: { [B.kind]: 1, ...B.g } as Partial<Record<EnemyKind, number>>, obj: 'boss' as RaidObjective } : tide ? tideFor(s.stage) : drawn;
+    const ra = rand(s.raidRng), a = s.ground ? FRONT : spawnBearing(s.stage, Object.keys(r.g) as EnemyKind[], ra);
     // Same rounding spawnGroup will use at arrival, so the briefing matches what shows up.
-    const scale = raidScale(s.stage), n: Partial<Record<EnemyKind, number>> = {};
+    const scale = raidScaleOf(s), n: Partial<Record<EnemyKind, number>> = {};
     let reward = 0;
     for (const [k, c] of Object.entries(r.g) as [EnemyKind, number][]) {
       n[k] = groupCount(k, c, scale) * ENEMIES[k].pack;
@@ -858,11 +969,12 @@ function spawn(s: State, dt: number) {
     s.events.push({ k: 'raid', x: Math.cos(a) * ARENA_R, z: Math.sin(a) * ARENA_R, name: r.name });
   }
   if (s.raid && s.t >= s.raid.at) {
-    const { a, g, name, obj, boss: bt } = s.raid, scale = raidScale(s.stage);
+    const { a, g, name, obj, boss: bt } = s.raid, scale = raidScaleOf(s);
     s.raid = null;
     s.raidId++; s.raidLeft = 0; s.raidClean = true; s.raidReward = 0; s.raidA = a; s.raidObj = obj; s.raidName = name;
     // The escort jammer flies with the raid but doesn't count: the raid is over once the strikers are gone.
-    for (const e of spawnGroup(s, g, a, scale, () => rand(s.raidRng))) {
+    const rr = () => rand(s.raidRng);
+    for (const e of s.ground ? spawnRanks(s, g, scale, rr) : spawnGroup(s, g, a, scale, rr)) {
       if (bt && e.kind === bt.kind) { // sized to the battery as it is now, traits as briefed
         e.hp = e.maxHp = bossHp(s, e.kind, a); e.adapt = bt.adapt; e.weak = bt.weak; e.cd = 2; s.bossId = e.id;
       }
@@ -917,7 +1029,7 @@ function moveEnemies(s: State, dt: number) {
       }
     } else if (ENEMIES[e.kind].ground) {
       const w = walk(s, e, d, nx, nz, dt);
-      if (w === 'gone') { removeAt(s, i); continue; }
+      if (w === 'gone') { if (e.hp > 0) removeAt(s, i); continue; } // burned to death: damage() has taken it off already
       if (w === 'close') homing = 2;
     } else if (e.act === 'egress') {
       // Heading home: straight out, and gone at the rim. A Su-25 with a pass left breaks away, banks round far enough
@@ -1110,40 +1222,77 @@ function moveEnemies(s: State, dt: number) {
 }
 
 // GROUND ASSAULT: a robot on foot (config GROUND). Sets the velocity it wants for steer() to ease into.
-// 'gone': a light walker's charge went off on a unit · 'close': it's on top of the unit it charges (no easing).
+// 'gone': its charge went off on a unit, or it burned to death · 'close': it's on top of the unit it charges (no easing).
+const OBSTACLES: PerimKind[] = ['wire', 'mines'];
+const HEAVY: EnemyKind[] = ['mech', 'titan'];
 function walk(s: State, e: Enemy, d: number, nx: number, nz: number, dt: number): 'gone' | 'close' | '' {
+  // Burning (incendiary rounds): damage every tick until it goes out, credited to the unit that lit it.
+  if (e.burnT > 0) {
+    e.burnT -= dt;
+    damage(s, e, e.burn * dt, 'INCENDIARY', e.burnPad);
+    if (e.hp <= 0) return 'gone';
+  }
+  // Fried by an HPM pulse: stands where it is, and doesn't fire, until its electronics come back.
+  if (e.stun > 0) { e.stun -= dt; e.vx = e.vz = 0; e.act = 'hover'; return 'close'; }
   const scale = e.dmg / (ENEMIES[e.kind].dmg || 1); // what the war has added to its punch (difficulty)
-  const sp = e.speed * (GROUND.terrain[ground(e.x, e.z)] ?? 1) * (wired(s, e) ? GROUND.wire : 1) * (jammed(s, e) ? JAM_SLOW : 1);
+  const w = e.kind === 'sapper' || e.kind === 'titan' ? 1 : wired(s, e); // breachers cut through, a siege walker tramples it
+  const sp = e.speed * (GROUND.terrain[ground(e.x, e.z)] ?? 1) * w * (jammed(s, e) ? JAM_SLOW : 1);
   const wob = weave(s.t, 1.2, e.wob) * ENEMIES[e.kind].wobble * Math.min(1, d / 20);
   let dx = nx, dz = nz, go = sp;
   e.act = 'in';
-  if (e.kind === 'walker') {
-    // Charges the nearest unit it can see (from further off if it's on high ground), and blows its charge on it.
+  e.cd -= dt;
+  // Charge: run at a unit and blow the charge on it (light walkers and mini-walkers), or cut it (a breacher on an obstacle).
+  const charge = (tgt: Pad, bd: number, hit: number) => {
+    const dd = Math.sqrt(bd) || 1;
+    if (dd < 1.2) {
+      if (e.kind === 'sapper') { hitPad(s, tgt, padHp(tgt)); s.events.push({ k: 'hit', x: tgt.x, z: tgt.z, n: 1 }); return '' as const; } // cut: down until repaired, and on it goes
+      hitPad(s, tgt, hit); s.events.push({ k: 'hit', x: e.x, z: e.z, n: e.kind === 'crawler' ? 0.8 : 1.5 }); return 'gone' as const;
+    }
+    e.act = 'dive';
+    e.vx = (tgt.x - e.x) / dd * sp * 1.2; e.vz = (tgt.z - e.z) / dd * sp * 1.2;
+    return dd < HOMING_SNAP ? 'close' as const : '' as const;
+  };
+  if (e.kind === 'walker' || e.kind === 'crawler' || e.kind === 'sapper') {
+    // Light walkers charge the nearest unit they can see (from further off if it's on high ground); mini-walkers
+    // only what's right in front of them; breachers look for an obstacle to cut, and walk on the base otherwise.
+    const seek = e.kind === 'walker' ? GROUND.seek : e.kind === 'crawler' ? GROUND.crawl : GROUND.sapper.seek;
     let tgt: Pad | undefined, bd = Infinity;
     for (const p of s.perim) {
-      if (p.down) continue;
-      const dd = (p.x - e.x) ** 2 + (p.z - e.z) ** 2, r = GROUND.seek * (p.site === 'high' ? TERRAIN.high.dive : 1);
+      if (p.down || e.kind === 'sapper' && !OBSTACLES.includes(p.k)) continue;
+      const dd = (p.x - e.x) ** 2 + (p.z - e.z) ** 2, r = seek * (p.site === 'high' ? TERRAIN.high.dive : 1);
       if (dd < r * r && dd < bd) { bd = dd; tgt = p; }
     }
+    if (tgt) return charge(tgt, bd, e.dmg * 1.5);
+  } else if (e.kind === 'arty') {
+    // Fire support: stops out at `stand` m from the nearest unit it sees and lobs a round on it now and then.
+    const A = GROUND.arty;
+    let tgt: Pad | undefined, bd = A.seek ** 2;
+    for (const p of s.perim) { const dd = (p.x - e.x) ** 2 + (p.z - e.z) ** 2; if (!p.down && p.site !== 'treeline' && dd < bd) { bd = dd; tgt = p; } }
     if (tgt) {
-      const dd = Math.sqrt(bd) || 1;
-      if (dd < 1.2) { hitPad(s, tgt, e.dmg * 1.5); s.events.push({ k: 'hit', x: e.x, z: e.z, n: 1.5 }); return 'gone'; }
-      dx = (tgt.x - e.x) / dd; dz = (tgt.z - e.z) / dd; e.act = 'dive';
-      e.vx = dx * sp * 1.2; e.vz = dz * sp * 1.2;
-      return dd < HOMING_SNAP ? 'close' : '';
+      if (bd < A.stand ** 2) { go = 0; e.act = 'hover'; }
+      if (e.cd <= 0) {
+        e.cd = A.every;
+        s.events.push({ k: 'robotLob', x: e.x, z: e.z, x2: tgt.x, z2: tgt.z, n: A.splash });
+        for (const p of s.perim) if ((p.x - tgt.x) ** 2 + (p.z - tgt.z) ** 2 < A.splash ** 2) hitPad(s, p, A.dmg * scale * (p === tgt ? 1 : 0.5));
+      }
     }
   } else {
-    // Combat walkers stop to shoot at the nearest unit in reach; heavy walkers shoot on the move.
-    const G = e.kind === 'mech' ? GROUND.mech : GROUND.gun;
+    // Combat walkers stop to shoot at the nearest unit in reach; dogs, heavy and siege walkers shoot on the move.
+    const G = e.kind === 'mech' ? GROUND.mech : e.kind === 'titan' ? GROUND.titan : e.kind === 'dog' ? GROUND.dog : GROUND.gun;
     let tgt: Pad | undefined, bd = G.reach ** 2;
-    for (const p of s.perim) { const dd = (p.x - e.x) ** 2 + (p.z - e.z) ** 2; if (!p.down && dd < bd) { bd = dd; tgt = p; } }
-    e.cd -= dt;
+    for (const p of s.perim) {
+      const dd = (p.x - e.x) ** 2 + (p.z - e.z) ** 2;
+      if (p.down) continue;
+      if (e.kind === 'titan' && dd < GROUND.titan.crush ** 2) { hitPad(s, p, padHp(p)); s.events.push({ k: 'hit', x: p.x, z: p.z, n: 2 }); continue; } // walks right over it
+      if (dd < bd) { bd = dd; tgt = p; }
+    }
     if (tgt) {
       if (e.kind === 'gunbot') { go = 0; e.act = 'hover'; }
       if (e.cd <= 0) {
         e.cd = G.every;
         s.events.push({ k: 'robotFire', x: e.x, z: e.z, x2: tgt.x, z2: tgt.z });
         hitPad(s, tgt, G.dmg * scale);
+        if (e.kind === 'titan') for (const p of s.perim) if (p !== tgt && (p.x - tgt.x) ** 2 + (p.z - tgt.z) ** 2 < GROUND.titan.splash ** 2) hitPad(s, p, G.dmg * scale * 0.5);
       }
     }
   }
@@ -1151,10 +1300,18 @@ function walk(s: State, e: Enemy, d: number, nx: number, nz: number, dt: number)
   e.vz = dz * go + dx * wob * Math.min(1, go);
   return '';
 }
-// Inside concertina wire (GROUND ASSAULT): walkers wade through it slowly.
+// Inside concertina wire (GROUND ASSAULT): walkers wade through it slowly (x GROUND.wire; razor wire slower, and it
+// cuts them). Returns their speed x.
 function wired(s: State, e: Enemy) {
   const r2 = PERIM.wire.range ** 2;
-  return s.perim.some(p => p.k === 'wire' && up(p) && (e.x - p.x) ** 2 + (e.z - p.z) ** 2 < r2);
+  let slow = 1;
+  for (const p of s.perim) {
+    if (p.k !== 'wire' || p.down || (e.x - p.x) ** 2 + (e.z - p.z) ** 2 >= r2) continue;
+    const f = modFx(p);
+    slow = Math.min(slow, f.slow ?? GROUND.wire);
+    if (f.cut) e.burn = Math.max(e.burn, f.cut), e.burnT = Math.max(e.burnT, 0.2), e.burnPad = p.slot; // the razor's cuts, as a short burn
+  }
+  return slow;
 }
 
 // A lateral weave that doesn't look machine-made: two tones, the second off the first's beat, each airframe
@@ -1237,6 +1394,7 @@ const isMissile = (e: Enemy) => MUNITIONS.includes(e.kind) && e.kind !== 'rocket
 // A Su-25 on its attack run has flares out: IR seekers get SU25.flares of that.
 export const irHit = (e: Enemy) => (1 + IR_SEEKER * (ENEMIES[e.kind].ir - 1)) * (e.kind === 'su25' && e.pop > 0 ? SU25.flares : 1);
 // Pads engage the closest visible contact in their range and field of fire; no lock slot needed. Repairs run here too.
+// Each gun also pays for its shot in power (the laser and the HPM) as well as ammunition.
 function perimeter(s: State, dt: number) {
   const r2 = PERIM.jammer.range ** 2;
   const jammers = s.perim.filter(p => p.k === 'jammer' && up(p) && s.enemies.some(e => (e.x - p.x) ** 2 + (e.z - p.z) ** 2 < r2)).length;
@@ -1244,74 +1402,133 @@ function perimeter(s: State, dt: number) {
   s.jamming = jammers > 0 && s.power >= need;
   if (s.jamming) s.power -= need;
   for (const p of s.perim) {
-    p.hp = Math.min(PAD_HP, p.hp + PAD_REPAIR * dt);
-    if (p.down && p.hp >= PAD_HP / 2) { p.down = false; s.events.push({ k: 'padUp', x: p.x, z: p.z, n: 0, kind: p.k }); }
+    const max = padHp(p);
+    p.hp = Math.min(max, p.hp + PAD_REPAIR * dt);
+    if (p.down && p.hp >= max / 2) { p.down = false; s.events.push({ k: 'padUp', x: p.x, z: p.z, n: 0, kind: p.k }); }
     if (p.k === 'mines') claymore(s, p, dt);
   }
   const guns = s.perim.filter(p => GUNS.includes(p.k) && up(p));
-  const stats = guns.map(p => padStats(s, p));
+  const stats = guns.map(p => padStats(s, p)), fans = guns.map(p => fanOf(p));
   const ic = interceptActive(s) ? s.enemies.find(e => e.id === s.intercept.target) : undefined;
   guns.forEach((p, gi) => {
-    const w = stats[gi];
+    const w = stats[gi], fan = fans[gi];
     p.cd = Math.max(0, p.cd - dt);
-    if (p.cd > 0 || s.ammo < w.ammo) return;
-    const r2 = w.range ** 2;
+    if (p.cd > 0 || s.ammo < w.ammo || s.power < w.power) return;
+    const r2 = w.range ** 2, min2 = p.k === 'mortar' ? GROUND_FIRE.mortar.min ** 2 : p.k === 'rockets' ? GROUND_FIRE.rockets.min ** 2 : 0;
     let best: Enemy | null = null, bd = r2, brank = 9;
     for (const e of s.enemies) {
       // Out of reach first: the cheap test, and it rules out most of a big swarm.
       const d = (e.x - p.x) ** 2 + (e.z - p.z) ** 2;
       if (d > r2 || !visible(s, e) || e.ided || e.incoming >= e.hp && e !== ic || ENEMIES[e.kind].pacOnly) continue;
       if (ENEMIES[e.kind].ground ? AIR_GUNS.includes(p.k) : GROUND_GUNS.includes(p.k)) continue; // SAMs at aircraft, ground weapons at walkers
-      if (p.k === 'mortar' && d < GROUND_FIRE.mortar.min ** 2) continue; // too close for indirect fire
+      if (d < min2) continue; // too close for indirect fire
       if (ic && e !== ic && (ic.x - p.x) ** 2 + (ic.z - p.z) ** 2 < bd) continue; // intercept target in reach: only it
       // The SAM takes missiles first; the Javelin the heaviest armour first.
       const rank = p.k === 'iris' ? (isMissile(e) ? 0 : 1) : p.k === 'javelin' ? ((ENEMIES[e.kind].armour ?? 1) < 0.6 ? 0 : ENEMIES[e.kind].armour ? 1 : 2) : 1;
-      if (!covers(p, e.x, e.z, w.range) || rank > brank || rank === brank && d >= bd) continue;
+      if (rank > brank || rank === brank && d >= bd || !covers(p, e.x, e.z, w.range, fan)) continue;
       bd = d; best = e; brank = rank;
     }
     if (!best) return;
     const t = best;
-    s.ammo -= w.ammo; p.cd = 1 / w.rate;
+    s.ammo -= w.ammo; s.power -= w.power; p.cd = 1 / w.rate;
     // Belt empty: reload. Slower out on the forward line, twice as fast with an ammo point in reach or on a road.
     if ((p.k === 'mg' || p.k === 'gmg') && --p.belt <= 0) {
-      p.belt = fullBelt(p.k);
+      p.belt = fullBelt(p);
       p.cd = (p.k === 'gmg' ? GROUND_FIRE.gmg.reload : MG_BELT.reload) * (nearAmmo(s, p) || p.site === 'road' ? AMMO_RELOAD : beltOf(p) === 'fwd' ? FWD_RELOAD : 1);
     }
     // Crossfire: the target is inside another gun's field of fire as well.
-    const dmg = w.dmg * (guns.some((q, qi) => q !== p && covers(q, t.x, t.z, stats[qi].range)) ? 1 + CROSSFIRE : 1) * (p.k === 'stinger' || p.k === 'iris' ? irHit(t) : 1);
-    if (p.k === 'gmg' || p.k === 'mortar') {
+    const dmg = w.dmg * (guns.some((q, qi) => q !== p && covers(q, t.x, t.z, stats[qi].range, fans[qi])) ? 1 + CROSSFIRE : 1) * (p.k === 'stinger' || p.k === 'iris' ? irHit(t) : 1);
+    const src = PAD_SRC[p.k] ?? p.k.toUpperCase();
+    if (p.k === 'hel') {
+      // The beam: burns the target where it stands (no flight time, no ammo), and a splitter puts a second beam on the next one.
+      s.events.push({ k: 'beam', x: p.x, z: p.z, x2: t.x, z2: t.z });
+      damage(s, t, dmg, src, p.slot);
+      if (w.split) {
+        let next: Enemy | null = null, nd = 64;
+        for (const o of s.enemies) {
+          if (o === t || o.hp <= 0 || !ENEMIES[o.kind].ground || !visible(s, o)) continue;
+          const d = (o.x - t.x) ** 2 + (o.z - t.z) ** 2;
+          if (d < nd && covers(p, o.x, o.z, w.range, fan)) { nd = d; next = o; }
+        }
+        if (next) { s.events.push({ k: 'beam', x: p.x, z: p.z, x2: next.x, z2: next.z }); damage(s, next, dmg * w.split, src, p.slot); }
+      }
+    } else if (p.k === 'hpm') {
+      // A microwave pulse down its cone (its field of fire, centred on the target): every robot in it is hit, armour or
+      // not, and what's left standing is stunned. Heavies shrug most of the stun off.
+      const a0 = Math.atan2(t.z - p.z, t.x - p.x), R = w.range, stun = GROUND_FIRE.hpm.stun * (modFx(p).stun ?? 1);
+      s.events.push({ k: 'rail', x: p.x, z: p.z, x2: p.x + Math.cos(a0) * R, z2: p.z + Math.sin(a0) * R });
+      for (let i = s.enemies.length - 1; i >= 0; i--) {
+        const o = s.enemies[i];
+        if (!ENEMIES[o.kind].ground) continue;
+        const r = R + o.size * 0.5;
+        if ((o.x - p.x) ** 2 + (o.z - p.z) ** 2 > r * r || Math.abs(angDiff(Math.atan2(o.z - p.z, o.x - p.x), a0)) > fan) continue;
+        damage(s, o, w.dmg, src, p.slot);
+        if (o.hp > 0) o.stun = Math.max(o.stun, stun * (HEAVY.includes(o.kind) ? GROUND.stunHeavy : 1));
+      }
+      s.shake = Math.min(1.5, s.shake + 0.1);
+    } else if (p.k === 'rockets') {
+      // A salvo onto the thickest pack in reach, each rocket scattered round the aim point, led for its flight time.
+      const R = GROUND_FIRE.rockets, aim = thickest(s, p, w.range, fan, min2) ?? t;
+      for (let i = 0; i < R.salvo; i++) {
+        const fly = R.flight + i * 0.08, sa = Math.random() * TAU, sr = Math.sqrt(Math.random()) * R.scatter;
+        const ax = aim.x + aim.vx * fly + Math.cos(sa) * sr, az = aim.z + aim.vz * fly + Math.sin(sa) * sr;
+        s.shots.push({ kind: 'lob', x: p.x, z: p.z, vx: (ax - p.x) / fly, vz: (az - p.z) / fly, dmg, splash: R.splash * (w.splash ? 1.6 : 1), life: fly, target: aim.id, src, pad: p.slot, fly, apex: R.apex, guided: w.guided });
+      }
+      s.events.push({ k: 'missile', x: p.x, z: p.z });
+    } else if (p.k === 'gmg' || p.k === 'mortar') {
       // Lobbed onto where the target will be when the round comes down; it bursts there, hit or miss.
       const G = p.k === 'gmg' ? GROUND_FIRE.gmg : GROUND_FIRE.mortar;
       const fly = p.k === 'gmg' ? Math.sqrt(bd) / GROUND_FIRE.gmg.speed : GROUND_FIRE.mortar.flight;
-      const ax = best.x + best.vx * fly, az = best.z + best.vz * fly;
-      s.shots.push({ kind: 'lob', x: p.x, z: p.z, vx: (ax - p.x) / fly, vz: (az - p.z) / fly, dmg, splash: G.splash, life: fly, target: best.id, src: p.k === 'gmg' ? 'MK 19' : 'M120 MORTAR', pad: p.slot, fly, apex: p.k === 'gmg' ? 1.5 : GROUND_FIRE.mortar.apex });
-      best.incoming += dmg;
-      s.events.push(p.k === 'gmg' ? { k: 'gun', x: p.x, z: p.z, x2: best.x, z2: best.z } : { k: 'shot', x: p.x, z: p.z });
-    } else if (p.k === 'mg' || p.k === 'mantis') {
-      // 12.7mm / 35mm tracer round, led like the PAC-3 so it actually connects
+      const ax = t.x + t.vx * fly, az = t.z + t.vz * fly, splash = p.k === 'mortar' && w.splash ? G.splash * w.splash : G.splash + (p.k === 'gmg' ? w.splash : 0);
+      s.shots.push({ kind: 'lob', x: p.x, z: p.z, vx: (ax - p.x) / fly, vz: (az - p.z) / fly, dmg, splash, life: fly, target: t.id, src, pad: p.slot, fly, apex: p.k === 'gmg' ? 1.5 : GROUND_FIRE.mortar.apex, guided: w.guided });
+      t.incoming += dmg;
+      s.events.push(p.k === 'gmg' ? { k: 'gun', x: p.x, z: p.z, x2: t.x, z2: t.z } : { k: 'shot', x: p.x, z: p.z });
+    } else if (p.k === 'mg' || p.k === 'mantis' || p.k === 'rws30') {
+      // 12.7mm / 35mm / 30mm tracer round, led like the PAC-3 so it actually connects (airburst HE: it bursts on the pack)
       const sp = 70, tt = Math.sqrt(bd) / sp;
-      const dx = best.x + best.vx * tt - p.x, dz = best.z + best.vz * tt - p.z, d = Math.hypot(dx, dz) || 1;
-      s.shots.push({ kind: 'tracer', x: p.x, z: p.z, vx: dx / d * sp, vz: dz / d * sp, dmg, splash: 0, life: w.range / sp + 0.15, target: best.id, src: p.k === 'mg' ? 'MG' : 'MANTIS', pad: p.slot });
-      best.incoming += dmg;
-      s.events.push({ k: 'gun', x: p.x, z: p.z, x2: best.x, z2: best.z });
+      const dx = t.x + t.vx * tt - p.x, dz = t.z + t.vz * tt - p.z, d = Math.hypot(dx, dz) || 1;
+      s.shots.push({ kind: 'tracer', x: p.x, z: p.z, vx: dx / d * sp, vz: dz / d * sp, dmg, splash: w.splash, life: w.range / sp + 0.15, target: t.id, src, pad: p.slot });
+      t.incoming += dmg;
+      s.events.push({ k: 'gun', x: p.x, z: p.z, x2: t.x, z2: t.z });
     } else {
       const d = Math.sqrt(bd) || 1;
       const sp = p.k === 'iris' ? 25 : p.k === 'javelin' ? 18 : 15;
-      s.shots.push({ kind: 'missile', x: p.x, z: p.z, vx: (best.x - p.x) / d * sp, vz: (best.z - p.z) / d * sp, dmg, splash: 0, life: 3, target: best.id, src: p.k === 'iris' ? 'IRIS-T SLM' : p.k === 'javelin' ? 'JAVELIN' : 'STINGER', pad: p.slot });
-      best.incoming += dmg;
+      s.shots.push({ kind: 'missile', x: p.x, z: p.z, vx: (t.x - p.x) / d * sp, vz: (t.z - p.z) / d * sp, dmg, splash: w.splash, life: 3, target: t.id, src, pad: p.slot });
+      t.incoming += dmg;
       s.events.push({ k: 'missile', x: p.x, z: p.z });
     }
   });
+}
+// The debrief's name for each unit's fire (the air war's names as they were).
+const PAD_SRC: Partial<Record<PerimKind, string>> = { mg: 'MG', mantis: 'MANTIS', stinger: 'STINGER', iris: 'IRIS-T SLM', gmg: 'MK 19', javelin: 'JAVELIN', mortar: 'M120 MORTAR',
+  rws30: 'XM813 30MM', hel: 'LOCUST LASER', hpm: 'LEONIDAS HPM', rockets: 'HYDRA-70' };
+// The walker with the most others round it, among up to GROUND_FIRE.rockets.sample of those the pod can see and
+// reach (evenly picked, so a thousand-strong tide costs no more than a few dozen).
+function thickest(s: State, p: Pad, range: number, fan: number, min2: number) {
+  const R = GROUND_FIRE.rockets, cands: Enemy[] = [];
+  for (const e of s.enemies) {
+    const d = (e.x - p.x) ** 2 + (e.z - p.z) ** 2;
+    if (ENEMIES[e.kind].ground && d <= range * range && d >= min2 && visible(s, e) && covers(p, e.x, e.z, range, fan)) cands.push(e);
+  }
+  const step = Math.max(1, cands.length / R.sample), r2 = (R.splash * 1.5) ** 2;
+  let best: Enemy | undefined, bn = -1;
+  for (let i = 0; i < cands.length; i += step) {
+    const c = cands[Math.floor(i)];
+    let n = 0;
+    for (const e of s.enemies) if ((e.x - c.x) ** 2 + (e.z - c.z) ** 2 < r2) n++;
+    if (n > bn) { bn = n; best = c; }
+  }
+  return best;
 }
 
 // Claymore belt: a walker stepping into its arc sets off a charge, which blasts every walker in the arc. No eyes
 // needed (it's a tripwire). Spent charges are re-laid one at a time, and all of them in the build window.
 function claymore(s: State, p: Pad, dt: number) {
-  const M = GROUND_FIRE.mines;
-  p.belt = Math.min(M.charges, p.belt + dt / M.relay);
+  const M = GROUND_FIRE.mines, f = modFx(p), full = fullBelt(p);
+  p.belt = Math.min(full, p.belt + dt / M.relay * (f.rate ?? 1));
   p.cd = Math.max(0, p.cd - dt);
   if (p.down || p.cd > 0 || p.belt < 1) return;
-  const w = padStats(s, p), inArc = s.enemies.filter(e => ENEMIES[e.kind].ground && covers(p, e.x, e.z, w.range));
+  const w = padStats(s, p), fan = fanOf(p), inArc = s.enemies.filter(e => ENEMIES[e.kind].ground && covers(p, e.x, e.z, w.range, fan));
   if (!inArc.length) return;
   p.belt--; p.cd = 0.4;
   const a = p.a, r = w.range * 0.5;
@@ -1344,7 +1561,8 @@ function removeAt(s: State, i: number) {
 }
 
 // Standby power/s: the battery's weapons, plus every powered unit that's up.
-export const upkeep = (s: State) => s.perim.reduce((a, p) => a + (p.down ? 0 : UPKEEP[p.k] ?? 0), s.st.upkeep);
+// A ground surveillance radar fitted to a unit (UNIT_MODS gsr) draws its share too.
+export const upkeep = (s: State) => s.perim.reduce((a, p) => a + (p.down ? 0 : (UPKEEP[p.k] ?? 0) + (modFx(p).radar ? UPKEEP.gsr ?? 0 : 0)), s.st.upkeep);
 function powerAndAmmo(s: State, dt: number) {
   const st = s.st;
   // Generators run harder the emptier the banks (RESUPPLY). Standby comes off the top, then fire control: painting
@@ -1380,9 +1598,15 @@ function backupRadar(s: State, dt: number) {
 }
 
 // Eyes: anything close to the base or to an emplacement is seen, radar or not (NIGHT RAID shortens it).
+// What a unit sees round itself: its own eyes (an observer post's or a Javelin sight's are better), a thermal sight
+// adds to them and sees in the dark, a ground radar sees its own reach day or night. `dark`: NIGHT x.
+export function padEyes(p: Pad, dark = 1) {
+  const f = modFx(p), own = (p.k === 'observer' ? OBSERVER_EYES : p.k === 'javelin' ? GROUND_FIRE.javelinEyes : PAD_EYES) + (f.eyes ?? 0);
+  return Math.max(own * siteRange(p.site) * (f.night ? 1 : dark), f.radar ?? 0);
+}
 function spot(s: State) {
   const k = phase(s).mod.dark ? VISUAL_DARK : 1, b2 = (VISUAL_R * k) ** 2;
-  const eyes = s.perim.filter(up).map(p => ({ x: p.x, z: p.z, r2: ((p.k === 'observer' ? OBSERVER_EYES : p.k === 'javelin' ? GROUND_FIRE.javelinEyes : PAD_EYES) * siteRange(p.site) * k) ** 2 }));
+  const eyes = s.perim.filter(up).map(p => ({ x: p.x, z: p.z, r2: padEyes(p, k) ** 2 }));
   // Past this far out no unit's eyes reach (its distance out plus its eyesight, a hair over): skip the per-unit test.
   let reach = 0;
   for (const p of eyes) reach = Math.max(reach, Math.hypot(p.x, p.z) + Math.sqrt(p.r2) + 1e-3);
@@ -1611,6 +1835,7 @@ function moveShots(s: State, dt: number) {
       if (p.life > 0) continue;
       const t = target(p.target);
       if (t) t.incoming = Math.max(0, t.incoming - p.dmg);
+      if (t && p.guided && (t.x - p.x) ** 2 + (t.z - p.z) ** 2 < 36) { p.x = t.x; p.z = t.z; } // guided: steered onto it on the way down
       explode(s, p.x, p.z, p.splash, p.dmg, p.src, p.pad);
       s.shots[i] = s.shots[s.shots.length - 1];
       s.shots.pop();
@@ -1647,8 +1872,11 @@ function damage(s: State, e: Enemy, dmg: number, src: string, pad?: number) {
   const T = ENEMIES[e.kind];
   if (T.pacOnly && src !== 'PAC-3') return;
   if (T.ground && pad === undefined) return; // walkers: only the perimeter can engage them
-  // Armour: guns and grenades do part; the Javelin, the mortar and mines go through it.
-  if (T.armour && !ANTI_ARMOUR.includes(s.perim.find(p => p.slot === pad)?.k as PerimKind)) dmg *= T.armour;
+  // Armour: guns and grenades do part; the Javelin, the mortar, rockets, mines and microwaves go through it; AP rounds,
+  // the 30mm and the laser most of the way. Incendiary rounds set what they hit burning (BURN s).
+  const by = pad === undefined || !T.ground ? undefined : s.perim.find(p => p.slot === pad);
+  if (T.armour) { const pr = !by ? 0 : ANTI_ARMOUR.includes(by.k) ? 1 : Math.max(PIERCE[by.k] ?? 0, modFx(by).pierce ?? 0); dmg *= T.armour + (1 - T.armour) * pr; }
+  if (by && src !== 'INCENDIARY') { const b = modFx(by).burn; if (b) { e.burn = Math.max(e.burn, dmg * b); e.burnT = BURN; e.burnPad = by.slot; } }
   if (e.id === s.marked) dmg *= PRIORITY_DMG * s.st.markDmg;
   if (bossOf(e.kind)) {
     const c = DMG_CAT[src];

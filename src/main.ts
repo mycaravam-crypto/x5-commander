@@ -1,4 +1,4 @@
-import { newGame, dailySeed, parseCode, parseResult, update, buy, collectDrop, pickPerk, markAt, placePad, movePad, selectPad, upgradePad, sellPad, skipBuild, building, toggleRelocate, cycleMode, cycleDiscipline, cycleRadarMode, aimFocus, emergencyIntercept, toggleEmcon, type State } from './sim.ts';
+import { newGame, dailySeed, parseCode, parseResult, update, buy, collectDrop, pickPerk, markAt, placePad, movePad, selectPad, upgradePad, buyMod, sellPad, skipBuild, building, toggleRelocate, cycleMode, cycleDiscipline, cycleRadarMode, aimFocus, emergencyIntercept, toggleEmcon, type State } from './sim.ts';
 import { createRenderer } from './render.ts';
 import { createHud, loadBest, boardAdd } from './hud.ts';
 import { DOCTRINES, BUILD_SLOW, PERF } from './config.ts';
@@ -26,17 +26,20 @@ document.querySelector('canvas')!.addEventListener('webglcontextlost', e => {
 });
 
 const today = () => new Date().toISOString().slice(0, 10);
-const start = (mode?: 'daily' | 'training' | 'ground') => {
+const start = (mode?: 'daily' | 'training' | 'ground' | 'horde') => {
   if (s.phase !== 'start') return;
   sfx.unlock();
   if (mode === 'daily') s = newGame(dailySeed(today()), today());
   if (mode === 'training') s = newGame(undefined, '', 'standard', true);
   if (mode === 'ground') s = newGame(s.seed, '', 'standard', false, true); // same map, walkers instead of aircraft
+  if (mode === 'horde') s = newGame(s.seed, '', 'standard', false, true, true); // straight to THE TIDE
   s.phase = 'play';
+  if (s.ground) view.lookAt(0, -14); // the line, not the base: everything comes from the north
 };
 const restart = () => {
-  s = s.training ? newGame(undefined, '', 'standard', true) : s.daily ? newGame(dailySeed(s.daily), s.daily) : s.ground ? newGame(undefined, '', 'standard', false, true) : newGame(undefined, '', s.doctrine);
+  s = s.training ? newGame(undefined, '', 'standard', true) : s.daily ? newGame(dailySeed(s.daily), s.daily) : s.ground ? newGame(undefined, '', 'standard', false, true, s.horde) : newGame(undefined, '', s.doctrine);
   s.phase = 'play';
+  if (s.ground) view.lookAt(0, -14);
 };
 // Back to the start screen: a fresh map, the last doctrine picked.
 const menu = () => { if (s.phase === 'pause' || s.phase === 'over') s = newGame(undefined, '', openDoc(savedDoctrine())); };
@@ -53,7 +56,7 @@ function playCode() {
   const text = prompt('Paste a seed code (X5-…) or a friend\'s result line:');
   const c = text ? parseCode(text) : null;
   if (!c) { if (text) alert('No seed code found in that.'); return; }
-  if (c.kind === 'run') { s = newGame(c.seed, '', openDoc(c.doctrine), false, c.ground); return; } // a ground assault's code loads that mode
+  if (c.kind === 'run') { s = newGame(c.seed, '', openDoc(c.doctrine), false, c.ground, c.horde); return; } // a ground assault's code loads that mode
   const r = parseResult(text!);
   if (r) boardAdd(c.daily, { time: r.time, kills: r.kills, who: 'RIVAL' });
   s = newGame(dailySeed(c.daily), c.daily);
@@ -63,7 +66,7 @@ const reroll = () => { if (s.phase === 'start') s = newGame(undefined, '', s.doc
 const hud = createHud({
   buy: id => { if (buy(s, id)) hud.flash(id); },
   perk: i => pickPerk(s, i),
-  pad: act => { if (act === 'upgrade') upgradePad(s); else if (act === 'move') toggleRelocate(s); else sellPad(s); },
+  pad: act => { if (act === 'upgrade') upgradePad(s); else if (act === 'move') toggleRelocate(s); else if (act.startsWith('mod:')) buyMod(s, act.slice(4)); else sellPad(s); },
   look: (x, z) => view.lookAt(x, z),
   resume: () => { if (s.phase === 'pause') s.phase = 'play'; },
   setting: (k, v) => { if (k === 'cov') setCov(v); else if (k === 'sfx' || k === 'music') sfx.setVolume(k, v); },
@@ -164,6 +167,7 @@ function key(code: string) {
     case 'Delete': case 'Backspace': sellPad(s); break;
     case 'KeyD': start('daily'); break;
     case 'KeyA': start('ground'); break; // start screen only (in play, A pans)
+    case 'KeyH': start('horde'); break; // start screen only
     case 'KeyP': case 'Escape': if (s.phase === 'play') s.phase = 'pause'; else if (s.phase === 'pause') s.phase = 'play'; break;
     case 'KeyT': if (s.phase === 'start') start('training'); else cycleMode(s); break;
     case 'KeyF': toggleEmcon(s); break;
