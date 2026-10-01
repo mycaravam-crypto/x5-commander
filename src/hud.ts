@@ -1,11 +1,11 @@
-import { KA52, ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, MILESTONE, ARMS, SU25, OVERDRIVE, rank, TRAINING, BIG_KILLS, WARN, PERF, GROUND_FIRE , BOSS, CAT_NAME, bossOf } from './config.ts';
+import { KA52, ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, UNIT_TIERS, UNIT_MODS, MOD_SLOTS, HORDE_TEST, groundZone, unitMod, type PerimKind, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, MILESTONE, ARMS, SU25, OVERDRIVE, rank, TRAINING, BIG_KILLS, WARN, PERF, GROUND_FIRE , BOSS, CAT_NAME, bossOf } from './config.ts';
 import { play as sound } from './sfx.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import { mapSeed } from './terrain.ts';
 import type { Records } from './config.ts';
 import { fetchBoard, fetchMe, fetchProfile, saveProfile, postRun, signup, login, logout, boardHtml as scoreboardHtml, placedHtml, accountHtml, profileHtml, saveCallsign, type Me, type Profile } from './scores.ts';
 import { avatarFor, avatarCode, SHAPES, EMBLEMS, COLORS, type Avatar } from '../server/career.ts';
-import { boss, seedCode, beltOf, stageInfo, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, OTHER_MODE, noAmmo, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
+import { boss, seedCode, beltOf, stageInfo, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, nextTierName, modCost, padHp, padEyes, fanOf, unitCap, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, OTHER_MODE, noAmmo, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const byId = new Map<string, HTMLElement>(); // the HUD's elements are fixed: look each up once
 const $ = (id: string) => { let el = byId.get(id); if (!el?.isConnected) byId.set(id, el = document.getElementById(id)!); return el; };
@@ -87,7 +87,7 @@ const TIPS: Record<string, string> = {
   drop: `Salvage: a kill left something behind. Click it to recover it (it stays until you do): credits, a refill, a repair, overdrive, or a free upgrade from the heavy kills.`,
   level: 'Base level up: every level builds something that changes what the battery can do, plus a launcher and 2 perimeter pads. Pads fire on their own, without lock slots.',
   // GROUND ASSAULT: in that mode, a `g:` tip stands in for the air one of the same name.
-  'g:startMg': 'GROUND ASSAULT: bipedal robots walk in over the ground, and only your perimeter can fight them: no radar, no Patriot. Guns fire at what they see. Build Concertina Wire to slow them, Claymores to blast packs, a Mk 19 for splash, and later Javelins for the armoured walkers and a mortar for range. Observer posts and Javelin sights see further.',
+  'g:startMg': 'GROUND ASSAULT: hold the line. Robots on foot march down from the north (the red arc), and only your line can fight them: no radar, no Patriot. Build in the dashed band in front of the base: wire to slow them in front of your guns, Claymores and the Mk 19 for packs, later Javelins, mortars, the 30mm, rockets, a laser and a microwave array. Click a unit to upgrade it in its pit (MK II, MK III) and fit it out: ammunition, sensors, kit.',
   'g:robotFire': 'Combat walkers stop and shoot up the unit in front of them; heavy walkers shoot on the move. Keep guns covering each other, and kill the gunners first. The build window repairs every unit.',
   'g:padDown': 'Light walkers charge the nearest unit they see and blow their charge on it. Wire in front of your guns slows them in the kill zone; Claymores face out from the base and take out a whole pack.',
   'g:level': 'Base level up: a bigger build zone, more pads and a perk. Heavy walkers are armoured: small arms and grenades do half, the Javelin, the mortar and mines go through.',
@@ -117,7 +117,7 @@ const helpHtml = () => `<div class="help"><div><small>SYSTEMS</small><dl>${HELP_
   <div><small>KEYS</small><dl>${HELP_KEYS.map(([k, v]) => `<dt><kbd>${k}</kbd></dt><dd>${v}</dd>`).join('')}</dl></div></div>`;
 
 // One line to paste in a chat.
-export const resultLine = (s: State) => `X5 COMMANDER · ${s.training ? 'TRAINING' : s.daily ? `DAILY OP ${s.daily}` : s.ground ? 'GROUND ASSAULT' : `${DOCTRINES.find(d => d.id === s.doctrine)!.name} RUN`} · ${clock(s.t)} · ${fmt(s.kills)} kills · lv ${s.level} · ${s.stats.clean}/${s.stats.raids} clean raids${s.training ? '' : ` · ${seedCode(s)}`}`;
+export const resultLine = (s: State) => `X5 COMMANDER · ${s.training ? 'TRAINING' : s.daily ? `DAILY OP ${s.daily}` : s.horde ? 'HORDE TEST' : s.ground ? 'GROUND ASSAULT' : `${DOCTRINES.find(d => d.id === s.doctrine)!.name} RUN`} · ${clock(s.t)} · ${fmt(s.kills)} kills · lv ${s.level} · ${s.stats.clean}/${s.stats.raids} clean raids${s.training ? '' : ` · ${seedCode(s)}`}`;
 
 const docsHtml = (s: State, best: Best) => DOCTRINES.map((d, i) => {
   const open = d.unlock(best);
@@ -152,10 +152,15 @@ const LESSONS: Record<keyof typeof ENEMIES, string> = {
   mainstay: 'the A-50U does no damage itself, but everything it commands is harder to kill.',
   walker: 'light walkers come in packs: wire slows them in front of your guns, Claymores and the Mk 19 take out a whole pack.',
   gunbot: 'combat walkers stop to shoot: keep two guns on every approach so they die before they settle, and a Javelin reaches them first.',
-  mech: 'heavy walkers are armoured: Javelins, the mortar and Claymores go through it, machine guns do half.',
+  mech: 'heavy walkers are armoured: Javelins, the mortar, rockets, the HPM and Claymores go through it, machine guns do half. AP rounds help.',
+  crawler: 'mini-walkers come by the hundred: splash wins. Mk 19 with airburst, mortars with DPICM, the rocket pod, the HPM\'s cone and Claymores.',
+  dog: 'robot dogs are fast and shoot on the run: wire in front of your guns, and a thermal sight to see them early.',
+  sapper: 'breachers cut wire and mines: cover your obstacles with a gun, or they open the way for the rest.',
+  arty: 'mortar walkers stop out of reach: the mortar, the rocket pod and Javelins outrange them, and a ground radar sees them.',
+  titan: 'the siege walker shrugs off small arms and crushes what it walks over: Javelins, mortars and rockets, from far out, and the HPM to hold it.',
 };
-const PERIM_NAMES = { mg: 'AA MG', mantis: 'MANTIS', stinger: 'STINGER', iris: 'IRIS-T SLM', jammer: 'JAMMER', observer: 'OBSERVER', ammo: 'AMMO',
-  wire: 'WIRE', mines: 'CLAYMORE', gmg: 'MK 19', javelin: 'JAVELIN', mortar: 'MORTAR' };
+const PERIM_NAMES: Record<PerimKind, string> = { mg: 'AA MG', mantis: 'MANTIS', stinger: 'STINGER', iris: 'IRIS-T SLM', jammer: 'JAMMER', observer: 'OBSERVER', ammo: 'AMMO',
+  wire: 'WIRE', mines: 'CLAYMORE', gmg: 'MK 19', javelin: 'JAVELIN', mortar: 'MORTAR', rws30: 'XM813', hel: 'LOCUST', hpm: 'LEONIDAS', rockets: 'HYDRA POD' };
 function debrief(s: State) {
   const S = s.stats, total = Object.values(S.dmg).reduce((a, b) => a + b, 0) || 1;
   const kills = (Object.entries(S.kills) as [keyof typeof ENEMIES, number][]).sort((a, b) => b[1] - a[1])
@@ -181,7 +186,7 @@ function debrief(s: State) {
     ${levels ? `<div class="levels"><small>LEVEL BY LEVEL</small><table><tr><th>LEVEL</th><th>TIME</th><th>KILLS</th><th>HP LOST</th><th></th></tr>${levels}</table></div>` : ''}`;
 }
 
-export function createHud(actions: { buy(id: string): void; perk(i: number): void; pad(act: string): void; start(mode?: 'daily' | 'training' | 'ground'): void; restart(): void; resume(): void; menu(): void; doctrine(i: number): void; look(x: number, z: number): void;
+export function createHud(actions: { buy(id: string): void; perk(i: number): void; pad(act: string): void; start(mode?: 'daily' | 'training' | 'ground' | 'horde'): void; restart(): void; resume(): void; menu(): void; doctrine(i: number): void; look(x: number, z: number): void;
   setting(k: string, v: number): void; settings(): { sfx: number; music: number; cov: number }; code(): void }) {
   for (const [k, v] of Object.entries(PAL)) document.documentElement.style.setProperty(`--${k}`, rgba(v));
 
@@ -237,6 +242,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     else if (a === 'daily') actions.start('daily');
     else if (a === 'training') actions.start('training');
     else if (a === 'ground') actions.start('ground');
+    else if (a === 'horde') actions.start('horde');
     else if (a === 'code') actions.code();
     else if (a === 'menu') actions.menu();
     else if (a === 'resume') actions.resume();
@@ -265,7 +271,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     if (key === shownPhase && s.phase === 'start' && s.doctrine !== shownDoc) { shownDoc = s.doctrine; overlay.querySelector('.docs')!.innerHTML = docsHtml(s, loadBest()); }
     if (s.phase === 'start' && seedCode(s) !== shownSeed) {
       shownSeed = seedCode(s); const m = overlay.querySelector('.mapline');
-      if (m) m.textContent = s.daily ? `DAILY OP ${s.daily} LOADED · ${seedCode(s)} · [SPACE] TO FLY IT` : s.ground ? `GROUND ASSAULT ${seedCode(s)} LOADED · [SPACE] TO FIGHT IT` : `MAP ${mapName(s.seed)} · SEED ${seedCode(s)} · [N] NEW MAP`;
+      if (m) m.textContent = s.daily ? `DAILY OP ${s.daily} LOADED · ${seedCode(s)} · [SPACE] TO FLY IT` : s.horde ? `HORDE TEST ${seedCode(s)} LOADED · [SPACE] TO FIGHT IT` : s.ground ? `GROUND ASSAULT ${seedCode(s)} LOADED · [SPACE] TO FIGHT IT` : `MAP ${mapName(s.seed)} · SEED ${seedCode(s)} · [N] NEW MAP`;
       const b = overlay.querySelector('.boardslot'); // a loaded op shows its own day's board
       if (b) b.innerHTML = boardHtml(s.daily || new Date().toISOString().slice(0, 10));
     }
@@ -288,8 +294,9 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       ${best.time ? `<p class="dim">BEST · ${clock(best.time)} · ${fmt(best.kills)} kills · base lv ${best.level}</p>` : ''}
       <p class="dim">DOCTRINE · starting loadout, unlocked by your records</p><div class="perks docs">${docsHtml(s, best)}</div>
       ${trained() ? '' : '<p class="hot">NEW HERE? A 3-MINUTE DRILL: EYES, RADAR, ARMS, DECOYS</p><button class="btn hotbtn" data-a="training">TRAINING [T]</button><br>'}
-      <button class="btn" data-a="start">DEPLOY [SPACE]</button> <button class="btn" data-a="daily">DAILY OP [D]</button> <button class="btn" data-a="ground">GROUND ASSAULT [A]</button>${trained() ? ' <button class="btn" data-a="training">TRAINING [T]</button>' : ''}
-      <p class="dim">Ground assault: swarms of bipedal robots on foot. No radar, no Patriot: only the perimeter can stop them, with wire, Claymores, grenade launchers, Javelins and mortars. ${(b => b.time ? `Best · ${clock(b.time)} · ${fmt(b.kills)} kills` : 'Not fought yet.')(loadBest(true))}</p>
+      <button class="btn" data-a="start">DEPLOY [SPACE]</button> <button class="btn" data-a="daily">DAILY OP [D]</button> <button class="btn" data-a="ground">GROUND ASSAULT [A]</button> <button class="btn" data-a="horde">HORDE TEST [H]</button>${trained() ? ' <button class="btn" data-a="training">TRAINING [T]</button>' : ''}
+      <p class="dim">Ground assault: hold the line. Robots on foot, modelled on real prototypes, march down from the north; no radar, no Patriot: only your line can stop them. Wire, Claymores, grenade launchers, a 30mm, Javelins, mortars, rockets, a laser and a microwave array, each upgraded in its pit and fitted with ammunition, sensors and kit. Every fifth level a thousand-strong tide. ${(b => b.time ? `Best · ${clock(b.time)} · ${fmt(b.kills)} kills` : 'Not fought yet.')(loadBest(true))}</p>
+      <p class="dim">Horde test: skip ahead to THE TIDE with base level ${HORDE_TEST.level} and ${fmt(HORDE_TEST.credits)} credits to build a line. No records.</p>
       <p><button class="link" data-a="resetTips">RESET TIPS</button></p>
       <p class="dim">Daily op: same raid for everyone today. ${(d => d.time ? `Your best today · ${clock(d.time)} · ${fmt(d.kills)} kills` : 'Not flown yet today.')(loadDaily(new Date().toISOString().slice(0, 10)))}</p>
       <div class="boardslot"></div>
@@ -301,7 +308,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       ${helpHtml()}
       <p><button class="link" data-a="resetTips">RESET TIPS</button> <span class="dim">· show every tip again</span></p>
       <p class="dim">[P] or tap outside to resume</p></div>`;
-    else if (s.phase === 'perk') html = `<div class="card"><h2>BATTERY LEVEL ${s.level} · ${baseLevelInfo(s.level).name}</h2><p class="hot">${baseLevelInfo(s.level).desc}</p>${s.level > 1 ? `<p class="dim">${s.st.weapons.cannon ? '+1 M903 LAUNCHER · ' : ''}${perimSlots(s.level)} PERIMETER PADS</p>` : ''}<h2>CHOOSE A PERK</h2><div class="perks">${
+    else if (s.phase === 'perk') html = `<div class="card"><h2>BATTERY LEVEL ${s.level} · ${baseLevelInfo(s.level).name}</h2><p class="hot">${baseLevelInfo(s.level).desc}</p>${s.level > 1 ? `<p class="dim">${s.st.weapons.cannon ? '+1 M903 LAUNCHER · ' : ''}${unitCap(s)} PERIMETER PADS</p>` : ''}<h2>CHOOSE A PERK</h2><div class="perks">${
       s.perkChoices.map((id, i) => { const p = PERKS.find(p => p.id === id)!; return `<button class="perk frame${p.rule ? ' rule' : ''}" data-a="perk${i}">${p.rule ? '<i>★ NEW RULE</i>' : ''}<b>${p.name}</b><span>${p.desc}</span><kbd>[${i + 1}]</kbd></button>`; }).join('')
     }</div></div>`;
     else if (s.phase === 'over' && s.training) {
@@ -313,9 +320,9 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     else if (s.phase === 'over') {
       const best = loadBest(s.ground);
       const now = { time: s.t, kills: s.kills, level: s.level, earned: s.earned };
-      const rec = (k: keyof Best) => now[k] > best[k];
+      const rec = (k: keyof Best) => !s.horde && now[k] > best[k]; // a horde test keeps no records
       const merged = Object.fromEntries(Object.keys(now).map(k => [k, Math.max(now[k as keyof Best], best[k as keyof Best])]));
-      try { localStorage.setItem(s.ground ? 'x5-best-ground' : 'x5-best', JSON.stringify(merged)); } catch { /* storage blocked: skip */ }
+      if (!s.horde) try { localStorage.setItem(s.ground ? 'x5-best-ground' : 'x5-best', JSON.stringify(merged)); } catch { /* storage blocked: skip */ }
       const row = (label: string, k: keyof Best, f: (n: number) => string) =>
         `<small>${label}</small><b class="${rec(k) ? 'new' : ''}">${f(now[k])}${rec(k) ? ' ★' : ''}</b><span class="dim">best ${f(Math.max(now[k], best[k]))}</span>`;
       let daily = '';
@@ -326,7 +333,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         daily += boardHtml(s.daily, boardAdd(s.daily, { time: s.t, kills: s.kills, who: 'YOU' }));
       }
       const unlocked = s.ground ? '' : DOCTRINES.filter(d => !d.unlock(best) && d.unlock(merged as Best)).map(d => `<p class="hot">DOCTRINE UNLOCKED · ${d.name}</p>`).join('');
-      html = `<div class="card"><h1 class="alert">${s.ground ? 'BASE OVERRUN' : 'BATTERY LOST'}</h1>${s.ground ? '<p class="dim">GROUND ASSAULT · not logged on the leaderboard</p>' : ''}${daily}${unlocked}
+      html = `<div class="card"><h1 class="alert">${s.ground ? 'BASE OVERRUN' : 'BATTERY LOST'}</h1>${s.ground ? `<p class="dim">${s.horde ? 'HORDE TEST · no records kept' : 'GROUND ASSAULT · not logged on the leaderboard'}</p>` : ''}${daily}${unlocked}
         <div class="score">${row('SURVIVED', 'time', clock)}${row('KILLS', 'kills', fmt)}${row('BASE LEVEL', 'level', String)}${row('CREDITS EARNED', 'earned', fmt)}</div>
         <div class="lbslot"></div>
         ${debrief(s)}
@@ -540,7 +547,13 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     // The front, and the wider arc long-range drones and missiles can come from right now.
     if (flankArc(s.stage, s.ground) > FRONT_ARC) rimArc(Math.min(Math.PI, flankArc(s.stage, s.ground)), rgba(PAL.alert, 0.6), 2);
     rimArc(FRONT_ARC, 'rgba(255,90,68,0.95)', 3);
-    ring(0, 0, buildR(s.level), s.placing || s.relocating ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.35)', 1, [3, 3]);
+    const zc = s.placing || s.relocating ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.35)';
+    if (s.ground) { // the band in front of the base
+      const Z = groundZone(s.level);
+      g.strokeStyle = zc; g.lineWidth = 1; g.setLineDash([3, 3]); g.beginPath();
+      for (const [x, z] of [[-Z.w, Z.back], [-Z.w, -Z.d], [Z.w, -Z.d], [Z.w, Z.back]]) g.lineTo(px(x, z), py(x, z));
+      g.closePath(); g.stroke(); g.setLineDash([]);
+    } else ring(0, 0, buildR(s.level), zc, 1, [3, 3]);
     // Gaps: bearings in the threat arc that no working gun covers, 22m out, as amber ticks on the rim.
     if (play) {
       const guns = s.perim.filter(p => GUNS.includes(p.k) && !p.down).map(p => ({ p, r: padStats(s, p).range }));
@@ -576,11 +589,13 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     // Salvage on the ground: gold diamonds.
     g.fillStyle = '#ffd966';
     for (const d of s.drops) { const x = px(d.x, d.z), y = py(d.x, d.z); g.beginPath(); g.moveTo(x, y - 4); g.lineTo(x + 4, y); g.lineTo(x, y + 4); g.lineTo(x - 4, y); g.fill(); }
-    // Contacts: red, missiles amber, a classified decoy grey; locked ones boxed.
+    // Contacts: red, missiles amber, a classified decoy grey; locked ones boxed. A ground assault's walkers beyond
+    // sight show dim (the drone feed, ISR): you see them coming, your guns don't.
     for (const e of s.enemies) {
-      if (!visible(s, e)) continue;
+      const seen = visible(s, e);
+      if (!seen && !s.ground) continue;
       const x = px(e.x, e.z), y = py(e.x, e.z), r = 2 + e.size;
-      g.fillStyle = e.ided ? '#999' : MUNITIONS.includes(e.kind) ? rgba(PAL.alert) : '#ff4d3a';
+      g.fillStyle = !seen ? 'rgba(255,77,58,0.35)' : e.ided ? '#999' : MUNITIONS.includes(e.kind) ? rgba(PAL.alert) : '#ff4d3a';
       g.beginPath(); g.arc(x, y, r / 2, 0, TAU); g.fill();
       if (e.locked) { g.strokeStyle = e.id === s.marked ? '#fff' : rgba(PAL.hot); g.strokeRect(x - r, y - r, r * 2, r * 2); }
     }
@@ -726,7 +741,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     if (s.phase !== 'play') return '';
     for (const id of ['radar', 'pac3']) if (!s.lv[id] && !lockReason(s, id)) return id; // the milestones, once open
     // A free unit slot is the best buy there is before the radar, and still a good one after.
-    const gun = s.perim.length < perimSlots(s.level) && !s.placing ? GUN_IDS.filter(id => !lockReason(s, id)).reduce<string>((a, b) => !a || cost(s, b) < cost(s, a) ? b : a, '') : '';
+    const gun = s.perim.length < unitCap(s) && !s.placing ? GUN_IDS.filter(id => !lockReason(s, id)).reduce<string>((a, b) => !a || cost(s, b) < cost(s, a) ? b : a, '') : '';
     if (!st.radar) return s.hp < st.maxHp * 0.5 ? cheaper(s, 'hp', 'repair') : gun || cheaper(s, 'dmg', 'rate');
     if (s.ammo < st.ammoCap * 0.25) return cheaper(s, 'aprod', 'acap');
     if (s.power < st.powerCap * 0.25 || s.sweepSpeed < st.sweep * 0.99 && emitting(s)) return 'gen';
@@ -790,7 +805,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const html = [
       ...air,
       ['// BATTERY', ''],
-      ['PERIMETER', `${s.perim.length} / ${perimSlots(s.level)} pads`],
+      ['PERIMETER', `${s.perim.length} / ${unitCap(s)} pads`],
       ...overdrive(s) ? [['OVERDRIVE', `<span class="hot">+${Math.round((OVERDRIVE.rate - 1) * 100)}% RATE ${Math.ceil(s.overdriveUntil - s.t)}s</span>`]] : [],
       ...ffSpeed > 1 ? [['SPEED <kbd>[X]</kbd>', `<span class="hot">${ffSpeed}×</span>`]] : [],
       ...s.placing ? [['PAD', `<span class="hot">CLICK GROUND · ${Math.max(0, PLACE_TIME - (s.t - s.placing.since)).toFixed(0)}s</span>`]] : [],
@@ -895,17 +910,37 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     const r = vetRank(kills), next = VETERANCY[r + 1];
     return `KILLS ${fmt(kills)} · ${r ? `<span class="hot">★ ${VETERANCY[r].name}</span>` : VETERANCY[r].name}${next ? ` <small class="dim">${next.kills - kills} TO ${next.name}</small>` : ''}<br>`;
   };
+  // Fitting slots (ground assault): what's in each, and the items it can take, as buttons. Short labels: the card is narrow.
+  const MOD_SHORT: Record<string, string> = { ap: 'AP', he: 'AIRBURST', inc: 'INCENDIARY', dpicm: 'DPICM', pgm: 'GUIDED', mp: 'MP WARHEAD', optics: 'OPTICS', splitter: 'SPLITTER',
+    wide: 'WIDE ARRAY', prf: 'HIGH PRF', razor: 'RAZOR', spider: 'SPIDER', flir: 'FLIR', gsr: 'GND RADAR', fcs: 'FIRE CTRL', auto: 'AUTOLOADER', plates: 'ARMOUR', rwsm: 'RWS 360°', barrel: 'LONG BARREL', caps: 'CAPACITORS' };
+  function modRows(s: State, p: NonNullable<ReturnType<typeof selectedPad>>) {
+    if (!s.ground) return '';
+    let h = '';
+    for (const slot of MOD_SLOTS) {
+      const opts = UNIT_MODS.filter(m => m.slot === slot && m.for.includes(p.k));
+      if (!opts.length) continue;
+      const cur = p.mods?.[slot];
+      h += `<div class="mods"><small>${slot}</small>${opts.map(m => {
+        const c = modCost(s, p, m.id);
+        return `<button data-act="mod:${m.id}" title="${m.name}: ${m.desc}"${cur === m.id ? ' class="on" disabled' : s.credits < c ? ' disabled' : ''}>${MOD_SHORT[m.id] ?? m.name}${cur === m.id ? '' : ` ${c}`}</button>`;
+      }).join('')}</div>`;
+    }
+    const fit = MOD_SLOTS.map(sl => p.mods?.[sl]).filter(Boolean).map(id => unitMod(id!)!);
+    return h + (fit.length ? `<small class="dim">${fit.map(m => `${m.name}: ${m.desc}`).join(' · ')}</small><br>` : '');
+  }
   function padCard(s: State) {
     const p = selectedPad(s);
     let h = '';
     if (p && (s.phase === 'play' || s.phase === 'pause')) {
-      const w = padStats(s, p), up = padUpgradeCost(p), fan = FANS[p.k] >= Math.PI ? 360 : Math.round(FANS[p.k] * 360 / Math.PI);
+      const w = padStats(s, p), up = padUpgradeCost(p, s.ground), f = fanOf(p), fan = f >= Math.PI ? 360 : Math.round(f * 360 / Math.PI), max = padHp(p);
+      const dps = p.k === 'rockets' ? w.dmg * GROUND_FIRE.rockets.salvo * w.rate : w.dmg * w.rate;
       h = `<b>${padName(p)}</b> · ${BELTS[beltOf(p)]}${p.site ? ` · <span class="hot">${SITES[p.site]}</span>` : ''}<br>`
-        + (GUNS.includes(p.k) ? `${Math.round(w.range)}m · ${(w.dmg * w.rate).toFixed(1)} DMG/s · ${fan}° FIELD OF FIRE<br>`
-          : p.k === 'mines' ? `${Math.round(w.range)}m · ${Math.round(w.dmg)} DMG A CHARGE · ${fan}° ARC · ${Math.floor(p.belt)} / ${GROUND_FIRE.mines.charges} CHARGES<br>` : `${SUPPORT[p.k]}<br>`)
+        + (GUNS.includes(p.k) ? `${Math.round(w.range)}m · ${dps.toFixed(1)} DMG/s${p.k === 'hpm' ? ' TO EVERY ROBOT IN THE CONE' : ''} · ${fan}° FIELD OF FIRE${s.ground ? ` · EYES ${Math.round(padEyes(p))}m` : ''}<br>`
+          : p.k === 'mines' ? `${Math.round(w.range)}m · ${Math.round(w.dmg)} DMG A CHARGE · ${fan}° ARC · ${Math.floor(p.belt)} CHARGES<br>` : `${SUPPORT[p.k]}<br>`)
         + (p.k === 'mines' ? vetLine(p.kills) : '')
-        + (GUNS.includes(p.k) ? vetLine(p.kills) : '') + `HP ${Math.ceil(p.hp)} / ${PAD_HP}${p.down ? ' <span class="alert">DOWN</span>' : ''}<b class="seg" style="--r:${p.hp / PAD_HP}"></b>`
-        + (up < Infinity ? `<button data-act="upgrade"${s.credits < up ? ' disabled' : ''}>[U] ${MG_TIERS[p.tier + 1].name} ${up}CR</button>` : '')
+        + (GUNS.includes(p.k) ? vetLine(p.kills) : '') + `HP ${Math.ceil(p.hp)} / ${max}${p.down ? ' <span class="alert">DOWN</span>' : ''}<b class="seg" style="--r:${p.hp / max}"></b>`
+        + modRows(s, p)
+        + (up < Infinity ? `<button data-act="upgrade"${s.credits < up ? ' disabled' : ''}>[U] ${nextTierName(p)} ${up}CR</button>` : '')
         + `<button data-act="move"${s.relocating ? ' class="on"' : ''}>[B] MOVE</button><button data-act="sell">[DEL] SELL +${fmt(sellValue(s, p))}</button><br>`
         + `<small class="dim">${s.relocating ? 'CLICK OPEN GROUND TO MOVE IT' : 'B OR RIGHT-CLICK GROUND: MOVE'}${building(s) ? ' · FREE NOW' : ` · ${MOVE_TIME}s OFFLINE`}</small>`;
     }
@@ -1027,8 +1062,9 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         else if (e.k === 'build' && s.training) { say(`DRILL ${s.stage + 1} COMPLETE`, 'info'); log(`DRILL ${s.stage + 1} COMPLETE · NEXT IN ${e.n}s`); }
         else if (e.k === 'build') { say(`LEVEL ${s.stage + 1} COMPLETE · BUILD ${e.n}s`, 'info'); log(`LEVEL ${s.stage + 1} COMPLETE · BUILD WINDOW ${e.n}s · NO NEW CONTACTS`); }
         else if (e.k === 'padDown') { say('⚠ EMPLACEMENT DOWN', 'warn'); log(`${e.kind.toUpperCase()} DOWN BRG ${pad3(bearing(e.x, e.z))} · REPAIRING`, 'alert'); }
-        else if (e.k === 'padUp') { if (e.n) { const n = MG_TIERS[e.n].name; say(n, 'info'); log(`UPGRADED · ${n}`); } else log(`${e.kind.toUpperCase()} BACK IN ACTION BRG ${pad3(bearing(e.x, e.z))}`); }
+        else if (e.k === 'padUp') { if (e.n) { const n = e.kind === 'mg' ? MG_TIERS[e.n].name : `${PERIM_NAMES[e.kind]} ${UNIT_TIERS[e.n].name}`; say(n, 'info'); log(`UPGRADED · ${n}`); } else log(`${e.kind.toUpperCase()} BACK IN ACTION BRG ${pad3(bearing(e.x, e.z))}`); }
         else if (e.k === 'padRank') { const v = VETERANCY[e.n]; pop(project, e.x, e.z, `${'★'.repeat(e.n)} ${v.name}`, 'up star'); say(`${PERIM_NAMES[e.kind]} · ${v.name}`, 'info'); log(`${e.kind.toUpperCase()} BRG ${pad3(bearing(e.x, e.z))} · ${v.name} · +${Math.round((v.dmg - 1) * 100)}% DMG`); }
+        else if (e.k === 'padMod') { const m = unitMod(e.id)!; pop(project, e.x, e.z, m.slot, 'up'); log(`${PERIM_NAMES[e.kind]} FITTED · ${m.name.toUpperCase()}`); }
         else if (e.k === 'padSold') log(`${e.kind.toUpperCase()} SOLD · +${fmt(e.n)} CR`);
         else if (e.k === 'padMoved') log(`${e.kind.toUpperCase()} MOVED${e.n ? ` · OFFLINE ${e.n}s` : ''}`);
         else if (e.k === 'radarOnline') { say('RADAR ONLINE', 'info'); log('AN/MPQ-65 ONLINE · SEARCH + FIRE CONTROL'); }

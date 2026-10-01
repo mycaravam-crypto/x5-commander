@@ -5,8 +5,8 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { ARENA_R, BASE_R, BUILD_MIN, DROP_MAX, PERF, ENEMIES, MUNITIONS, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, FANS, GUNS, MG_TIERS, PERIM, PAD_HP, BIG_KILLS, altitude, flightAlt, buildR, type EnemyKind, type PerimKind } from './config.ts';
-import { building as inBuildWindow, emitting, focusBearing, flankArc, radarRange, radarSector, bestSpot, spotNear, selectedPad, coverage, padStats, phase, shownKind, visible, type Enemy, type Shot, type State } from './sim.ts';
+import { ARENA_R, BASE_R, BUILD_MIN, DROP_MAX, PERF, ENEMIES, MUNITIONS, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, FANS, GUNS, MG_TIERS, PERIM, BIG_KILLS, altitude, flightAlt, buildR, groundZone, type EnemyKind, type PerimKind } from './config.ts';
+import { building as inBuildWindow, emitting, focusBearing, flankArc, radarRange, radarSector, bestSpot, spotNear, selectedPad, coverage, padStats, padHp, fanOf, phase, shownKind, visible, type Enemy, type Pad, type Shot, type State } from './sim.ts';
 import { heightSampler, treeList, ROCKS, FARMS, WATER_Y, mapSeed } from './terrain.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import { enemyGeos, ROTORS } from './models.ts';
@@ -82,7 +82,7 @@ const KIND_COL: Record<EnemyKind, number> = {
   scout: 0x6d7064, drone: 0x5f625b, decoy: 0x5f625b, swarm: 0x2e2f2c, tank: 0x4d5a3c, ew: 0x5a6446, elite: 0x7b8792, arm: 0xe2dfd4, tbm: 0xd6d6cb, cruise: 0xbabdb5, atgm: 0xd8d4c4, kab: 0x55584e,
   recon: 0x8a8f86, ka52: 0x46503a, hyper: 0xdcdcd2, mald: 0xbabdb5, su25: 0x6b7560, rocket: 0xcfcabb, sead: 0x8994a0, arm2: 0xe6e2d6,
   halo: 0x5a6148, backfire: 0x9aa3a8, okhotnik: 0x3c4148, mainstay: 0xa8adb0,
-  walker: 0x7a7d70, gunbot: 0x5d6552, mech: 0x4c5046,
+  walker: 0x7a7d70, gunbot: 0x5d6552, mech: 0x4c5046, crawler: 0x8a8576, dog: 0x6a6e66, sapper: 0x7d7461, arty: 0x66705a, titan: 0x55584a,
 };
 
 const GRADE = {
@@ -490,6 +490,15 @@ export function createRenderer() {
       solid(box(1.2, 0.5, 1), MID, 0.2, 1.15, 0, base);
       solid(new THREE.CylinderGeometry(0.04, 0.06, 2.6, 5), C.dark, -0.7, 2.2, 0.5, base);
     }
+    // A ground assault's base holds a line: a HESCO wall across its front with firing steps, and a sandbagged
+    // bunker either side, facing north where everything comes from.
+    if (s.ground) {
+      for (let x = -13; x <= 13; x += 1.3) {
+        const z = -8.6 - 0.02 * x * x, h = Math.abs(x) < 2 ? 0 : 1.1; // a gap on the road for the gate
+        if (h) solid(box(1.2, h, 1.2), 0x9a8a62, x, h / 2, z, base);
+      }
+      for (const x of [-9, 9]) { solid(box(2.4, 0.9, 1.8), C.sand, x, 0.45, -7, base); solid(box(2.6, 0.2, 2), C.dark, x, 0.95, -7, base); solid(box(0.9, 0.18, 0.1), C.dark, x, 0.75, -7.95, base); }
+    }
     // AN/MPQ-65 phased-array radar on its trailer, center. With the AESA upgrade it becomes LTAMDS: extra rear arrays for 360° cover.
     const radar = group(base); aimers.push([radar, 0, 'pac']); radar.visible = s.st.radar;
     solid(box(2.4, 0.3, 1.4), MID, -0.3, 0.6, 0, radar);
@@ -635,15 +644,38 @@ export function createRenderer() {
         solid(new THREE.CylinderGeometry(0.09, 0.1, 1.6, 8).translate(0, 0.8, 0), C.olive, 0, 0, 0, tube);
         for (const z of [-0.25, 0.25]) solid(new THREE.CylinderGeometry(0.025, 0.025, 1).rotateX(z > 0 ? -0.35 : 0.35), C.dark, 0.45, 0.45, z, t);
         for (const [x, z] of [[-0.7, -0.5], [-0.7, 0.5]]) solid(box(0.35, 0.3, 0.3), 0x6a5a3a, x, 0.15, z, g); // ammo boxes
+      } else if (p.k === 'rws30') { // XM813: a squat remote turret on its pedestal, the 30mm chain gun, a sight box
+        const t = group(g, 0, 0.3, 0); aimers.push([t, ry, `pad${p.slot}`]);
+        solid(new THREE.CylinderGeometry(0.3, 0.4, 0.4, 8), C.olive, 0, 0.2, 0, t);
+        solid(box(0.8, 0.4, 0.6), C.olive, 0.05, 0.55, 0, t);
+        solid(new THREE.CylinderGeometry(0.07, 0.07, 1.5, 6).rotateZ(Math.PI / 2), C.dark, 1.15, 0.6, 0, t);
+        solid(box(0.25, 0.25, 0.2), C.dark, 0.2, 0.85, 0.3, t);
+      } else if (p.k === 'hel') { // LOCUST: a trailer with a power pack and the beam director's turret on a post
+        solid(box(1.6, 0.4, 1), C.olive, 0, 0.35, 0, g); solid(box(0.6, 0.5, 0.8), C.dark, -0.5, 0.8, 0, g);
+        const t = group(g, 0.35, 0.9, 0); aimers.push([t, ry, `pad${p.slot}`]);
+        solid(new THREE.CylinderGeometry(0.22, 0.22, 0.4, 10).rotateX(Math.PI / 2), MID, 0, 0.2, 0, t);
+        solid(new THREE.CylinderGeometry(0.14, 0.14, 0.1, 10).rotateZ(Math.PI / 2), HOT, 0.25, 0.2, 0, t);
+      } else if (p.k === 'hpm') { // Leonidas: a container, and the flat square array on its mount, aimed down its cone
+        solid(box(1.8, 0.8, 1), C.olive, -0.2, 0.5, 0, g);
+        const t = group(g, 0.5, 1, 0); aimers.push([t, ry, `pad${p.slot}`]);
+        const face = group(t, 0.2, 0.4, 0); face.rotation.z = 0.25;
+        solid(box(0.12, 0.9, 0.9), BRIGHT, 0, 0, 0, face); solid(box(0.03, 0.8, 0.8), HOT, 0.07, 0, 0, face);
+      } else if (p.k === 'rockets') { // Hydra pod: a box of 19 tubes on a raised launcher frame
+        const t = group(g, 0, 0.35, 0); aimers.push([t, ry, `pad${p.slot}`]);
+        const pod = group(t, 0, 0.35, 0); pod.rotation.z = 0.5;
+        solid(new THREE.CylinderGeometry(0.4, 0.4, 1.2, 10).rotateZ(Math.PI / 2), C.olive, 0, 0.1, 0, pod);
+        solid(new THREE.CylinderGeometry(0.3, 0.3, 0.02, 10).rotateZ(Math.PI / 2), C.dark, 0.61, 0.1, 0, pod);
+        for (const z of [-0.3, 0.3]) solid(box(0.08, 0.5, 0.08), C.dark, 0, 0, z, t);
       } else {
         solid(new THREE.CylinderGeometry(0.05, 0.07, 2.4, 5), C.metal, 0, 1.4, 0, g);
         const head = group(g, 0, 2.6, 0); sweepers.push([head, ry]);
         solid(new THREE.ConeGeometry(0.45, 0.3, 8, 1, true).rotateZ(Math.PI / 2), HOT, 0.2, 0, 0, head);
       }
+      fitted(p, g);
       if (!aimT.has(`pad${p.slot}`)) aimT.set(`pad${p.slot}`, p.a); // new guns stand facing out
       if (!GUNS.includes(p.k) && p.k !== 'mines') continue;
       const out = p.slot === s.selected ? picked : fan;
-      fanPts(out, p.k, p.x, p.z, p.a, padStats(s, p).range);
+      fanPts(out, fanOf(p), p.x, p.z, p.a, padStats(s, p).range);
     }
     for (const [pts, color, opacity] of [[fan, 0xffffff, 0.22], [picked, C.friend, 0.9]] as const) if (pts.length) {
       const l = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)), lineMat(color, opacity));
@@ -651,9 +683,18 @@ export function createRenderer() {
     }
     scene.add(base);
   }
-  // Field of fire as ground segments: the arc at `r`, and its edges out from the unit when it's not all round.
-  function fanPts(out: number[], k: PerimKind, x: number, z: number, a: number, r: number) {
-    const w = FANS[k], n = Math.ceil(w * 12), y = (px: number, pz: number) => groundY(px, pz) + 0.15;
+  // What a unit is fitted with (ground assault) shows on it: armour plates on the pit, a thermal sight or a radar
+  // panel on a mast, chevrons for its tier.
+  function fitted(p: Pad, g: THREE.Object3D) {
+    const m = p.mods ?? {};
+    if (m.KIT === 'plates') for (const a of [0.5, 1.6, 2.6, 3.7, 4.7, 5.8]) solid(box(0.12, 0.5, 0.6).rotateY(-a), 0x5b604c, Math.cos(a) * 1.15, 0.3, Math.sin(a) * 1.15, g);
+    if (m.SENSOR === 'gsr') { solid(new THREE.CylinderGeometry(0.03, 0.04, 1.8, 5), C.metal, -0.6, 1, -0.6, g); solid(box(0.08, 0.35, 0.5), BRIGHT, -0.55, 1.95, -0.6, g); }
+    else if (m.SENSOR === 'flir' || m.SENSOR === 'fcs') solid(box(0.22, 0.2, 0.22), m.SENSOR === 'flir' ? HOT : C.dark, -0.5, 0.75, 0.55, g);
+    for (let i = 0; i < (p.k === 'mg' ? 0 : p.tier); i++) solid(box(0.08, 0.04, 0.35), 0xffe9a8, -1.05 - i * 0.14, 0.25, 0, g);
+  }
+  // Field of fire as ground segments: the arc at `r` (half-width `w`), and its edges out from the unit when it's not all round.
+  function fanPts(out: number[], w: number, x: number, z: number, a: number, r: number) {
+    const n = Math.ceil(w * 12), y = (px: number, pz: number) => groundY(px, pz) + 0.15;
     for (let i = 0; i < n; i++) {
       const a0 = a - w + 2 * w * i / n, a1 = a - w + 2 * w * (i + 1) / n;
       const x0 = x + Math.cos(a0) * r, z0 = z + Math.sin(a0) * r, x1 = x + Math.cos(a1) * r, z1 = z + Math.sin(a1) * r;
@@ -910,7 +951,9 @@ export function createRenderer() {
   }
 
   const WRECKS: EnemyKind[] = ['scout', 'drone', 'decoy', 'tank', 'ew', 'elite', 'recon', 'ka52', 'su25', 'sead', 'halo', 'backfire', 'okhotnik', 'mainstay'];
-  const KILL_SHARDS: Record<EnemyKind, number> = { swarm: 4, scout: 6, drone: 8, tank: 16, elite: 24, decoy: 5, arm: 6, ew: 16, tbm: 12, cruise: 8, atgm: 3, kab: 10, recon: 8, ka52: 18, hyper: 14, mald: 6, su25: 20, rocket: 2, sead: 22, arm2: 7, halo: 40, backfire: 40, okhotnik: 36, mainstay: 48, walker: 6, gunbot: 10, mech: 22 };
+  const KILL_SHARDS: Record<EnemyKind, number> = { swarm: 4, scout: 6, drone: 8, tank: 16, elite: 24, decoy: 5, arm: 6, ew: 16, tbm: 12, cruise: 8, atgm: 3, kab: 10, recon: 8, ka52: 18, hyper: 14, mald: 6, su25: 20, rocket: 2, sead: 22, arm2: 7, halo: 40, backfire: 40, okhotnik: 36, mainstay: 48, walker: 6, gunbot: 10, mech: 22, crawler: 2, dog: 6, sapper: 9, arty: 10, titan: 40 };
+  // The unit an event at (x, z) came from, if one stands there.
+  const padAt = (s: State, x: number, z: number) => s.perim.find(p => Math.abs(p.x - x) + Math.abs(p.z - z) < 0.01);
   function consume(s: State) {
     for (const e of s.events) {
       switch (e.k) {
@@ -948,6 +991,13 @@ export function createRenderer() {
           shards(e.x + Math.cos(a) * tip, e.z + Math.sin(a) * tip, 2, C.flash, 3, 0.35, groundY(e.x, e.z) + 0.8, 2);
           break;
         }
+        case 'robotLob': { // a mortar walker's round: the pop at the tube, then the burst on your unit
+          const y = groundY(e.x, e.z) + 1.4, y2 = groundY(e.x2, e.z2) + 0.4;
+          shards(e.x, e.z, 3, C.flash, 4, 0.35, y, 2); puffs(e.x, y, e.z, 1, 0.6, 1.5, 0.3);
+          boom(e.x2, y2, e.z2, e.n, 12); gwave(e.x2, e.z2, e.n * 1.4, C.fire, 0.5, 0.8);
+          break;
+        }
+        case 'padMod': { const y = groundY(e.x, e.z) + 1; gwave(e.x, e.z, 3, 0xffe9a8, 0.6, 1.2); shards(e.x, e.z, 8, 0xffe9a8, 4, 0.5, y, 1.5); break; } // fitted out
         case 'robotFire': { // a walker's burst at one of your units: tracers from its gun, sparks on the unit
           const y = groundY(e.x, e.z) + 1.3, y2 = groundY(e.x2, e.z2) + 0.8;
           beam(e.x, y, e.z, e.x2, y2, e.z2, 0.07, 0xff9a4a, 0.1, 2);
@@ -955,15 +1005,16 @@ export function createRenderer() {
           shards(e.x2, e.z2, 3, C.fire, 5, 0.4, y2, 1.5);
           break;
         }
-        case 'beam': { // from the HEL (sim fires from the centre), or a hop between contacts (ARC LASER, OVERKILL)
-          const y2 = airY(s, e.x2, e.z2);
-          if (e.x || e.z) laser(e.x, airY(s, e.x, e.z), e.z, e.x2, y2, e.z2);
+        case 'beam': { // from the HEL (sim fires from the centre), a hop between contacts (ARC LASER, OVERKILL), or a LOCUST unit
+          const y2 = airY(s, e.x2, e.z2), p = padAt(s, e.x, e.z);
+          if (p) { aimT.set(`pad${p.slot}`, Math.atan2(e.z2 - e.z, e.x2 - e.x)); laser(e.x, groundY(e.x, e.z) + 1.1 * PAD_VIS, e.z, e.x2, groundY(e.x2, e.z2) + 0.9, e.z2); }
+          else if (e.x || e.z) laser(e.x, airY(s, e.x, e.z), e.z, e.x2, y2, e.z2);
           else { aimT.set('hel', Math.atan2(e.z2 - helPt[2], e.x2 - helPt[0])); laser(helPt[0], helPt[1], helPt[2], e.x2, y2, e.z2); }
           break;
         }
-        case 'rail': { // HPM: a shimmering band down the line, crossed by wavefronts rolling out from the array
-          const [x, y, z] = hpmPt, a = Math.atan2(e.z2 - z, e.x2 - x), len = Math.hypot(e.x2 - x, e.z2 - z), y2 = airY(s, e.x2, e.z2);
-          aimT.set('hpm', a);
+        case 'rail': { // HPM: a shimmering band down the line, crossed by wavefronts rolling out from the array (the battery's, or a Leonidas unit's)
+          const p = padAt(s, e.x, e.z), [x, y, z] = p ? [e.x, groundY(e.x, e.z) + 1.3 * PAD_VIS, e.z] : hpmPt, a = Math.atan2(e.z2 - z, e.x2 - x), len = Math.hypot(e.x2 - x, e.z2 - z), y2 = p ? groundY(e.x2, e.z2) + 0.8 : airY(s, e.x2, e.z2);
+          aimT.set(p ? `pad${p.slot}` : 'hpm', a);
           beam(x, y, z, e.x2, y2, e.z2, 2.2, 0x9fe8ff, 0.4, 0.15);
           beam(x, y, z, e.x2, y2, e.z2, 0.25, 0xffffff, 0.3, 0.8);
           for (let i = 0; i < 6; i++) front(x, y, z, a, i * 0.05, len);
@@ -1038,7 +1089,7 @@ export function createRenderer() {
     clock += dt;
     if (mapSeed !== terrainKey) buildTerrain(); // a new run, a new map
     consume(s);
-    const key = `${s.level}${s.st.radar}${!!s.st.weapons.cannon}${s.st.aesa}${!!s.st.weapons.pulse}${s.lv.missile ?? 0}${!!s.st.weapons.rail}|${s.perim.map(p => `${p.slot}${p.k}${p.tier}${p.down ? 'd' : ''}${p.x},${p.z}`).join()}|${s.selected}`;
+    const key = `${s.level}${s.st.radar}${!!s.st.weapons.cannon}${s.st.aesa}${!!s.st.weapons.pulse}${s.lv.missile ?? 0}${!!s.st.weapons.rail}|${s.perim.map(p => `${p.slot}${p.k}${p.tier}${p.down ? 'd' : ''}${p.x},${p.z}${Object.values(p.mods ?? {}).join('+')}`).join()}|${s.selected}`;
     if (key !== baseKey) { baseKey = key; buildBase(s); }
     covMesh.visible = showCov;
     if (showCov && `${key}|${s.stage}` !== covKey) { covKey = `${key}|${s.stage}`; drawCoverage(s); }
@@ -1071,14 +1122,16 @@ export function createRenderer() {
 
     // map overlays: build zone (bright while placing, moving or in the build window), the flank arc, eyesight / radar range
     const building = !!s.placing || s.relocating || inBuildWindow(s);
-    const bz = buildR(s.level);
+    // A ground assault builds in a band in front of the base instead of a ring round it.
+    const bz = s.ground ? 1000 + s.level : buildR(s.level);
     if (bz !== zoneKey) {
       zoneKey = bz; if (zoneLine) { scene.remove(zoneLine); zoneLine.geometry.dispose(); }
-      scene.add(zoneLine = groundLine(arcPts(bz, 0, TAU, 128), zoneMat, true));
+      const Z = groundZone(s.level), side = (x0: number, z0: number, x1: number, z1: number) => Array.from({ length: 21 }, (_, i) => [x0 + (x1 - x0) * i / 20, z0 + (z1 - z0) * i / 20]).flat();
+      scene.add(zoneLine = groundLine(s.ground ? [...side(-Z.w, Z.back, -Z.w, -Z.d), ...side(-Z.w, -Z.d, Z.w, -Z.d), ...side(Z.w, -Z.d, Z.w, Z.back), ...side(Z.w, Z.back, -Z.w, Z.back)] : arcPts(bz, 0, TAU, 128), zoneMat, true));
     }
     zoneMat.opacity = building ? 0.75 + 0.2 * Math.sin(clock * 5) : 0.25;
     innerLine.visible = building;
-    const fa = Math.min(Math.PI, Math.max(FRONT_ARC, flankArc(s.stage)));
+    const fa = Math.min(Math.PI, Math.max(FRONT_ARC, flankArc(s.stage, s.ground)));
     if (fa !== flankKey) {
       flankKey = fa; if (flankLine) { scene.remove(flankLine); flankLine.geometry.dispose(); flankLine = null; }
       if (fa > FRONT_ARC) scene.add(flankLine = groundLine(arcPts(ARENA_R + 2, FRONT - fa, FRONT + fa, 80), lineMat(ALERT, 0.4, true)));
@@ -1127,12 +1180,12 @@ export function createRenderer() {
         const gk = `${at.x},${at.z},${bk},${range}`;
         if (gk !== ghostKey) {
           ghostKey = gk; fanTmp.length = 0;
-          if (GUNS.includes(bk)) fanPts(fanTmp, bk, at.x, at.z, Math.atan2(at.z, at.x), range);
+          if (GUNS.includes(bk)) fanPts(fanTmp, mover ? fanOf(mover) : FANS[bk], at.x, at.z, Math.atan2(at.z, at.x), range);
           else { const n = 40; for (let i = 0; i < n; i++) { const a0 = i / n * TAU, a1 = (i + 1) / n * TAU; fanTmp.push(at.x + Math.cos(a0) * range, groundY(at.x, at.z) + 0.2, at.z + Math.sin(a0) * range, at.x + Math.cos(a1) * range, groundY(at.x, at.z) + 0.2, at.z + Math.sin(a1) * range); } }
           ghostFanPos.set(fanTmp.slice(0, GF * 3));
           ghostFan.geometry.setDrawRange(0, Math.min(GF, fanTmp.length / 3));
           ghostFan.geometry.attributes.position.needsUpdate = true;
-          const w = GUNS.includes(bk) ? FANS[bk] : Math.PI;
+          const w = GUNS.includes(bk) ? mover ? fanOf(mover) : FANS[bk] : Math.PI;
           ghostArea.geometry.dispose();
           ghostArea.geometry = new THREE.CircleGeometry(range, 48, -w, 2 * w).rotateX(Math.PI / 2).rotateY(-Math.atan2(at.z, at.x));
           ghostArea.position.set(at.x, groundY(at.x, at.z) + 0.25, at.z);
@@ -1197,7 +1250,9 @@ export function createRenderer() {
     let nl = 0, nb = 0, marked = false, ne = 0;
     byId.clear();
     for (const e of s.enemies) {
-      if (!visible(s, e)) continue;
+      // A ground assault's walkers beyond sight are drawn dim (the battalion's drone feed): the player sees the tide
+      // coming, but nothing engages it until a unit's own eyes have it.
+      if (!visible(s, e) && !s.ground) continue;
       const k = shownKind(e), m = enemyMeshes[k];
       if (m.count >= MAX_ENEMIES) continue;
       const ex = e.x + e.vx * lead, ez = e.z + e.vz * lead; // where it is now, between sim ticks
@@ -1206,7 +1261,7 @@ export function createRenderer() {
       const y = f.y + (ENEMIES[k].ground && f.hs > 0.2 ? 0.05 * sz * Math.abs(Math.sin(clock * (4 + f.hs) + e.id)) : 0);
       const pos = ePos[ne++ % MAX_ENEMIES]; pos.x = ex; pos.z = ez; pos.y = y; byId.set(e.id, pos);
       // A classified decoy is drawn as a ghost, so it can't be mistaken for the Shahed it copies.
-      const fade = (e.locked ? 1 : Math.max(0.35, Math.min(1, (e.seenUntil - s.t) / 1.5))) * (e.ided ? 0.45 : 1);
+      const fade = !visible(s, e) ? 0.1 : (e.locked ? 1 : Math.max(0.35, Math.min(1, (e.seenUntil - s.t) / 1.5))) * (e.ided ? 0.45 : 1);
       // FPVs rock as they jink, on top of the banking.
       const bank = f.bank + (k === 'swarm' ? 0.25 * Math.sin(clock * 9 + e.id) : 0);
       dummy.position.set(ex, y, ez);
@@ -1257,8 +1312,9 @@ export function createRenderer() {
 
     // Your damaged units get an HP bar too.
     for (const p of s.perim) {
-      if (p.hp >= PAD_HP || nb >= MAX_LOCKS + 32) continue;
-      const r = p.hp / PAD_HP;
+      const max = padHp(p);
+      if (p.hp >= max || nb >= MAX_LOCKS + 32) continue;
+      const r = p.hp / max;
       dummy.position.set(p.x, groundY(p.x, p.z) + 3.4, p.z).addScaledVector(camRight, -1.2); dummy.quaternion.copy(camera.quaternion);
       dummy.scale.set(Math.max(0.01, 2.4 * r), 1, 1); dummy.updateMatrix();
       hpBars.setMatrixAt(nb, dummy.matrix); hpBars.setColorAt(nb++, p.down ? tmpC.setHex(0x888888) : hpCol(r));

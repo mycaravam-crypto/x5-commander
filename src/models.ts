@@ -35,13 +35,23 @@ const prop = (x: number, r: number, y = 0) => merge(box(0.02, r * 2, 0.05, x, y)
 
 // A part built round its own centre, turned about z (a lean forward or back), then set in place.
 const lean = (g: THREE.BufferGeometry, rz: number, x: number, y: number, z: number) => g.rotateZ(rz).translate(x, y, z);
-// Bipedal robots (GROUND ASSAULT) stand on the ground: feet at y = 0, facing +x, about 1.2 tall. A leg: thigh
-// raked forward, shin raked back to a reverse knee (the walker's stance), a flat foot. `w`: how heavy it's built.
+// Robots on foot (GROUND ASSAULT) stand on the ground: feet at y = 0, facing +x, about 1.2 tall. Bird legs (Digit
+// and the mini-walker): thigh raked forward, shin raked back to a reverse knee, a flat foot. `w`: how heavy it's built.
 const legs = (w: number, hip: number, spread: number) => [-spread, spread].flatMap(z => [
   lean(box(0.09 * w, hip * 0.52, 0.09 * w), -0.4, 0.07, hip * 0.74, z),
   lean(box(0.08 * w, hip * 0.55, 0.08 * w), 0.45, 0.06, hip * 0.27, z),
   box(0.28 * w, 0.05, 0.12 * w, 0.06, 0.025, z),
 ]);
+
+// Humanoids (the real prototypes are: Unitree G1, Atlas, Digit, Phantom) walk on human legs: the knee bends forward,
+// thigh down from the hip, shin under it, a long flat foot.
+const humanLegs = (w: number, hip: number, spread: number) => [-spread, spread].flatMap(z => [
+  lean(box(0.1 * w, hip * 0.5, 0.1 * w), 0.12, -0.02, hip * 0.74, z),
+  lean(box(0.09 * w, hip * 0.5, 0.09 * w), -0.1, -0.02, hip * 0.27, z),
+  box(0.24 * w, 0.05, 0.11 * w, 0.05, 0.025, z),
+]);
+// Arms hanging from the shoulders at `y`, `spread` out, a little forward.
+const arms = (w: number, y: number, spread: number, len: number) => [-spread, spread].map(z => lean(box(0.07 * w, len, 0.07 * w), 0.15, 0.03, y - len / 2, z));
 
 export function enemyGeos(): Record<EnemyKind, THREE.BufferGeometry> {
   // Shahed-136: cropped delta with a fuselage running through it, winglets at the tips, pusher prop.
@@ -216,9 +226,9 @@ export function enemyGeos(): Record<EnemyKind, THREE.BufferGeometry> {
       fin([[-0.8, 0.1], [-1.05, 0.5], [-1.15, 0.5], [-1.0, 0.1]], 0.03), box(0.15, 0.02, 0.6, -1.08, 0.5),
       ...[-0.1, -0.4].map(x => box(0.04, 0.2, 0.04, x, 0.22)), new THREE.CylinderGeometry(0.42, 0.42, 0.08, 16).translate(-0.25, 0.36, 0),
     ),
-    // Light assault walker: spindly reverse-knee legs, a small hull with a sensor head, a demolition charge on its back.
+    // Light assault walker (G1-class humanoid): slim human legs, a small hull with a sensor head, a demolition charge on its back.
     walker: merge(
-      ...legs(1, 0.8, 0.12),
+      ...humanLegs(1, 0.8, 0.12),
       box(0.18, 0.1, 0.32, 0, 0.82), box(0.3, 0.3, 0.26, 0.02, 1.0), box(0.16, 0.1, 0.14, 0.13, 1.2),
       tube(0.035, 0.035, 0.12, 0.25, 1.2), box(0.16, 0.22, 0.2, -0.2, 1.0),
       ...[-0.19, 0.19].map(z => lean(box(0.06, 0.34, 0.06), 0.3, 0.07, 0.9, z)),
@@ -226,21 +236,54 @@ export function enemyGeos(): Record<EnemyKind, THREE.BufferGeometry> {
     // Armed combat walker: heavier legs, a boxy hull with an armoured head, a rifle-calibre gun on its right arm and
     // an ammunition drum on the left.
     gunbot: merge(
-      ...legs(1.4, 0.82, 0.16),
+      ...humanLegs(1.4, 0.82, 0.16),
       box(0.22, 0.12, 0.4, 0, 0.86), box(0.38, 0.36, 0.36, 0.02, 1.06), box(0.2, 0.12, 0.2, 0.12, 1.3),
       box(0.04, 0.05, 0.16, 0.23, 1.3),
       box(0.1, 0.12, 0.12, 0.08, 1.02, 0.26), tube(0.035, 0.035, 0.55, 0.38, 1.02, 0.26), box(0.14, 0.1, 0.06, 0.18, 0.96, 0.26),
       new THREE.CylinderGeometry(0.1, 0.1, 0.1, 8).rotateX(Math.PI / 2).translate(0.05, 1.0, -0.27),
     ),
-    // Heavy assault walker: big reverse-knee legs under a wide armoured hull, a twin cannon mount on the right, a
+    // Heavy assault walker (Method-2-class): big legs under a wide armoured hull, a twin cannon mount on the right, a
     // rocket box on the left, a sensor mast.
     mech: merge(
-      ...legs(2, 0.72, 0.26),
+      ...humanLegs(2, 0.72, 0.26),
       box(0.3, 0.14, 0.6, 0, 0.76), box(0.62, 0.34, 0.56, 0.02, 0.98), lean(box(0.24, 0.16, 0.5, 0, 0, 0), -0.4, 0.34, 1.02, 0),
       box(0.2, 0.14, 0.2, 0.2, 1.22),
       ...[0.26, 0.36].map(z => tube(0.04, 0.05, 0.7, 0.55, 1.0, z)), box(0.2, 0.18, 0.14, 0.18, 1.0, 0.33),
       box(0.3, 0.24, 0.2, 0.0, 1.12, -0.38),
       new THREE.CylinderGeometry(0.015, 0.02, 0.4, 4).translate(-0.18, 1.38, 0.12),
+    ),
+    // Swarm mini-walker: a knee-high biped, a squat body with a charge strapped on and one sensor eye.
+    crawler: merge(
+      ...legs(1.2, 0.45, 0.1),
+      box(0.26, 0.2, 0.26, 0, 0.55), box(0.1, 0.08, 0.1, 0.12, 0.68), box(0.14, 0.1, 0.18, -0.12, 0.55),
+    ),
+    // Armed robot dog (Vision 60-class): a long flat body on four legs, a rifle on a mount on its back.
+    dog: merge(
+      ...[0.28, -0.28].flatMap(x => [-0.13, 0.13].flatMap(z => [lean(box(0.06, 0.3, 0.06), 0.3, x + 0.05, 0.42, z), lean(box(0.05, 0.3, 0.05), -0.3, x + 0.05, 0.15, z)])),
+      box(0.8, 0.16, 0.28, 0, 0.6), box(0.14, 0.12, 0.2, 0.42, 0.62),
+      box(0.18, 0.1, 0.08, 0.05, 0.73), tube(0.025, 0.025, 0.6, 0.35, 0.78), box(0.12, 0.08, 0.06, -0.05, 0.8),
+    ),
+    // Breacher (Atlas-class humanoid): human legs, a broad torso, a disc cutter in one hand and a charge pack on its back.
+    sapper: merge(
+      ...humanLegs(1.3, 0.85, 0.12),
+      box(0.24, 0.42, 0.42, 0, 1.08), box(0.18, 0.18, 0.18, 0.04, 1.4),
+      ...arms(1.3, 1.25, 0.26, 0.45),
+      new THREE.CylinderGeometry(0.16, 0.16, 0.03, 10).rotateX(Math.PI / 2).translate(0.2, 0.8, 0.3),
+      box(0.18, 0.3, 0.3, -0.2, 1.08),
+    ),
+    // Fire-support walker (Digit-class): bird legs, a narrow torso with a sensor head, a 60 mm mortar tube on its back.
+    arty: merge(
+      ...legs(1.2, 0.85, 0.12),
+      box(0.22, 0.4, 0.34, 0, 1.05), box(0.12, 0.08, 0.2, 0.1, 1.3),
+      lean(tube(0.06, 0.06, 0.8, 0, 0, 0, 8), -1.0, -0.15, 1.3, 0), box(0.2, 0.16, 0.16, -0.18, 0.95, 0.24),
+    ),
+    // Siege walker (Kuratas-class): a tall armoured cockpit hull on massive legs, a gatling arm, twin rocket boxes.
+    titan: merge(
+      ...humanLegs(3, 0.75, 0.3),
+      box(0.7, 0.5, 0.8, 0, 1.05), lean(box(0.3, 0.3, 0.5, 0, 0, 0), -0.3, 0.38, 1.12, 0), box(0.3, 0.2, 0.3, 0.05, 1.42),
+      ...[0.5, -0.5].map(z => box(0.18, 0.5, 0.18, 0.1, 0.9, z)),
+      ...[0.48, 0.56].map(z => tube(0.04, 0.04, 0.9, 0.6, 0.7, z)),
+      box(0.36, 0.24, 0.26, -0.1, 1.3, -0.48), box(0.36, 0.24, 0.26, -0.1, 1.3, 0.2),
     ),
     // Kinzhal: long slender cone, four small tail fins, diving steeply.
     hyper: merge(

@@ -28,7 +28,7 @@ export const bearing = (x: number, z: number) => ((Math.atan2(z, x) * 180 / Math
 
 export type EnemyKind = 'scout' | 'drone' | 'swarm' | 'tank' | 'elite' | 'decoy' | 'arm' | 'ew' | 'tbm' | 'cruise' | 'atgm' | 'kab'
   | 'recon' | 'ka52' | 'hyper' | 'mald' | 'su25' | 'rocket' | 'sead' | 'arm2' | 'halo' | 'backfire' | 'okhotnik' | 'mainstay'
-  | 'walker' | 'gunbot' | 'mech'; // GROUND ASSAULT: bipedal robots on foot
+  | 'walker' | 'gunbot' | 'mech' | 'crawler' | 'dog' | 'sapper' | 'arty' | 'titan'; // GROUND ASSAULT: robots on foot
 
 export interface EnemyType {
   hp: number; speed: number; reward: number;
@@ -97,17 +97,29 @@ export const ENEMIES: Record<EnemyKind, EnemyType> = {
   backfire: { name: 'Tu-22M3M long-range bomber', code: 'TU-22M3', hp: 200, speed: 3.6, dmg: 30, reward: 450, size: 3.6, sig: 1.8, ir: 2, alt: 12, glow: 1.6, pack: 1, wobble: 0, drop: 0 },
   okhotnik: { name: 'S-70 Okhotnik-B stealth UCAV', code: 'S-70', hp: 200, speed: 2.8, dmg: 40, reward: 550, size: 3.2, sig: 0.08, ir: 0.8, alt: 8, glow: 1.2, pack: 1, wobble: 0, drop: 0 },
   mainstay: { name: 'A-50U Mainstay airborne command post', code: 'A-50U', hp: 250, speed: 2.6, dmg: 10, reward: 700, size: 4, sig: 2.5, ir: 1.8, alt: 13, glow: 1.6, pack: 1, wobble: 0, drop: 0 },
-  // GROUND ASSAULT only. Bipedal robots walking in over the ground: under every radar horizon, seen by eye, and
-  // out of reach of the battery's air-defence weapons. Only the perimeter can stop them.
-  // Light walker: comes in packs, charges the nearest unit it sees with a demolition charge (GROUND.seek), else the base.
-  walker: { name: 'Light assault walker (bipedal robot)', code: 'WALKER', hp: 6, speed: 3.2, dmg: 4, reward: 7, size: 0.9, sig: 0.5, ir: 0.6, alt: 0, glow: 0.8, pack: 1, packs: [3, 6], wobble: 0.8, flank: true, ground: true, drop: 0.02 },
-  // Combat walker with a rifle-calibre gun: stops within GROUND.gun.reach of a unit and shoots it up, then walks on.
-  gunbot: { name: 'Armed combat walker (bipedal robot)', code: 'GUNBOT', hp: 18, speed: 2.2, dmg: 8, reward: 20, size: 1.2, sig: 0.7, ir: 0.8, alt: 0, glow: 1, pack: 1, packs: [1, 3], wobble: 0.4, flank: true, ground: true, armour: 0.8, drop: 0.06 },
-  // Heavy assault walker: armoured (small arms do half), slow, fires its cannon at units in reach as it comes on.
-  mech: { name: 'Heavy assault walker (bipedal robot)', code: 'MECH', hp: 110, speed: 1.3, dmg: 30, reward: 90, size: 2.1, sig: 1.3, ir: 1.3, alt: 0, glow: 1.3, pack: 1, wobble: 0, flank: true, ground: true, armour: 0.5, drop: 0.3 },
+  // GROUND ASSAULT only. Robots on foot, each modelled on a real prototype (README, *Ground assault*): under every
+  // radar horizon, seen by eye, and out of reach of the battery's air-defence weapons. Only the perimeter stops them.
+  // They walk at the pace real legged robots manage (a humanoid ~1.5-2 m/s, a robot dog ~3 m/s, a piloted mech a crawl).
+  // Swarm mini-walker: knee-high, cheap and slow, sent in by the hundred (THE TIDE). Charges a unit within a few metres.
+  crawler: { name: 'Swarm mini-walker (expendable bipedal)', code: 'MINI', hp: 4, speed: 1.2, dmg: 1.5, reward: 1, size: 0.55, sig: 0.3, ir: 0.4, alt: 0, glow: 0.6, pack: 1, packs: [12, 24], wobble: 1, flank: true, ground: true, drop: 0.002 },
+  // Light walker (Unitree G1-class humanoid): comes in packs, charges the nearest unit it sees with a demolition charge (GROUND.seek), else the base.
+  walker: { name: 'Light assault walker (G1-class humanoid)', code: 'WALKER', hp: 6, speed: 1.8, dmg: 4, reward: 7, size: 0.9, sig: 0.5, ir: 0.6, alt: 0, glow: 0.8, pack: 1, packs: [3, 6], wobble: 0.8, flank: true, ground: true, drop: 0.02 },
+  // Armed robot dog (Vision 60-class quadruped with a rifle): fast, fires on the move at units close by (GROUND.dog).
+  dog: { name: 'Armed robot dog (Vision 60-class quadruped)', code: 'DOG', hp: 5, speed: 3, dmg: 3, reward: 9, size: 0.8, sig: 0.4, ir: 0.6, alt: 0, glow: 0.8, pack: 1, packs: [2, 4], wobble: 1.4, flank: true, ground: true, drop: 0.03 },
+  // Combat walker (Phantom-class armed humanoid): stops within GROUND.gun.reach of a unit and shoots it up, then walks on.
+  gunbot: { name: 'Armed combat walker (Phantom-class humanoid)', code: 'GUNBOT', hp: 18, speed: 1.4, dmg: 8, reward: 20, size: 1.2, sig: 0.7, ir: 0.8, alt: 0, glow: 1, pack: 1, packs: [1, 3], wobble: 0.4, flank: true, ground: true, armour: 0.8, drop: 0.06 },
+  // Breacher (Atlas-class humanoid): goes for your obstacles (wire, Claymores) and cuts them (GROUND.sapper); wire doesn't slow it.
+  sapper: { name: 'Breacher walker (Atlas-class humanoid)', code: 'BREACH', hp: 14, speed: 1.6, dmg: 5, reward: 18, size: 1.1, sig: 0.6, ir: 0.7, alt: 0, glow: 0.9, pack: 1, packs: [1, 2], wobble: 0.5, flank: true, ground: true, armour: 0.85, drop: 0.05 },
+  // Fire-support walker (Digit-class carrier with a 60 mm mortar): stops out of reach of most guns and lobs rounds on your units (GROUND.arty).
+  arty: { name: 'Fire-support walker (Digit-class, 60 mm mortar)', code: 'MORTAR', hp: 16, speed: 1, dmg: 6, reward: 30, size: 1.2, sig: 0.7, ir: 0.8, alt: 0, glow: 1, pack: 1, wobble: 0.3, flank: true, ground: true, drop: 0.08 },
+  // Heavy walker (Method-2-class mech): armoured (small arms do half), slow, fires its cannon at units in reach as it comes on.
+  mech: { name: 'Heavy assault walker (Method-2-class mech)', code: 'MECH', hp: 110, speed: 0.9, dmg: 30, reward: 90, size: 2.1, sig: 1.3, ir: 1.3, alt: 0, glow: 1.3, pack: 1, wobble: 0, flank: true, ground: true, armour: 0.5, drop: 0.3 },
+  // Siege walker (Kuratas-class mech, scaled up): leads THE TIDE from level 10. Very heavily armoured, crushes what
+  // it walks into, wire and teeth don't slow it, and its cannon outranges your guns (GROUND.titan).
+  titan: { name: 'Siege walker (Kuratas-class mech)', code: 'TITAN', hp: 600, speed: 0.55, dmg: 60, reward: 400, size: 3.4, sig: 2, ir: 1.6, alt: 0, glow: 1.5, pack: 1, wobble: 0, flank: true, ground: true, armour: 0.35, drop: 1 },
 };
 // Kills that matter get a bigger blast, a camera shake, a banner and a sound of their own (hud, render, sfx).
-export const BIG_KILLS: Partial<Record<EnemyKind, string>> = { elite: 'SU-34 SPLASHED', ew: 'JAMMER DOWN', tbm: 'BALLISTIC INTERCEPTED', hyper: 'KINZHAL INTERCEPTED', ka52: 'ALLIGATOR DOWN', su25: 'SU-25 SPLASHED', sead: 'SU-35S SPLASHED', mech: 'HEAVY WALKER DOWN',
+export const BIG_KILLS: Partial<Record<EnemyKind, string>> = { elite: 'SU-34 SPLASHED', ew: 'JAMMER DOWN', tbm: 'BALLISTIC INTERCEPTED', hyper: 'KINZHAL INTERCEPTED', ka52: 'ALLIGATOR DOWN', su25: 'SU-25 SPLASHED', sead: 'SU-35S SPLASHED', mech: 'HEAVY WALKER DOWN', titan: 'SIEGE WALKER DOWN',
   halo: 'MI-26 DOWN', backfire: 'BACKFIRE SPLASHED', okhotnik: 'OKHOTNIK SPLASHED', mainstay: 'MAINSTAY SPLASHED' };
 export const BIG_KILL_SHAKE = 0.5;
 // Critical-state warnings on the HUD (hud.warnings): shares of capacity a resource is critical below. sweep: radar
@@ -227,6 +239,7 @@ export const AGILITY: Record<EnemyKind, { turn: number; acc: number; hover?: boo
   su25: { turn: 1.1, acc: 1.5 }, rocket: { turn: 3, acc: 4 }, sead: { turn: 0.8, acc: 1.2 }, arm2: { turn: 0, acc: 0 }, // arm2: flies its own seeker
   halo: { turn: 0, acc: 1, hover: true }, backfire: { turn: 0.7, acc: 1 }, okhotnik: { turn: 1.1, acc: 1.4 }, mainstay: { turn: 0.5, acc: 0.8 },
   walker: { turn: 0, acc: 5, hover: true }, gunbot: { turn: 0, acc: 3, hover: true }, mech: { turn: 0, acc: 1.5, hover: true }, // on foot: they stop and sidestep
+  crawler: { turn: 0, acc: 6, hover: true }, dog: { turn: 0, acc: 6, hover: true }, sapper: { turn: 0, acc: 4, hover: true }, arty: { turn: 0, acc: 2, hover: true }, titan: { turn: 0, acc: 0.8, hover: true },
 };
 export const HOMING_BOOST = 3, HOMING_SNAP = 2;
 
@@ -273,45 +286,81 @@ export const TRAINING: Drill[] = [
     spawns: [{ at: 2, kind: 'decoy', n: 1 }, { at: 3, kind: 'drone', n: 1 }, { at: 10, kind: 'decoy', n: 1, off: 0.3 }, { at: 11, kind: 'drone', n: 2, off: 0.3 }, { at: 19, kind: 'decoy', n: 2, off: -0.2 }, { at: 20, kind: 'drone', n: 1, off: -0.2 }] },
 ];
 
-// GROUND ASSAULT: a mode of its own (the start screen's [A]). Swarms of bipedal robots walk in over the ground,
-// and nothing but the perimeter can engage them: no radar, no Patriot, no laser or HPM. Its own levels and raids,
-// in the same shape as LEVELS and RAIDS; after the last level, GROUND_MODS loop on top of its mix.
+// GROUND ASSAULT: a mode of its own (the start screen's [A]). Robots walk in over the ground, and nothing but the
+// perimeter can engage them: no radar, no Patriot. It plays as a front-line tower defence: the base holds a line,
+// and everything comes from one direction, the north (FRONT), across a front FRONT_LINE.w m wide, walking on the base.
+// You build in a band in front of it (groundZone), and every gun can be upgraded in its pit (UNIT_TIERS) and fitted
+// with ammunition, sensors and kit (UNIT_MODS). Its own levels and raids, in the same shape as LEVELS and RAIDS;
+// after the last level, GROUND_MODS loop on top of its mix, and every BOSS_EVERY-th raid is THE TIDE (tideFor).
 // Walking: speed x on each kind of ground (a river or pond is waded), x `wire` inside concertina wire, x JAM_SLOW
-// in a jammer bubble (their control links). Light walkers charge a unit they see within `seek` m (a unit on high
-// ground is seen from TERRAIN.high.dive x further). Combat walkers stop within `gun.reach` of a unit and fire bursts
-// of `gun.dmg` every `gun.every` s until it's down. Heavy walkers fire `mech.dmg` at the nearest unit in
-// `mech.reach` every `mech.every` s without stopping. Whatever reaches the base hits it for its `dmg` and is gone.
+// in a jammer bubble (their control links). Light walkers and mini-walkers charge a unit they see within `seek` m
+// (`crawl` for mini-walkers; a unit on high ground is seen from TERRAIN.high.dive x further). Combat walkers stop within
+// `gun.reach` of a unit and fire bursts of `gun.dmg` every `gun.every` s until it's down. Robot dogs fire `dog.dmg`
+// at a unit within `dog.reach` on the run. Breachers go for an obstacle within `sapper.seek` m and cut it (takes it
+// down). Fire-support walkers stop `arty.stand` m from the nearest unit they see within `arty.seek` and lob a round
+// on it every `arty.every` s (splash `arty.splash`). Heavy and siege walkers fire on the move. Whatever reaches the
+// base hits it for its `dmg` and is gone. `stunHeavy`: share of an HPM stun a mech or siege walker suffers.
 export const GROUND = {
   terrain: { water: 0.35, forest: 0.6, rock: 0.5, road: 1.2, grass: 1, field: 0.9 },
-  wire: 0.35, seek: 8,
+  wire: 0.35, seek: 8, crawl: 4,
   gun: { reach: 9, every: 1.5, dmg: 2.5 },
+  dog: { reach: 7, every: 1, dmg: 1.2 },
+  sapper: { seek: 14 },
+  arty: { seek: 30, stand: 22, every: 5, dmg: 5, splash: 3 },
   mech: { reach: 16, every: 4, dmg: 9 },
+  titan: { reach: 24, every: 3, dmg: 14, splash: 3, crush: 2 },
+  stunHeavy: 0.4,
 };
-// Weapons that go through armour in full (ENEMIES.armour): top-attack missiles, heavy mortar rounds, mines.
-export const ANTI_ARMOUR: PerimKind[] = ['javelin', 'mortar', 'mines'];
+// The front: walkers enter along a line `w` m either side of the axis, `z` m north of the base (just past the rim),
+// in ranks `rank` m deep (a raid of hundreds comes in as a wall, `file` m between walkers in a rank).
+export const FRONT_LINE = { w: 40, z: -(ARENA_R + 2), rank: 1.2, file: 1.8 };
+// Where you build in a ground assault: a band in front of the base, `w` m either side of the axis, from `back` m
+// behind the base's centre out to `d` m in front of it (by base level, the last entry repeats). Clear of the base compound.
+const GZ_W = [22, 30, 34, 38, 40], GZ_D = [24, 30, 34, 38, 40];
+export const groundZone = (level: number) => ({ w: GZ_W[Math.min(level, GZ_W.length) - 1], d: GZ_D[Math.min(level, GZ_D.length) - 1], back: 6 });
+// Weapons that go through armour in full (ENEMIES.armour): top-attack missiles, heavy mortar rounds, rockets, mines,
+// microwaves (they fry the electronics, whatever's bolted over them). Partly: `PIERCE` (the rest of the way to full).
+export const ANTI_ARMOUR: PerimKind[] = ['javelin', 'mortar', 'mines', 'rockets', 'hpm'];
+export const PIERCE: Partial<Record<PerimKind, number>> = { rws30: 0.5, hel: 0.5 };
 export const GROUND_LEVELS: typeof LEVELS = [
-  { name: 'SKIRMISH', desc: 'packs of light walkers, straight in from the front', w: { walker: 1 }, rate: 0.4 },
-  { name: 'GUN LINE', desc: 'combat walkers stop and shoot your units up', w: { walker: 3, gunbot: 1 }, rate: 0.5 },
-  { name: 'FLANKS', desc: 'walkers from the flanks too', w: { walker: 3, gunbot: 1.5 }, rate: 0.6, arc: 70 * DEG },
-  { name: 'HEAVY WALKERS', desc: 'armoured heavy walkers: small arms do half', w: { walker: 3, gunbot: 1.5, mech: 0.3 }, rate: 0.65, arc: 100 * DEG },
-  { name: 'SWARM', desc: 'the swarm: many more light walkers, from every side', w: { walker: 6, gunbot: 1.5, mech: 0.3 }, rate: 0.8, arc: Math.PI },
-  { name: 'FULL ASSAULT', desc: 'everything at once, from every side', w: { walker: 4, gunbot: 2, mech: 0.6 }, rate: 0.85, arc: Math.PI },
+  { name: 'SKIRMISH', desc: 'packs of light walkers and mini-walkers, straight down from the north', w: { walker: 1, crawler: 0.6 }, rate: 0.4 },
+  { name: 'GUN LINE', desc: 'combat walkers stop and shoot your units up', w: { walker: 3, crawler: 1.5, gunbot: 1 }, rate: 0.5 },
+  { name: 'DOGS OF WAR', desc: 'armed robot dogs: fast, and they shoot on the run', w: { walker: 3, crawler: 2, gunbot: 1, dog: 1.2 }, rate: 0.6 },
+  { name: 'BREACHERS', desc: 'breachers cut your wire and mines · heavy walkers: small arms do half', w: { walker: 3, crawler: 2, gunbot: 1.5, dog: 1, sapper: 0.7, mech: 0.3 }, rate: 0.65 },
+  { name: 'THE TIDE', desc: 'a thousand mini-walkers: bring splash', w: { crawler: 6, walker: 3, gunbot: 1, dog: 1, sapper: 0.5, mech: 0.3 }, rate: 0.7 },
+  { name: 'FIRE SUPPORT', desc: 'mortar walkers stop out of reach and shell your units', w: { walker: 3, crawler: 3, gunbot: 1.5, dog: 1, sapper: 0.6, arty: 0.5, mech: 0.4 }, rate: 0.75 },
+  { name: 'FULL ASSAULT', desc: 'everything at once', w: { walker: 4, crawler: 4, gunbot: 2, dog: 1.5, sapper: 0.8, arty: 0.6, mech: 0.6 }, rate: 0.85 },
 ];
 export const GROUND_MODS: Mod[] = [
-  { name: 'NIGHT ASSAULT', desc: 'you see half as far', dark: true },
-  { name: 'HORDE', desc: 'many more, much weaker', spawn: 1.6, hp: 0.6, w: { walker: 6 } },
+  { name: 'NIGHT ASSAULT', desc: 'you see half as far (thermal sights don\'t care)', dark: true },
+  { name: 'HORDE', desc: 'many more, much weaker', spawn: 1.6, hp: 0.6, w: { crawler: 8, walker: 3 } },
   { name: 'ARMOURED PUSH', desc: 'heavy walkers in numbers', w: { mech: 0.8, gunbot: 1 } },
   { name: 'LULL', desc: 'fewer walkers · rebuild', spawn: 0.6 },
-  { name: 'GUN LINE', desc: 'combat walkers everywhere', w: { gunbot: 3 } },
+  { name: 'GUN LINE', desc: 'combat walkers and robot dogs everywhere', w: { gunbot: 3, dog: 2 } },
+  { name: 'SIEGE', desc: 'mortar walkers and breachers', w: { arty: 1.2, sapper: 1.5 } },
 ];
 export const GROUND_RAIDS: typeof RAIDS = [
-  { name: 'WALKER RUSH', from: 0, g: { walker: 8 } },
+  { name: 'WALKER RUSH', from: 0, g: { walker: 8, crawler: 2 } },
   { name: 'GUN TEAM', from: 1, g: { gunbot: 3, walker: 4 } },
-  { name: 'PINCER', from: 2, g: { walker: 6, gunbot: 2 } },
+  { name: 'PACK HUNT', from: 2, g: { dog: 4, walker: 3 } },
+  { name: 'BREACH', from: 3, g: { sapper: 3, mech: 1, walker: 4 } },
   { name: 'ARMOURED PUSH', from: 3, g: { mech: 1, gunbot: 2, walker: 3 } },
-  { name: 'THE SWARM', from: 4, g: { walker: 16 } },
-  { name: 'HEAVY ASSAULT', from: 5, g: { mech: 2, gunbot: 3, walker: 5 } },
+  { name: 'BARRAGE', from: 5, g: { arty: 3, gunbot: 2, walker: 4 } },
+  { name: 'HEAVY ASSAULT', from: 6, g: { mech: 2, gunbot: 3, dog: 2, walker: 5 } },
 ];
+// THE TIDE: the raid every BOSS_EVERY-th level of a ground assault (L5, L10...), instead of a drawn one. A wall of
+// mini-walkers a thousand strong (more each time), light walkers among them, and from the second one on, siege
+// walkers leading. Not scaled like other raids: the count is the point.
+export const TIDE = { crawler: 1000, grow: 250, walker: 20, titan: 1 };
+export const tideFor = (stage: number) => {
+  const k = Math.floor((stage + 1) / BOSS_EVERY);
+  const g: Partial<Record<EnemyKind, number>> = { crawler: TIDE.crawler + TIDE.grow * (k - 1), walker: TIDE.walker * k };
+  if (k > 1) g.titan = TIDE.titan * (k - 1);
+  return { name: 'THE TIDE', from: 0, g } as (typeof RAIDS)[number];
+};
+// HORDE TEST (the start screen's [H]): a ground assault that starts at base level HORDE_TEST.level with credits to
+// build a line, a build window, then THE TIDE level. Not a run: no records.
+export const HORDE_TEST = { level: 5, credits: 4000, build: 45, tideIn: 20 };
 
 // Attack packages (`from`: first level index): existing types flying in together from one bearing, each covering another's weakness.
 // Counts are packs (a decoy pack is 3, an FPV pack 6). An EW helicopter in a package is an escort: it holds
@@ -506,7 +555,7 @@ export const RESUPPLY = { empty: 1.6, full: 0.4 };
 export const resupply = (fill: number) => { const f = Math.min(1, Math.max(0, fill)); return RESUPPLY.empty * (1 - f) + RESUPPLY.full * f; };
 // Standby power (power/s) a system draws just to stay ready, radar or not: per level for the battery's weapons, per
 // working unit for the powered emplacements. A bigger battery needs a bigger plant.
-export const UPKEEP: Partial<Record<string, number>> = { pac3: 0.5, pulse: 0.6, missile: 0.4, rail: 1, mantis: 0.2, iris: 0.3, observer: 0.1 };
+export const UPKEEP: Partial<Record<string, number>> = { pac3: 0.5, pulse: 0.6, missile: 0.4, rail: 1, mantis: 0.2, iris: 0.3, observer: 0.1, hel: 0.3, hpm: 0.5, gsr: 0.3 };
 // Maintenance Crew repairs run on surplus power above 20%, like interceptor production.
 export const REPAIR_POWER = 0.8; // power per HP repaired
 // Emergency intercept [Space]: every weapon (and every pad in range) fires only at the priority target (or the
@@ -562,21 +611,25 @@ export const UPGRADES: Upgrade[] = [
   U('PERIMETER', 'gmg', 'Mk 19 Grenade Launcher', 110, 1.4, Infinity, '40mm automatic grenades, 18m: splash tears up packs of walkers · +1 emplacement', 2),
   U('PERIMETER', 'javelin', 'FGM-148 Javelin Team', 200, 1.4, Infinity, 'top-attack missile, 28m, through any armour, heaviest walker first · thermal sight sees 26m · +1 emplacement', 3),
   U('PERIMETER', 'mortar', 'M120 120mm Mortar', 280, 1.4, Infinity, 'indirect fire, 36m, big splash · can\'t hit inside 9m, needs eyes on the target · +1 emplacement', 4),
+  U('PERIMETER', 'rws30', 'XM813 30mm RWS', 180, 1.4, Infinity, '30mm Bushmaster on a remote weapon station, 20m: half again through armour · +1 emplacement', 3),
+  U('PERIMETER', 'hel', 'LOCUST 20kW Laser', 260, 1.4, Infinity, 'laser on a trailer, 22m: burns through one walker after another, no ammo, draws power while it fires · +1 emplacement', 3),
+  U('PERIMETER', 'hpm', 'Leonidas HPM', 420, 1.45, Infinity, 'microwave array: fries every robot in a 60° cone out to 13m and stuns the rest · heavy on power · +1 emplacement', 4),
+  U('PERIMETER', 'rockets', 'Hydra-70 Rocket Pod', 360, 1.45, Infinity, 'salvo of 8 rockets onto the thickest pack, 15-45m, then a long reload · +1 emplacement', 5),
 ];
 // Each mode's shop: the air-defence systems are no use against robots on foot, and the ground weapons don't shoot
 // at aircraft. What the mode doesn't use is left out of its shop (sim.lockReason).
 export const AIR_ONLY = ['radar', 'range', 'sweep', 'aesa', 'res', 'persist', 'slots', 'trange', 'modes', 'pac3', 'pulse', 'missile', 'rail', 'stinger', 'iris'];
-export const GROUND_ONLY = ['wire', 'mines', 'gmg', 'javelin', 'mortar'];
+export const GROUND_ONLY = ['wire', 'mines', 'gmg', 'javelin', 'mortar', 'rws30', 'hel', 'hpm', 'rockets'];
 
 // Perimeter emplacements (pads) sit on fixed slots and engage any contact that can be seen (by eye or radar)
 // inside their range and field of fire, without using a lock slot. Support units don't shoot: they boost the
 // units round them. Where a unit goes decides what it covers, what it risks and what it boosts.
-export type PerimKind = 'mg' | 'mantis' | 'stinger' | 'iris' | 'jammer' | 'observer' | 'ammo' | 'wire' | 'mines' | 'gmg' | 'javelin' | 'mortar';
-export const PERIM_KINDS: PerimKind[] = ['mg', 'mantis', 'stinger', 'iris', 'jammer', 'observer', 'ammo', 'wire', 'mines', 'gmg', 'javelin', 'mortar'];
-export const GUNS: PerimKind[] = ['mg', 'mantis', 'stinger', 'iris', 'gmg', 'javelin', 'mortar']; // units that shoot: fields of fire, crossfire
+export type PerimKind = 'mg' | 'mantis' | 'stinger' | 'iris' | 'jammer' | 'observer' | 'ammo' | 'wire' | 'mines' | 'gmg' | 'javelin' | 'mortar' | 'rws30' | 'hel' | 'hpm' | 'rockets';
+export const PERIM_KINDS: PerimKind[] = ['mg', 'mantis', 'stinger', 'iris', 'jammer', 'observer', 'ammo', 'wire', 'mines', 'gmg', 'javelin', 'mortar', 'rws30', 'hel', 'hpm', 'rockets'];
+export const GUNS: PerimKind[] = ['mg', 'mantis', 'stinger', 'iris', 'gmg', 'javelin', 'mortar', 'rws30', 'hel', 'hpm', 'rockets']; // units that shoot: fields of fire, crossfire
 // Who shoots at what: SAMs and MANPADS only at aircraft; the ground weapons only at walkers. Guns take either.
 export const AIR_GUNS: PerimKind[] = ['stinger', 'iris'];
-export const GROUND_GUNS: PerimKind[] = ['gmg', 'javelin', 'mortar', 'mines'];
+export const GROUND_GUNS: PerimKind[] = ['gmg', 'javelin', 'mortar', 'mines', 'rws30', 'hel', 'hpm', 'rockets'];
 // Visual spotting, radar or not: anything this close to the base, or to an emplacement, is seen. NIGHT RAID x VISUAL_DARK.
 export const VISUAL_R = 18, PAD_EYES = 15, VISUAL_DARK = 0.6; // m (an emplacement sees as far as the MG reaches)
 export const MG_BELT = { rounds: 40, reload: 3 }; // the MG feeds from its own belt, not the interceptor pool; s to reload
@@ -609,7 +662,7 @@ export const SPOT_RINGS = [14, 22, 30];
 
 // Field of fire: half-width around the unit's facing (away from the base). Math.PI = all round.
 export const FANS: Record<PerimKind, number> = { mg: 60 * DEG, mantis: Math.PI, stinger: 90 * DEG, iris: Math.PI, jammer: Math.PI, observer: Math.PI, ammo: Math.PI,
-  wire: Math.PI, mines: 60 * DEG, gmg: 75 * DEG, javelin: 90 * DEG, mortar: Math.PI };
+  wire: Math.PI, mines: 60 * DEG, gmg: 75 * DEG, javelin: 90 * DEG, mortar: Math.PI, rws30: 90 * DEG, hel: 90 * DEG, hpm: 30 * DEG, rockets: 60 * DEG };
 // Veterancy: a gun gets better with the kills it has scored itself. Ranks by kill count; kept through moves and
 // tier upgrades, lost when the unit is sold.
 export const VETERANCY = [
@@ -634,13 +687,22 @@ export const PERIM = {
   gmg: { dmg: 3.5, rate: 3, range: 18, ammo: 0, power: 0 }, // splash GROUND_FIRE.gmg; feeds from its own belt
   javelin: { dmg: 40, rate: 0.3, range: 28, ammo: 2, power: 0 },
   mortar: { dmg: 16, rate: 0.35, range: 36, ammo: 1, power: 0 },
+  rws30: { dmg: 6, rate: 2.5, range: 20, ammo: 0.25, power: 0 },
+  hel: { dmg: 0.9, rate: 10, range: 22, ammo: 0, power: 0.25 }, // a beam: ten ticks a second while it burns, power per tick
+  hpm: { dmg: 7, rate: 0.5, range: 13, ammo: 0, power: 6 }, // per pulse, to every robot in the cone (FANS.hpm)
+  rockets: { dmg: 9, rate: 1 / 12, range: 45, ammo: 4, power: 0 }, // per rocket (GROUND_FIRE.rockets); rate: salvos a second
 };
 // Ground weapons. gmg: grenade splash (m), belt of rounds, s to reload. mortar: splash, minimum range, round's
 // flight time (s), how high it's drawn arcing. mines: charges, s to re-lay one. javelinEyes: m its thermal sight sees.
+// rockets: rockets a salvo, splash, minimum range, flight time, scatter (m) round the aim point, arc height, packs
+// sampled when it picks the thickest one. hpm: s a pulse stuns what it doesn't kill. Mortar and rockets need eyes on
+// what they fire at (the unit's own, an observer post's, a Javelin sight's).
 export const GROUND_FIRE = {
   gmg: { splash: 2.2, belt: 32, reload: 4, speed: 35 },
   mortar: { splash: 4, min: 9, flight: 1.8, apex: 14 },
   mines: { charges: 4, relay: 15 },
+  rockets: { salvo: 8, splash: 3, min: 15, flight: 1.4, scatter: 4, apex: 8, sample: 40 },
+  hpm: { stun: 1.5 },
   javelinEyes: 26,
 };
 // Upgrades in place: a unit gets better in its slot instead of taking another one (tall or wide).
@@ -649,6 +711,54 @@ export const MG_TIERS = [
   { name: 'TWIN 12.7mm', cost: 110, ...PERIM.mg, rate: 11 },
   { name: 'ZU-23-2', cost: 240, ...PERIM.mg, dmg: 6, rate: 8, range: 12 },
 ];
+// GROUND ASSAULT: every gun can be upgraded in its pit, MK II then MK III (the MG has its own line, MG_TIERS): damage
+// and range x, for the unit's own shop price x `cost`.
+export const UNIT_TIERS = [
+  { name: '', cost: 0, dmg: 1, range: 1 },
+  { name: 'MK II', cost: 0.8, dmg: 1.35, range: 1.08 },
+  { name: 'MK III', cost: 1.6, dmg: 1.8, range: 1.15 },
+];
+// ... and fitted out, one item per slot (AMMO, SENSOR, KIT): fitting another in a slot replaces what was there. Only
+// the kinds in `for` take an item. fx: dmg / rate / range / hp / power x; eyes: + m its own eyes see (sensor: `eyes`
+// round itself at most, for every gun); night: sees in the dark as by day; splash: + m (a gun's rounds burst);
+// pierce: share of the way through armour; burn: share of a hit's damage it burns for each s, BURN s; stun: x HPM
+// stun; fan: all-round field of fire; belt: x rounds or charges; guided: lobbed rounds home on the target;
+// cone: x HPM cone; split: the laser splits onto one more target at that share; slow: wire slows to this (x speed);
+// cut: wire also does this damage/s.
+export type ModSlot = 'AMMO' | 'SENSOR' | 'KIT';
+export interface ModFx { dmg?: number; rate?: number; range?: number; hp?: number; power?: number; eyes?: number; radar?: number; night?: boolean; splash?: number; pierce?: number; burn?: number;
+  stun?: number; fan?: boolean; belt?: number; guided?: boolean; cone?: number; split?: number; slow?: number; cut?: number }
+export interface UnitMod { id: string; name: string; slot: ModSlot; cost: number; for: PerimKind[]; desc: string; fx: ModFx }
+const KINETIC: PerimKind[] = ['mg', 'mantis', 'rws30'], LOBBED: PerimKind[] = ['gmg', 'mortar', 'rockets'];
+const SHOOTERS: PerimKind[] = ['mg', 'mantis', 'gmg', 'javelin', 'mortar', 'rws30', 'hel', 'hpm', 'rockets'];
+export const BURN = 3; // s an incendiary hit burns
+export const UNIT_MODS: UnitMod[] = [
+  // AMMO: what it fires.
+  { id: 'ap', name: 'AP / API rounds', slot: 'AMMO', cost: 60, for: KINETIC, desc: 'tungsten-cored: 75% of the way through armour · -10% damage', fx: { pierce: 0.75, dmg: 0.9 } },
+  { id: 'he', name: 'Airburst HE (AHEAD)', slot: 'AMMO', cost: 90, for: ['mantis', 'rws30', 'gmg'], desc: 'rounds burst over the pack: +1.5m splash · -20% damage', fx: { splash: 1.5, dmg: 0.8 } },
+  { id: 'inc', name: 'Incendiary (API-T / thermite)', slot: 'AMMO', cost: 80, for: [...KINETIC, ...LOBBED], desc: `hits set it burning: 40% of the hit again every second for ${BURN}s`, fx: { burn: 0.4 } },
+  { id: 'dpicm', name: 'DPICM cluster rounds', slot: 'AMMO', cost: 120, for: ['mortar', 'rockets'], desc: 'bomblets over a wide area: +60% splash · -25% damage', fx: { splash: 1.6, dmg: 0.75 } },
+  { id: 'pgm', name: 'Precision-guided (PGMM / APKWS)', slot: 'AMMO', cost: 140, for: LOBBED, desc: 'laser-guided: rounds follow the target down · +20% damage', fx: { guided: true, dmg: 1.2 } },
+  { id: 'mp', name: 'Multi-purpose warhead (Javelin F)', slot: 'AMMO', cost: 100, for: ['javelin'], desc: 'blast-frag sleeve: 2.5m splash, still top-attack · -15% damage', fx: { splash: 2.5, dmg: 0.85 } },
+  { id: 'optics', name: 'Adaptive optics', slot: 'AMMO', cost: 150, for: ['hel'], desc: 'tighter spot on the target: +40% damage, +15% range', fx: { dmg: 1.4, range: 1.15 } },
+  { id: 'splitter', name: 'Beam splitter', slot: 'AMMO', cost: 130, for: ['hel'], desc: 'a second beam on the next target at 60%', fx: { split: 0.6 } },
+  { id: 'wide', name: 'Wide-aperture array', slot: 'AMMO', cost: 160, for: ['hpm'], desc: '90° cone instead of 60° · -15% damage', fx: { cone: 1.5, dmg: 0.85 } },
+  { id: 'prf', name: 'High-PRF pulses', slot: 'AMMO', cost: 140, for: ['hpm'], desc: 'pulses come 40% faster, stuns last twice as long · +30% power per pulse', fx: { rate: 1.4, stun: 2, power: 1.3 } },
+  { id: 'razor', name: 'Triple-strand razor wire', slot: 'AMMO', cost: 50, for: ['wire'], desc: 'walkers inside wade at a fifth of their speed and get cut: 1 damage/s', fx: { slow: 0.2, cut: 1 } },
+  { id: 'spider', name: 'M7 Spider networked mines', slot: 'AMMO', cost: 90, for: ['mines'], desc: '6 charges instead of 4, re-laid twice as fast', fx: { belt: 1.5, rate: 2 } },
+  // SENSOR: what it sees with.
+  { id: 'flir', name: 'Thermal sight (FLIR)', slot: 'SENSOR', cost: 70, for: [...SHOOTERS, 'mines'], desc: '+12m eyes, sees as well at night · +10% range', fx: { eyes: 12, night: true, range: 1.1 } },
+  { id: 'gsr', name: 'Ground surveillance radar (EchoGuard)', slot: 'SENSOR', cost: 140, for: [...SHOOTERS, 'observer', 'wire', 'ammo'], desc: 'sees 36m round itself, day or night, for every gun · 0.3 power/s', fx: { radar: 36, night: true } },
+  { id: 'fcs', name: 'Fire-control computer + rangefinder', slot: 'SENSOR', cost: 110, for: SHOOTERS, desc: 'first-round hits: +20% damage, +10% fire rate', fx: { dmg: 1.2, rate: 1.1 } },
+  // KIT: what it's fitted with.
+  { id: 'auto', name: 'Autoloader / ammo booster', slot: 'KIT', cost: 100, for: ['mg', 'mantis', 'gmg', 'javelin', 'mortar', 'rws30', 'rockets'], desc: '+30% fire rate, belts twice as long', fx: { rate: 1.3, belt: 2 } },
+  { id: 'plates', name: 'Ballistic armour kit', slot: 'KIT', cost: 80, for: [...SHOOTERS, 'observer', 'ammo', 'jammer'], desc: 'add-on plates and blankets: x2 unit HP', fx: { hp: 2 } },
+  { id: 'rwsm', name: 'Stabilised RWS mount', slot: 'KIT', cost: 90, for: ['mg', 'gmg', 'javelin', 'rws30', 'hel'], desc: 'remote turret: fires all round (360° field of fire)', fx: { fan: true } },
+  { id: 'barrel', name: 'Long barrel / extended range', slot: 'KIT', cost: 90, for: ['mg', 'mantis', 'gmg', 'mortar', 'rws30', 'rockets'], desc: '+25% range · -10% fire rate', fx: { range: 1.25, rate: 0.9 } },
+  { id: 'caps', name: 'Capacitor bank', slot: 'KIT', cost: 120, for: ['hel', 'hpm'], desc: 'stores power between shots: -40% power drawn', fx: { power: 0.6 } },
+];
+export const MOD_SLOTS: ModSlot[] = ['AMMO', 'SENSOR', 'KIT'];
+export const unitMod = (id: string) => UNIT_MODS.find(m => m.id === id);
 // Support units.
 export const OBSERVER_EYES = 28; // m an observer post sees round itself
 export const AMMO_R = 10, AMMO_RATE = 1.25, AMMO_RELOAD = 0.5; // ammo point: reach, fire rate x, belt reload x for guns in reach
