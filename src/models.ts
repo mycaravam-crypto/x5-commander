@@ -9,12 +9,21 @@ import type { EnemyKind } from './config.ts';
 
 const TAU = Math.PI * 2;
 // Position-only and non-indexed, so parts built from any primitive merge into one geometry.
+// A leg's rig (see `rig`) survives too; parts without one get a zero rig, which holds still.
 const bare = (g: THREE.BufferGeometry) => {
   const n = g.index ? g.toNonIndexed() : g;
-  for (const a of Object.keys(n.attributes)) if (a !== 'position') n.deleteAttribute(a);
+  for (const a of Object.keys(n.attributes)) if (a !== 'position' && a !== 'legA' && a !== 'legP') n.deleteAttribute(a);
   return n;
 };
-const merge = (...gs: THREE.BufferGeometry[]) => mergeGeometries(gs.map(bare))!;
+const merge = (...gs: THREE.BufferGeometry[]) => {
+  const b = gs.map(bare);
+  if (b.some(g => g.attributes.legA)) for (const g of b) if (!g.attributes.legA) {
+    const n = g.attributes.position.count;
+    g.setAttribute('legA', new THREE.Float32BufferAttribute(new Float32Array(n * 4), 4));
+    g.setAttribute('legP', new THREE.Float32BufferAttribute(new Float32Array(n * 4), 4));
+  }
+  return mergeGeometries(b)!;
+};
 
 // Round section along x: radius r1 at the +x end, r2 at the -x end, centred on x.
 const tube = (r1: number, r2: number, len: number, x: number, y = 0, z = 0, seg = 6) =>
@@ -35,23 +44,57 @@ const prop = (x: number, r: number, y = 0) => merge(box(0.02, r * 2, 0.05, x, y)
 
 // A part built round its own centre, turned about z (a lean forward or back), then set in place.
 const lean = (g: THREE.BufferGeometry, rz: number, x: number, y: number, z: number) => g.rotateZ(rz).translate(x, y, z);
-// Robots on foot (GROUND ASSAULT) stand on the ground: feet at y = 0, facing +x, about 1.2 tall. Bird legs (Digit
-// and the mini-walker): thigh raked forward, shin raked back to a reverse knee, a flat foot. `w`: how heavy it's built.
-const legs = (w: number, hip: number, spread: number) => [-spread, spread].flatMap(z => [
-  lean(box(0.09 * w, hip * 0.52, 0.09 * w), -0.4, 0.07, hip * 0.74, z),
-  lean(box(0.08 * w, hip * 0.55, 0.08 * w), 0.45, 0.06, hip * 0.27, z),
-  box(0.28 * w, 0.05, 0.12 * w, 0.06, 0.025, z),
-]);
+// Robots on foot (GROUND ASSAULT) stand on the ground: feet at y = 0, facing +x, about 1.2 tall.
+// Their legs are rigged for the walk cycle (render.ts swings them in the vertex shader): every vertex of a limb
+// carries `legA` (phase offset in its stride, segment: 1 thigh, 2 shin, 3 foot, 4 arm; ankle x, y) and `legP`
+// (hip or shoulder x, y; knee x, y), all in model units in the side (xy) plane.
+const rig = (g: THREE.BufferGeometry, off: number, seg: number, hip: number[], knee: number[], ankle: number[]) => {
+  const n = g.attributes.position.count, a = new Float32Array(n * 4), p = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) { a.set([off, seg, ankle[0], ankle[1]], i * 4); p.set([hip[0], hip[1], knee[0], knee[1]], i * 4); }
+  return g.setAttribute('legA', new THREE.Float32BufferAttribute(a, 4)).setAttribute('legP', new THREE.Float32BufferAttribute(p, 4));
+};
+// Top and bottom (x, y) of a `len`-long part centred on (x, y) and leaned `rz` (as `lean` builds it).
+const ends = (len: number, rz: number, x: number, y: number) =>
+  [[x - len / 2 * Math.sin(rz), y + len / 2 * Math.cos(rz)], [x + len / 2 * Math.sin(rz), y - len / 2 * Math.cos(rz)]];
+// One leg at side `z`, `off` into the stride: thigh and shin as [thickness, length, lean, x, y], and a foot.
+const limb = (z: number, off: number, th: number[], sh: number[], foot?: THREE.BufferGeometry) => {
+  const [hip, knee] = ends(th[1], th[2], th[3], th[4]), [, ankle] = ends(sh[1], sh[2], sh[3], sh[4]);
+  return [
+    rig(lean(box(th[0], th[1], th[0]), th[2], th[3], th[4], z), off, 1, hip, knee, ankle),
+    rig(lean(box(sh[0], sh[1], sh[0]), sh[2], sh[3], sh[4], z), off, 2, hip, knee, ankle),
+    ...(foot ? [rig(foot.translate(0, 0, z), off, 3, hip, knee, ankle)] : []),
+  ];
+};
+// Left leg leads (stride offset 0), the right one half a stride behind.
+const side = (spread: number) => [[-spread, 0], [spread, Math.PI]];
+// Bird legs (Digit and the mini-walker): thigh raked forward, shin raked back to a reverse knee, a flat foot.
+// `w`: how heavy it's built.
+const legs = (w: number, hip: number, spread: number) => side(spread).flatMap(([z, off]) =>
+  limb(z, off, [0.09 * w, hip * 0.52, -0.4, 0.07, hip * 0.74], [0.08 * w, hip * 0.55, 0.45, 0.06, hip * 0.27], box(0.28 * w, 0.05, 0.12 * w, 0.06, 0.025)));
 
 // Humanoids (the real prototypes are: Unitree G1, Atlas, Digit, Phantom) walk on human legs: the knee bends forward,
 // thigh down from the hip, shin under it, a long flat foot.
-const humanLegs = (w: number, hip: number, spread: number) => [-spread, spread].flatMap(z => [
-  lean(box(0.1 * w, hip * 0.5, 0.1 * w), 0.12, -0.02, hip * 0.74, z),
-  lean(box(0.09 * w, hip * 0.5, 0.09 * w), -0.1, -0.02, hip * 0.27, z),
-  box(0.24 * w, 0.05, 0.11 * w, 0.05, 0.025, z),
-]);
-// Arms hanging from the shoulders at `y`, `spread` out, a little forward.
-const arms = (w: number, y: number, spread: number, len: number) => [-spread, spread].map(z => lean(box(0.07 * w, len, 0.07 * w), 0.15, 0.03, y - len / 2, z));
+const humanLegs = (w: number, hip: number, spread: number) => side(spread).flatMap(([z, off]) =>
+  limb(z, off, [0.1 * w, hip * 0.5, 0.12, -0.02, hip * 0.74], [0.09 * w, hip * 0.5, -0.1, -0.02, hip * 0.27], box(0.24 * w, 0.05, 0.11 * w, 0.05, 0.025)));
+// Arms hanging from the shoulders at `y`, `spread` out, a little forward, `rz` leaned; they swing against the leg
+// on their own side.
+const arms = (w: number, y: number, spread: number, len: number, rz = 0.15, x = 0.03, cy = y - len / 2) => side(spread).map(([z, off]) => {
+  const [sh] = ends(len, rz, x, cy);
+  return rig(lean(box(0.07 * w, len, 0.07 * w), rz, x, cy, z), off, 4, sh, sh, sh);
+});
+
+// Walk cycle per walker (render.ts): `leg`, hip height in model units (the stance leg's length: the body dips as it
+// swings out); `amp`, hip swing either way, radians; `knee`, how far the knee folds through the swing, x amp.
+export const GAIT: Partial<Record<EnemyKind, { leg: number; amp: number; knee: number }>> = {
+  walker: { leg: 0.78, amp: 0.42, knee: 2.2 }, gunbot: { leg: 0.8, amp: 0.36, knee: 2 }, mech: { leg: 0.7, amp: 0.3, knee: 1.8 },
+  crawler: { leg: 0.43, amp: 0.5, knee: 1.6 }, dog: { leg: 0.55, amp: 0.45, knee: 1.4 }, sapper: { leg: 0.83, amp: 0.38, knee: 2.1 },
+  arty: { leg: 0.83, amp: 0.36, knee: 1.6 }, titan: { leg: 0.73, amp: 0.26, knee: 1.6 },
+};
+// Where each armed walker's gun muzzles are, in model units (+x forward, +z its right side): its rounds leave from these.
+export const MUZZLES: Partial<Record<EnemyKind, number[][]>> = {
+  gunbot: [[0.66, 1.02, 0.26]], dog: [[0.66, 0.78, 0]], mech: [[0.9, 1.0, 0.26], [0.9, 1.0, 0.36]],
+  titan: [[1.05, 0.7, 0.48], [1.05, 0.7, 0.56]], arty: [[-0.37, 1.64, 0]],
+};
 
 export function enemyGeos(): Record<EnemyKind, THREE.BufferGeometry> {
   // Shahed-136: cropped delta with a fuselage running through it, winglets at the tips, pusher prop.
@@ -231,7 +274,7 @@ export function enemyGeos(): Record<EnemyKind, THREE.BufferGeometry> {
       ...humanLegs(1, 0.8, 0.12),
       box(0.18, 0.1, 0.32, 0, 0.82), box(0.3, 0.3, 0.26, 0.02, 1.0), box(0.16, 0.1, 0.14, 0.13, 1.2),
       tube(0.035, 0.035, 0.12, 0.25, 1.2), box(0.16, 0.22, 0.2, -0.2, 1.0),
-      ...[-0.19, 0.19].map(z => lean(box(0.06, 0.34, 0.06), 0.3, 0.07, 0.9, z)),
+      ...arms(0.86, 1.07, 0.19, 0.34, 0.3, 0.07, 0.9),
     ),
     // Armed combat walker: heavier legs, a boxy hull with an armoured head, a rifle-calibre gun on its right arm and
     // an ammunition drum on the left.
@@ -259,7 +302,7 @@ export function enemyGeos(): Record<EnemyKind, THREE.BufferGeometry> {
     ),
     // Armed robot dog (Vision 60-class): a long flat body on four legs, a rifle on a mount on its back.
     dog: merge(
-      ...[0.28, -0.28].flatMap(x => [-0.13, 0.13].flatMap(z => [lean(box(0.06, 0.3, 0.06), 0.3, x + 0.05, 0.42, z), lean(box(0.05, 0.3, 0.05), -0.3, x + 0.05, 0.15, z)])),
+      ...[0.28, -0.28].flatMap(x => [-0.13, 0.13].flatMap(z => limb(z, (x > 0) === (z > 0) ? Math.PI : 0, [0.06, 0.3, 0.3, x + 0.05, 0.42], [0.05, 0.3, -0.3, x + 0.05, 0.15]))), // diagonal pairs step together
       box(0.8, 0.16, 0.28, 0, 0.6), box(0.14, 0.12, 0.2, 0.42, 0.62),
       box(0.18, 0.1, 0.08, 0.05, 0.73), tube(0.025, 0.025, 0.6, 0.35, 0.78), box(0.12, 0.08, 0.06, -0.05, 0.8),
     ),

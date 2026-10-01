@@ -5,11 +5,11 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { ARENA_R, BASE_R, BUILD_MIN, DROP_MAX, PERF, ENEMIES, MUNITIONS, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, FANS, GUNS, MG_TIERS, PERIM, BIG_KILLS, altitude, flightAlt, buildR, groundZone, type EnemyKind, type PerimKind } from './config.ts';
+import { ARENA_R, BASE_R, BUILD_MIN, DROP_MAX, PERF, ENEMIES, MUNITIONS, EW_ARC, FRONT, FRONT_ARC, VISUAL_R, KINDS, PAL, FANS, GUNS, MG_TIERS, PERIM, BIG_KILLS, GROUND, altitude, flightAlt, buildR, groundZone, type EnemyKind, type PerimKind } from './config.ts';
 import { building as inBuildWindow, emitting, focusBearing, flankArc, radarRange, radarSector, bestSpot, spotNear, selectedPad, coverage, padStats, padHp, fanOf, phase, shownKind, visible, type Enemy, type Pad, type Shot, type State } from './sim.ts';
 import { heightSampler, treeList, ROCKS, FARMS, WATER_Y, mapSeed } from './terrain.ts';
 import { paintTerrain } from './terrainPaint.ts';
-import { enemyGeos, ROTORS } from './models.ts';
+import { enemyGeos, GAIT, MUZZLES, ROTORS } from './models.ts';
 
 // Phones and tablets get a lighter pipeline: no real-time shadows (the ground has them baked in), no bloom,
 // a smaller ground texture and mesh, a capped pixel ratio and smaller effect pools (PERF.lite). The full one is
@@ -18,7 +18,7 @@ const LITE = matchMedia('(pointer: coarse)').matches || innerWidth * innerHeight
 const L = PERF.lite;
 const MAX_ENEMIES = 2000, MAX_LOCKS = 64, MAX_SHOTS = 600, MAX_WAVES = 64, MAX_FRONTS = 48;
 const MAX_WRECKS = LITE ? L.wrecks : 48, MAX_FIRES = LITE ? L.fires : 24, MAX_SHARDS = LITE ? L.shards : 2500, MAX_BEAMS = LITE ? L.beams : 3000;
-const MAX_BLIPS = LITE ? L.blips : 1024, MAX_PUFFS = LITE ? L.puffs : 600;
+const MAX_BLIPS = LITE ? L.blips : 1024, MAX_PUFFS = LITE ? L.puffs : 600, MAX_BOLTS = LITE ? 300 : 1200;
 const VIS = 1.6; // enemies drawn bigger than their hitbox so they read at a glance
 const PAD_VIS = 1.35; // emplacements too
 const TAU = Math.PI * 2;
@@ -57,6 +57,29 @@ const faded = (geo: THREE.BufferGeometry, n: number, opacity = 1) => {
   return instanced(geo, fadeMat(opacity), n);
 };
 const fadeAttr = (m: THREE.InstancedMesh) => m.geometry.getAttribute('fade') as THREE.InstancedBufferAttribute;
+// Walk cycle for the robots on foot, in the vertex shader (models.ts rigs their limbs): per instance, `gait` is
+// (where it is in its stride, radians; hip swing, radians; knee fold x swing). Each leg swings at the hip, folds its
+// knee through the forward swing (foot up) and keeps its foot level; arms swing against their own side's leg.
+// Applied to the shadow pass too, so the shadows walk with them.
+const GAIT_GLSL = `
+  if (legA.y > 0.5) {
+    float ph = gait.x + legA.x, sw = gait.y * sin(ph);
+    if (legA.y > 3.5) transformed.xy = legP.xy + rot2(-0.8 * sw) * (transformed.xy - legP.xy);
+    else {
+      float up = max(0.0, cos(ph)), kn = -gait.y * gait.z * up * up;
+      if (legA.y > 2.5) transformed.xy = legA.zw + rot2(-(sw + kn)) * (transformed.xy - legA.zw);
+      if (legA.y > 1.5) transformed.xy = legP.zw + rot2(kn) * (transformed.xy - legP.zw);
+      transformed.xy = legP.xy + rot2(sw) * (transformed.xy - legP.xy);
+    }
+  }`;
+function walking<M extends THREE.Material>(m: M) {
+  m.onBeforeCompile = sh => {
+    sh.vertexShader = 'attribute vec4 legA;\nattribute vec4 legP;\nattribute vec3 gait;\nmat2 rot2(float a) { float c = cos(a), s = sin(a); return mat2(c, s, -s, c); }\n'
+      + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>' + GAIT_GLSL);
+  };
+  m.customProgramCacheKey = () => 'walking';
+  return m;
+}
 // Drawn with `wireframe: true`, this geometry shows exactly the given segments (xyz pairs): each segment
 // becomes a degenerate triangle (a, b, b). That's how InstancedMesh gets to draw instanced lines.
 const segs = (p: ArrayLike<number>) => {
@@ -723,7 +746,14 @@ export function createRenderer() {
   // Enemies: lit models, tinted per type; a faint stalk and ring drop to the ground under each so you can read where it is.
   const enemyMat = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide });
   const enemyMeshes = {} as Record<EnemyKind, THREE.InstancedMesh>;
-  for (const k of KINDS) { const m = enemyMeshes[k] = instanced(GEOS[k], enemyMat, MAX_ENEMIES); m.castShadow = true; scene.add(m); }
+  const walkMat = walking(new THREE.MeshLambertMaterial({ side: THREE.DoubleSide })), walkDepth = walking(new THREE.MeshDepthMaterial());
+  const gaits = {} as Partial<Record<EnemyKind, THREE.InstancedBufferAttribute>>;
+  for (const k of KINDS) {
+    const walks = !!GAIT[k] && !!GEOS[k].attributes.legA;
+    if (walks) GEOS[k].setAttribute('gait', gaits[k] = new THREE.InstancedBufferAttribute(new Float32Array(MAX_ENEMIES * 3), 3));
+    const m = enemyMeshes[k] = instanced(GEOS[k], walks ? walkMat : enemyMat, MAX_ENEMIES); m.castShadow = true; scene.add(m);
+    if (walks) m.customDepthMaterial = walkDepth;
+  }
   const rotors = faded(new THREE.CylinderGeometry(1, 1, 0.02, 20), MAX_ENEMIES, 0.35);
   const stalks = faded(new THREE.BoxGeometry(0.05, 1, 0.05).translate(0, 0.5, 0), MAX_ENEMIES, 0.35);
   const pips = faded(new THREE.RingGeometry(0.7, 1, 20).rotateX(-Math.PI / 2), MAX_ENEMIES, 0.7);
@@ -754,6 +784,8 @@ export function createRenderer() {
   const tracers = instanced(new THREE.BoxGeometry(0.08, 0.08, 2.2), additive(), MAX_SHOTS);
   const missiles = instanced(mergeGeometries([new THREE.CylinderGeometry(0.1, 0.1, 1, 6).rotateX(Math.PI / 2), new THREE.ConeGeometry(0.1, 0.3, 6).rotateX(Math.PI / 2).translate(0, 0, 0.65)])!, new THREE.MeshLambertMaterial(), MAX_SHOTS);
   const shardMesh = instanced(new THREE.TetrahedronGeometry(0.35), additive(), MAX_SHARDS);
+  // Walkers' rounds: glowing streaks flying from their gun muzzles to your unit (a hot core in a wider glow).
+  const boltMesh = instanced(new THREE.BoxGeometry(1, 1, 1).translate(0.5, 0, 0), additive(), MAX_BOLTS * 2);
   const waveMesh = instanced(segs(ringPts(48)), additive(0xffffff, true), MAX_WAVES);
   // Beams (HEL, HPM band, motor flames): additive. Trails (missile smoke): normal blend, thinning out.
   const beamMesh = instanced(new THREE.BoxGeometry(1, 1, 1).translate(0.5, 0, 0), additive(), MAX_BEAMS);
@@ -772,7 +804,7 @@ export function createRenderer() {
   // Jammed sector: a faint amber wedge from the battery out along each Mi-8's bearing.
   const jamMesh = instanced(new THREE.RingGeometry(0.08, 1, 12, 1, -EW_ARC, EW_ARC * 2).rotateX(-Math.PI / 2), additive(), 16);
   (jamMesh.material as THREE.Material).depthTest = false;
-  scene.add(shells, tracers, missiles, shardMesh, waveMesh, beamMesh, smokeMesh, puffMesh, frontMesh, blipMesh, jamMesh);
+  scene.add(shells, tracers, missiles, boltMesh, shardMesh, waveMesh, beamMesh, smokeMesh, puffMesh, frontMesh, blipMesh, jamMesh);
   // Salvage: a supply crate bobbing over a ground ring, with a light column so it's easy to spot. Blinks before it's lost.
   const dropMesh = instanced(new THREE.BoxGeometry(1, 0.8, 0.8), new THREE.MeshLambertMaterial(), DROP_MAX);
   const dropRing = instanced(segs(ringPts(20, 2)), additive(0xffffff, true), DROP_MAX);
@@ -817,6 +849,8 @@ export function createRenderer() {
   const wv = { x: new Float32Array(MAX_WAVES), y: new Float32Array(MAX_WAVES), z: new Float32Array(MAX_WAVES), r: new Float32Array(MAX_WAVES), life: new Float32Array(MAX_WAVES), max: new Float32Array(MAX_WAVES), col: new Float32Array(MAX_WAVES * 3), next: 0 };
   // grow: 0 = beam (thins as it fades), 1 = smoke trail (spreads and thins as it fades).
   const bm = { a: new Float32Array(MAX_BEAMS * 6), w: new Float32Array(MAX_BEAMS), life: new Float32Array(MAX_BEAMS), max: new Float32Array(MAX_BEAMS), col: new Float32Array(MAX_BEAMS * 3), grow: new Uint8Array(MAX_BEAMS), next: 0 };
+  // Walkers' rounds in flight: t counts up from -delay; dur 0 is a free slot.
+  const bo = { a: new Float32Array(MAX_BOLTS * 6), t: new Float32Array(MAX_BOLTS), dur: new Float32Array(MAX_BOLTS), w: new Float32Array(MAX_BOLTS), len: new Float32Array(MAX_BOLTS), apex: new Float32Array(MAX_BOLTS), blast: new Float32Array(MAX_BOLTS), col: new Float32Array(MAX_BOLTS * 3), next: 0 };
   const bmShade = new Float32Array(MAX_BEAMS).fill(1); // smoke trails: 1 = pale motor smoke, lower = darker (burning wrecks)
   // hot: 0..1, how much of a fireball it starts as (glows orange, then cools to smoke).
   const pf = { p: new Float32Array(MAX_PUFFS * 3), r: new Float32Array(MAX_PUFFS), life: new Float32Array(MAX_PUFFS), max: new Float32Array(MAX_PUFFS), c: new Float32Array(MAX_PUFFS), hot: new Float32Array(MAX_PUFFS), next: 0 };
@@ -826,7 +860,7 @@ export function createRenderer() {
   const fi = { x: new Float32Array(MAX_FIRES), z: new Float32Array(MAX_FIRES), r: new Float32Array(MAX_FIRES), life: new Float32Array(MAX_FIRES), emit: new Float32Array(MAX_FIRES), next: 0 };
   // Per-contact flight state for drawing: the sim turns on the spot between ticks; this eases the airframe round
   // (heading), banks it into turns, pitches it along its climb or dive, and remembers where its trail last left off.
-  interface Flight { kind: EnemyKind; x: number; y: number; z: number; vx: number; vz: number; h: number; bank: number; pitch: number; hs: number; acc: number; tx: number; ty: number; tz: number; emit: number; frame: number }
+  interface Flight { kind: EnemyKind; x: number; y: number; z: number; vx: number; vz: number; h: number; bank: number; pitch: number; hs: number; acc: number; tx: number; ty: number; tz: number; emit: number; frame: number; gait: number; amp: number; aim: number; aimT: number }
   const flights = new Map<number, Flight>();
   let frameNo = 0;
   const fr = { x: new Float32Array(MAX_FRONTS), y: new Float32Array(MAX_FRONTS), z: new Float32Array(MAX_FRONTS), a: new Float32Array(MAX_FRONTS), t: new Float32Array(MAX_FRONTS), max: new Float32Array(MAX_FRONTS), next: 0 };
@@ -911,6 +945,37 @@ export function createRenderer() {
     fr.x[i] = x; fr.y[i] = y; fr.z[i] = z; fr.a[i] = a; fr.t[i] = -delay; fr.max[i] = max;
   }
   const aimT = new Map<string, number>(), aimCur = new Map<string, number>();
+  // Walkers' fire, per kind: rounds in a burst, s between them, speed m/s, streak width and length m, colour (a
+  // hostile red-orange, apart from your own amber tracers), and a burst where they land (every round, or the last).
+  const ROUNDS: Partial<Record<EnemyKind, { n: number; gap: number; speed: number; w: number; len: number; col: number; blast?: number; blastAll?: boolean }>> = {
+    gunbot: { n: 4, gap: 0.08, speed: 60, w: 0.12, len: 2.2, col: 0xff6a2a },
+    dog: { n: 3, gap: 0.07, speed: 60, w: 0.1, len: 1.8, col: 0xff7a3a },
+    mech: { n: 2, gap: 0.15, speed: 45, w: 0.2, len: 2.6, col: 0xff4a1a, blast: 0.7, blastAll: true },
+    titan: { n: 12, gap: 0.05, speed: 55, w: 0.13, len: 2.2, col: 0xff5a20, blast: 1.2 },
+  };
+  // A walker keeps facing what it shot at a little longer than it takes to fire again, so it doesn't swing back
+  // and forth between bursts.
+  const aimHold = (k: EnemyKind) => ((k === 'gunbot' ? GROUND.gun : k === 'dog' || k === 'mech' || k === 'titan' || k === 'arty' ? GROUND[k] : undefined)?.every ?? 0) + 0.8;
+  // The walker that fired from (x, z) at (x2, z2): it turns to face its target, and its rounds leave from its
+  // gun muzzles (models.ts), wherever they are as it stands now.
+  function muzzles(s: State, x: number, z: number, x2: number, z2: number) {
+    let src: Enemy | undefined, bd = 4;
+    for (const o of s.enemies) { const d = (o.x - x) ** 2 + (o.z - z) ** 2; if (d < bd) { bd = d; src = o; } }
+    const aim = Math.atan2(z2 - z, x2 - x), f = src && flights.get(src.id), kind = src?.kind ?? 'gunbot';
+    if (f) { f.aim = aim; f.aimT = clock; f.h += angDiff(aim, f.h) * 0.6; } // snaps most of the way round to fire
+    const h = f ? f.h : aim, c = Math.cos(h), sn = Math.sin(h), sz = (src?.size ?? 1) * VIS;
+    const bx = f ? f.x : x, bz = f ? f.z : z, gy = groundY(bx, bz);
+    return { kind, pts: (MUZZLES[kind] ?? [[0.5, 1, 0]]).map(([mx, my, mz]) => [bx + (mx * c - mz * sn) * sz, gy + my * sz, bz + (mx * sn + mz * c) * sz]) };
+  }
+  // A round from `o` to (x2, y2, z2), `delay` s from now: a streak `len` long flying at `speed` (over an arc
+  // `apex` m high, for a mortar), a flash at the muzzle as it goes, sparks (or a burst `blast` m) where it lands.
+  function bolt(o: number[], x2: number, y2: number, z2: number, delay: number, speed: number, w: number, len: number, color: number, k: number, apex = 0, blast = 0) {
+    const i = bo.next = (bo.next + 1) % MAX_BOLTS, j = i * 6;
+    bo.a.set([o[0], o[1], o[2], x2, y2, z2], j);
+    bo.t[i] = -delay - 1e-4; bo.dur[i] = Math.max(0.05, Math.hypot(x2 - o[0], y2 - o[1], z2 - o[2]) / speed);
+    bo.w[i] = w; bo.len[i] = len; bo.apex[i] = apex; bo.blast[i] = blast;
+    tmpC.setHex(color).multiplyScalar(k); bo.col.set([tmpC.r, tmpC.g, tmpC.b], i * 3);
+  }
   function blip(x: number, z: number, r: number, life: number) {
     const i = bl.next = (bl.next + 1) % MAX_BLIPS;
     bl.x[i] = x; bl.z[i] = z; bl.r[i] = r; bl.life[i] = bl.max[i] = life;
@@ -991,18 +1056,19 @@ export function createRenderer() {
           shards(e.x + Math.cos(a) * tip, e.z + Math.sin(a) * tip, 2, C.flash, 3, 0.35, groundY(e.x, e.z) + 0.8, 2);
           break;
         }
-        case 'robotLob': { // a mortar walker's round: the pop at the tube, then the burst on your unit
-          const y = groundY(e.x, e.z) + 1.4, y2 = groundY(e.x2, e.z2) + 0.4;
-          shards(e.x, e.z, 3, C.flash, 4, 0.35, y, 2); puffs(e.x, y, e.z, 1, 0.6, 1.5, 0.3);
-          boom(e.x2, y2, e.z2, e.n, 12); gwave(e.x2, e.z2, e.n * 1.4, C.fire, 0.5, 0.8);
+        case 'robotLob': { // a mortar walker's round: the pop at the tube, the round arcing over, the burst on your unit
+          const [o] = muzzles(s, e.x, e.z, e.x2, e.z2).pts, y2 = groundY(e.x2, e.z2) + 0.4, d = Math.hypot(e.x2 - e.x, e.z2 - e.z);
+          puffs(o[0], o[1], o[2], 2, 0.6, 1.5, 0.3);
+          bolt(o, e.x2, y2, e.z2, 0, Math.max(12, d / 1.6), 0.3, 0.7, 0xffb070, 2, 3 + d * 0.3, e.n);
           break;
         }
         case 'padMod': { const y = groundY(e.x, e.z) + 1; gwave(e.x, e.z, 3, 0xffe9a8, 0.6, 1.2); shards(e.x, e.z, 8, 0xffe9a8, 4, 0.5, y, 1.5); break; } // fitted out
-        case 'robotFire': { // a walker's burst at one of your units: tracers from its gun, sparks on the unit
-          const y = groundY(e.x, e.z) + 1.3, y2 = groundY(e.x2, e.z2) + 0.8;
-          beam(e.x, y, e.z, e.x2, y2, e.z2, 0.07, 0xff9a4a, 0.1, 2);
-          shards(e.x, e.z, 2, C.flash, 3, 0.3, y, 2);
-          shards(e.x2, e.z2, 3, C.fire, 5, 0.4, y2, 1.5);
+        case 'robotFire': { // a walker's burst at one of your units: rounds streaking from its gun, sparks on the unit
+          const { pts: ms, kind } = muzzles(s, e.x, e.z, e.x2, e.z2), R = ROUNDS[kind] ?? ROUNDS.gunbot!, y2 = groundY(e.x2, e.z2) + 0.8;
+          for (let i = 0; i < R.n; i++) {
+            const j = (Math.random() - 0.5) * 0.6, last = i === R.n - 1;
+            bolt(ms[i % ms.length], e.x2 + j, y2 + j * 0.5, e.z2 - j, i * R.gap, R.speed, R.w, R.len, R.col, 3, 0, R.blast && (R.blastAll || last) ? R.blast : 0);
+          }
           break;
         }
         case 'beam': { // from the HEL (sim fires from the centre), a hop between contacts (ARC LASER, OVERKILL), or a LOCUST unit
@@ -1074,7 +1140,7 @@ export function createRenderer() {
     }
   }
 
-  const pools = [...Object.values(enemyMeshes), rotors, stalks, pips, brackets, hpBars, shells, tracers, missiles, dropMesh, dropRing, dropBeam, shardMesh, waveMesh, beamMesh, smokeMesh, puffMesh, frontMesh, blipMesh, jamMesh, dwellMesh];
+  const pools = [...Object.values(enemyMeshes), rotors, stalks, pips, brackets, hpBars, shells, tracers, missiles, boltMesh, dropMesh, dropRing, dropBeam, shardMesh, waveMesh, beamMesh, smokeMesh, puffMesh, frontMesh, blipMesh, jamMesh, dwellMesh];
   const sent = new Map<THREE.InstancedMesh, number>();
   const dummy = new THREE.Object3D();
   const camRight = new THREE.Vector3();
@@ -1257,8 +1323,8 @@ export function createRenderer() {
       if (m.count >= MAX_ENEMIES) continue;
       const ex = e.x + e.vx * lead, ez = e.z + e.vz * lead; // where it is now, between sim ticks
       const gy = groundY(ex, ez), sz = e.size * VIS, f = fly(e, ex, ez, gy, dt, play), alt = f.y - gy;
-      // A walker bobs with its stride while it moves.
-      const y = f.y + (ENEMIES[k].ground && f.hs > 0.2 ? 0.05 * sz * Math.abs(Math.sin(clock * (4 + f.hs) + e.id)) : 0);
+      // A walker dips as its legs swing out, so the foot it's standing on stays on the ground.
+      const G = GAIT[k], y = f.y - (G ? G.leg * (1 - Math.cos(f.amp * Math.sin(f.gait))) * sz : 0);
       const pos = ePos[ne++ % MAX_ENEMIES]; pos.x = ex; pos.z = ez; pos.y = y; byId.set(e.id, pos);
       // A classified decoy is drawn as a ghost, so it can't be mistaken for the Shahed it copies.
       const fade = !visible(s, e) ? 0.1 : (e.locked ? 1 : Math.max(0.35, Math.min(1, (e.seenUntil - s.t) / 1.5))) * (e.ided ? 0.45 : 1);
@@ -1269,6 +1335,7 @@ export function createRenderer() {
       dummy.scale.setScalar(sz);
       dummy.updateMatrix();
       m.setMatrixAt(m.count, dummy.matrix);
+      if (G) gaits[k]?.setXYZ(m.count, f.gait, f.amp, G.knee);
       m.setColorAt(m.count++, tmpC.setHex(ENEMIES[k].mimic ? 0x9a9a9a : KIND_COL[k]).multiplyScalar(0.6 + 0.4 * fade));
       if (play) exhaust(e, f, sz, dt);
       const rotor = ROTORS[k];
@@ -1309,6 +1376,7 @@ export function createRenderer() {
     frameNo++;
     if (play) fires(dt);
     wrecks(dt, play, rf);
+    bolts(dt, play);
 
     // Your damaged units get an HP bar too.
     for (const p of s.perim) {
@@ -1485,7 +1553,8 @@ export function createRenderer() {
       if (n === 0 && was === 0) continue; // still empty: nothing to send
       sent.set(m, n);
       const fa = m.geometry.getAttribute('fade') as THREE.InstancedBufferAttribute | undefined;
-      for (const [a, k] of [[m.instanceMatrix, 16], [m.instanceColor, 3], [fa, 1]] as const) {
+      const ga = m.geometry.getAttribute('gait') as THREE.InstancedBufferAttribute | undefined;
+      for (const [a, k] of [[m.instanceMatrix, 16], [m.instanceColor, 3], [fa, 1], [ga, 3]] as const) {
         if (!a) continue;
         a.clearUpdateRanges(); a.addUpdateRange(0, Math.max(n, 1) * k); a.needsUpdate = true;
       }
@@ -1503,23 +1572,31 @@ export function createRenderer() {
   // flare as they slow.
   function fly(e: Enemy, x: number, z: number, gy: number, dt: number, play: boolean) {
     const want = gy + flightAlt(e), hs = Math.hypot(e.vx, e.vz), heli = !!ROTORS[e.kind];
-    const course = heli && (e.act === 'hover' || e.orbit) ? Math.atan2(-z, -x) : hs > 0.05 ? Math.atan2(e.vz, e.vx) : undefined;
+    let course = heli && (e.act === 'hover' || e.orbit) ? Math.atan2(-z, -x) : hs > 0.05 ? Math.atan2(e.vz, e.vx) : undefined;
     let f = flights.get(e.id);
     if (!f) {
-      f = { kind: e.kind, x, y: want, z, vx: e.vx, vz: e.vz, h: course ?? Math.atan2(-z, -x), bank: 0, pitch: 0, hs, acc: 0, tx: x, ty: want, tz: z, emit: 0, frame: frameNo };
+      f = { kind: e.kind, x, y: want, z, vx: e.vx, vz: e.vz, h: course ?? Math.atan2(-z, -x), bank: 0, pitch: 0, hs, acc: 0, tx: x, ty: want, tz: z, emit: 0, frame: frameNo, gait: Math.random() * TAU, amp: 0, aim: 0, aimT: -1 };
       flights.set(e.id, f);
     }
     f.frame = frameNo;
+    const G = GAIT[e.kind], aiming = clock - f.aimT < aimHold(e.kind);
+    if (aiming) course = f.aim; // a walker that's shooting turns to face its target, walking on or not
     if (play && dt > 0) {
       const y0 = f.y, h0 = f.h, ease = (r: number) => 1 - Math.exp(-r * dt);
       f.y += (want - f.y) * ease(ENEMIES[e.kind].ballistic ? 14 : e.kind === 'ka52' ? 2.5 : 6); // a Ka-52 rises and sinks, it doesn't jump
-      if (course !== undefined) f.h += angDiff(course, f.h) * ease(heli ? 2.5 : 7);
+      if (course !== undefined) f.h += angDiff(course, f.h) * ease(heli ? 2.5 : aiming ? 10 : 7);
       const vy = (f.y - y0) / dt, yaw = angDiff(f.h, h0) / dt;
       f.acc += ((hs - f.hs) / dt - f.acc) * ease(4); f.hs = hs;
       let bank: number, pitch: number;
-      if (ENEMIES[e.kind].ground) {
-        // On foot: upright, with a sway from side to side in step with its stride.
-        bank = hs > 0.2 ? 0.08 * Math.sin(clock * (4 + hs) + e.id) : 0; pitch = 0;
+      if (G) {
+        // On foot: the stride runs on distance walked (a stride is four hip swings' worth of leg), so the feet
+        // plant instead of skating, whether it's striding out or wading through wire. It eases into and out of
+        // its stride, stands still when it stops, and sways over the leg it's standing on.
+        f.amp += ((hs > 0.15 ? G.amp * Math.min(1, hs / 0.8) : 0) - f.amp) * ease(5);
+        if (f.amp > 0.005) f.gait = (f.gait + TAU * hs * dt / (4 * G.leg * Math.max(0.15, Math.sin(f.amp)) * e.size * VIS)) % TAU;
+        bank = 0.06 * (f.amp / G.amp) * Math.cos(f.gait); pitch = -0.05 * f.amp / G.amp; // leans into the walk
+      } else if (ENEMIES[e.kind].ground) {
+        bank = 0; pitch = 0;
       } else if (heli) {
         // Sideways speed relative to the nose tilts the disc; forward speed dips the nose, braking lifts it.
         const lat = -Math.sin(f.h) * e.vx + Math.cos(f.h) * e.vz, fwd = Math.cos(f.h) * e.vx + Math.sin(f.h) * e.vz;
@@ -1529,7 +1606,8 @@ export function createRenderer() {
         bank = clamp(yaw * (e.kind === 'swarm' ? 0.12 : 0.35) * Math.max(1, hs / 4), 1.1);
         pitch = ENEMIES[e.kind].ballistic ? -0.9 : clamp(Math.atan2(vy, Math.max(hs, 0.5)) * 1.2, 1.1);
       }
-      f.bank += (bank - f.bank) * ease(5); f.pitch += (pitch - f.pitch) * ease(5);
+      if (G) f.bank = bank; else f.bank += (bank - f.bank) * ease(5); // the sway is the stride's: no lag on it
+      f.pitch += (pitch - f.pitch) * ease(5);
     }
     f.x = x; f.z = z; f.vx = e.vx; f.vz = e.vz;
     return f;
@@ -1602,12 +1680,49 @@ export function createRenderer() {
       }
       if (m.count >= MAX_ENEMIES) continue;
       dummy.position.set(P[j], P[j + 1], P[j + 2]); dummy.rotation.set(R[j], -R[j + 1], R[j + 2], 'YXZ'); dummy.scale.setScalar(sz);
-      dummy.updateMatrix(); m.setMatrixAt(m.count, dummy.matrix);
+      dummy.updateMatrix(); m.setMatrixAt(m.count, dummy.matrix); gaits[k]?.setXYZ(m.count, 0, 0, 0);
       m.setColorAt(m.count++, tmpC.setHex(C.wreck).multiplyScalar(0.8 + 0.4 * Math.random())); // charred, lit by its own fire
       const rotor = ROTORS[k];
       if (rotor && rotors.count < MAX_ENEMIES) {
         dummy.position.y += rotor.y * sz; dummy.rotation.set(0, clock * 9, 0); dummy.scale.set(rotor.r * sz, 1, rotor.r * sz); dummy.updateMatrix();
         rotors.setMatrixAt(rotors.count, dummy.matrix); rotors.setColorAt(rotors.count, tmpC.setHex(0x222222)); rf.setX(rotors.count++, 0.5);
+      }
+    }
+  }
+  // Walkers' rounds: each a glowing streak along its path (straight, or arcing for a mortar round), held still
+  // while paused like the beams.
+  const bTail = new THREE.Vector3(), bHead = new THREE.Vector3();
+  function bolts(dt: number, play: boolean) {
+    boltMesh.count = 0;
+    const A = bo.a;
+    for (let i = 0; i < MAX_BOLTS; i++) {
+      if (bo.dur[i] <= 0) continue;
+      const j = i * 6, t0 = bo.t[i];
+      if (play) bo.t[i] += dt;
+      const t = bo.t[i], dur = bo.dur[i];
+      if (t < 0) continue;
+      if (t0 < 0) { // just fired: muzzle flash
+        shards(A[j], A[j + 2], 2, C.flash, 3, bo.blast[i] ? 0.45 : 0.3, A[j + 1], 2.5);
+      }
+      if (t >= dur) { // landed
+        bo.dur[i] = 0;
+        const x = A[j + 3], y = A[j + 4], z = A[j + 5];
+        if (bo.blast[i]) { boom(x, y, z, bo.blast[i], 10); gwave(x, z, bo.blast[i] * 1.4, C.fire, 0.5, 0.8); }
+        else shards(x, z, 3, C.fire, 5, 0.4, y, 1.5);
+        continue;
+      }
+      const at = (u: number, v: THREE.Vector3) => v.set(A[j] + (A[j + 3] - A[j]) * u, A[j + 1] + (A[j + 4] - A[j + 1]) * u + 4 * bo.apex[i] * u * (1 - u), A[j + 2] + (A[j + 5] - A[j + 2]) * u);
+      const u = t / dur, d = Math.hypot(A[j + 3] - A[j], A[j + 4] - A[j + 1], A[j + 5] - A[j + 2]) || 1;
+      at(Math.max(0, u - bo.len[i] / d), bTail); at(u, bHead);
+      dir.subVectors(bHead, bTail);
+      const len = dir.length();
+      if (len < 1e-4) continue;
+      dummy.position.copy(bTail); dummy.quaternion.setFromUnitVectors(X, dir.divideScalar(len));
+      const c = i * 3;
+      for (const [w, k, hot] of [[bo.w[i] * 2.4, 0.25, 0], [bo.w[i], 0.55, 0.2]]) { // glow, then the hot core
+        dummy.scale.set(len, w, w); dummy.updateMatrix();
+        boltMesh.setMatrixAt(boltMesh.count, dummy.matrix);
+        boltMesh.setColorAt(boltMesh.count++, tmpC.setRGB(bo.col[c] * k + hot, bo.col[c + 1] * k + hot, bo.col[c + 2] * k + hot));
       }
     }
   }
