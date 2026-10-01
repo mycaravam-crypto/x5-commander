@@ -22,7 +22,7 @@ Other scripts:
 | `npm run build` | Type-checks, then builds a static site into `dist/`        |
 | `npm test`      | Runs a headless check of the game simulation in Node       |
 | `npm run bench` | Times the simulation under a heavy swarm: mean, median, p95 and worst ms per tick at 600 and 1000 contacts (e.g. `npm run bench -- 2000,3000 10`) |
-| `npm run balance [seeds] [cap-s]` | Bots play many seeded runs; median survival per doctrine and per perk, and what did the most damage |
+| `npm run balance [seeds] [cap-s]` | Bots play many seeded runs; median survival per doctrine and per command-tree keystone, and what did the most damage |
 
 The game runs entirely in the browser, with no backend and no asset files. `dist/` can be hosted on any static file server.
 
@@ -131,7 +131,7 @@ The GitHub Pages build is static. To give it a scoreboard, run the server somewh
 | T                      | Cycle the auto-targeting mode             |
 | V                      | Cycle radar mode: ACTIVE / FOCUSED / LPI  |
 | F                      | EMCON: silence the radar (toggle)         |
-| 1 / 2 / 3              | Pick a perk when the base levels up       |
+| K                      | Command tree (also: click BATTERY LV)     |
 | 1 – 4 (start screen)   | Pick a doctrine                           |
 | P / Esc                | Pause menu: help, SFX / music volume, coverage overlay, reset tips |
 | O                      | Coverage map: gaps, single cover and crossfire on the ground: off / faint / full (remembered) |
@@ -172,7 +172,7 @@ A run starts with a command post and a section of two **12.7 mm AA machine guns*
 - **The MGs** fire by themselves at whatever they can see within 10 m (eyes reach further than the guns). The two starting guns stand either side of the front axis so their fields of fire cross on it. Each feeds from its own 40-round belt, not the interceptor stock, and takes 3 s to reload when the belt runs dry.
 - **What's off without a radar:** locks, the priority target, radar modes, EMCON and the emergency intercept. ARMs have nothing to home on.
 - **The shop** only offers what helps before the radar: guns and pads, hull, damage and fire rate. Power, sensors and fire control need the radar; the magazine needs the Patriot.
-- **Milestones:** from base level 3 you can buy the **AN/MPQ-65 radar** (search and fire control), then the **PAC-3 MSE battery** (the Patriot, which needs the radar). Radar and Patriot perks only turn up in drafts once you have them.
+- **Milestones:** from base level 3 you can buy the **AN/MPQ-65 radar** (search and fire control), then the **PAC-3 MSE battery** (the Patriot, which needs the radar). Radar and Patriot keystones on the command tree can only be taken once you have them.
 
 ### Radar decides everything
 Once it's built, a rotating radar sweep reveals enemies within its range (until you buy the AESA, below). Each time the sweep passes over an enemy, there's a chance it gets detected. The chance depends on the enemy's signature and your radar resolution. **Undetected enemies are invisible and can't be shot.** A detected contact fades again after the radar's *persistence* time runs out.
@@ -279,7 +279,17 @@ Your generator fills a power pool, and everything draws on it in this order:
 Laser and HPM shots cost power as well. **Resupply breathes:** the generators and the GMT reload line work harder the emptier their store is: 1.6× their rating when empty, easing to 0.4× at capacity (`RESUPPLY`). So each bar settles at a level that shows how supply compares to demand: short of it, low but still firing; well ahead, near full. And since demand keeps growing with the war, a surplus bought once wears away. The power and interceptor bars show the net flow per second, so you can see which way the budget is going. Balancing seeing, shooting and building is the core tension of the game.
 
 ### Credits, upgrades and base levels
-Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits. There are 28 upgrades in 7 groups: BATTERY, POWER, SENSORS, FIRE CONTROL, WEAPONS, MAGAZINE and PERIMETER. Each upgrade costs more with every level. There is **no max level**, except for *Threat Evaluation*, the *radar*, the *PAC-3 battery* and *LTAMDS AESA*, which are on/off, and Scan Rate before the AESA. Earth Revetments have diminishing returns, up to 85% less damage taken. **Ranks:** every 5th level of an open-ended upgrade (not a pad) is a new rank and adds one free level on top. A bar under each shop row fills toward the next rank, and the buy that reaches it is marked ★. Every purchase shows what it bought, and the purchase sound climbs with the upgrade's level. The bar under BATTERY LV fills toward the next base level. Buying upgrades raises your **base level**, which adds visible structures to the base and offers a **perk draft: pick 1 of 3**. Every perk has a tradeoff, for example *GLASS CANNON*: +60% damage, −45% max HP. From base level 3, every draft also offers one **rule perk** (marked ★ NEW RULE) that changes how the battery plays, until you've taken them all. From level 3: *BLACKOUT PROTOCOL* (tracks coast twice as long when the radar goes dark, −30% memory while radiating), *COUNTER-SEAD* (each ARM shot down restores 20% power), *KILL CHAIN* (every 5 kills: +1 lock slot for 8 s), *OVERKILL* (damage past a kill jumps to the nearest contact within 8 m) and *LAST STAND* (below 25% HP: +50% fire rate, −40% power gen). From level 5: *TRACK FUSION* (locks hold while the radar is dark), *LPI WAVEFORM* (LPI mode keeps full detection), *OVERWATCH* (your marked target takes double damage), *ARC LASER* (laser jumps to 2 more targets; needs the laser), *SCAVENGER* (kills refund interceptors) and *FRAG WARHEADS* (PAC-3 hits splash).
+Kills earn credits. Killing quickly builds a **combo** worth up to +100% credits. There are 28 upgrades in 7 groups: BATTERY, POWER, SENSORS, FIRE CONTROL, WEAPONS, MAGAZINE and PERIMETER. Each upgrade costs more with every level. There is **no max level**, except for *Threat Evaluation*, the *radar*, the *PAC-3 battery* and *LTAMDS AESA*, which are on/off, and Scan Rate before the AESA. Earth Revetments have diminishing returns, up to 85% less damage taken. **Ranks:** every 5th level of an open-ended upgrade (not a pad) is a new rank and adds one free level on top. A bar under each shop row fills toward the next rank, and the buy that reaches it is marked ★. Every purchase shows what it bought, and the purchase sound climbs with the upgrade's level. The bar under BATTERY LV fills toward the next base level. Buying upgrades raises your **base level**, which adds visible structures to the base and pays **command tree points** (see below).
+
+### Command tree
+Every base level-up pays **2 points**, and every 5th base level one more (base level 13, about where a good 30-minute run ends, is worth 26). Leveling up opens the tree and pauses the fight; **K** (or a click on BATTERY LV) opens it any time, and a badge on BATTERY LV shows points not spent yet. Points you don't spend stay banked, and **UNDO** gives back everything taken since the tree was opened.
+
+The tree is a radial map with **COMMAND** in the middle and three branches: **OFFENSE** (damage, fire rate, fire control), **DEFENSE** (hull, armour, repairs, going dark) and **SYSTEMS** (power, sensors, the magazine, credits). A point buys one node next to one you hold:
+- **Travel nodes** (small circles) are one small, pure step: +4% damage, +4% fire rate, +6% max HP, +2% armour, +0.3 HP/s repair, +6% power gen, +4% radar range and so on.
+- **Notables** (diamonds) sit where two lanes of a branch meet, two per branch: bigger than a travel node, no trade, and each does something a plain stat can't. OFFENSE: *MOMENTUM* (+2% fire rate per combo step, up to +20%) and *HUNTER-KILLER* (+30% damage to heavy targets and raid leaders). DEFENSE: *FIELD DEPOT* (units repair 3× as fast, +0.5 HP/s battery repair) and *DUG IN* (units take 30% less damage, +4% armour). SYSTEMS: *WAR CHEST* (4% interest on banked credits every build window, up to 150) and *EARLY WARNING* (raids announced 5 s earlier, +15% contact memory).
+- **Keystones** (hexagons) are the old perks, with their trades: *GLASS CANNON*, *OVERCHARGE*, *FORTRESS*, *REACTOR*... ★ marks the ones that change the rules (*OVERKILL*, *LAST STAND*, *TRACK FUSION*, *KILL CHAIN*...). Keystones are leaves: you can't path through one. The radar and Patriot keystones need those upgrades first (dashed amber outline).
+
+The rule keystones sit deeper (ring 5 to 7), so they take a few levels to reach. The full tree is 62 nodes; a good run fills under half of it: one branch end to end and a dip into another, or the near keystones of two.
 
 ### Salvage
 Kills sometimes drop **salvage**: a spinning crate with a light over it. **Click it** to recover it: it stays on the ground until you do (up to 12 at once; while 12 are waiting, kills drop nothing more). Heavier kills drop more often (FPV under 1%, Shahed 3%, Mi-28 12%, Mi-8 30%, Su-34 40%; decoys never drop) and are more likely to drop tech:
@@ -445,7 +455,7 @@ The base is laid out like a Patriot site. Every base level builds something that
 
 The level-up card names what was built. The LTAMDS AESA upgrade adds rear arrays to the radar, and buying laser, IRIS-T SLX or HPM adds their vehicles.
 
-**Doctrines:** before a normal run, pick a doctrine: a starting loadout of free upgrade levels (they don't count toward base level) and a trade that holds for the whole run, through every level-up and perk (the start screen shows it in amber). **STANDARD** is always available and has no trade. The others unlock from your all-time records:
+**Doctrines:** before a normal run, pick a doctrine: a starting loadout of free upgrade levels (they don't count toward base level) and a trade that holds for the whole run, through every level-up and command tree point (the start screen shows it in amber). **STANDARD** is always available and has no trade. The others unlock from your all-time records:
 
 | Doctrine       | Unlock                  | Starting loadout                         | All run                                                      |
 |----------------|-------------------------|------------------------------------------|--------------------------------------------------------------|
@@ -456,11 +466,11 @@ The level-up card names what was built. The LTAMDS AESA upgrade adds rear arrays
 Daily ops always fly STANDARD.
 
 **Progression layers.** There are three, and they stay separate:
-- **Run:** kills → credits → upgrades → base level → perks → more complex threats. All of it resets every run.
+- **Run:** kills → credits → upgrades → base level → command tree → more complex threats. All of it resets every run.
 - **Meta:** each run can set a record, and records unlock doctrines. Doctrines are only starting loadouts: they don't count toward base level and don't carry anything else between runs.
 - **Daily op:** a fixed challenge with a fixed doctrine (STANDARD), scored by your best time for the day, on a local daily board.
 
-**Daily op:** the same seed for everyone on the same (UTC) day, so the whole enemy schedule is identical: which enemies, packages, bearings, raids and perk drafts. Your commands, radar mode and detection luck never touch that schedule. Normal waves, raids and strike packages each draw from their own seeded stream, and the waves' stream starts over at every level, so each level sends everyone the same things in the same order, however long earlier levels took. What play can change is pacing: how quickly you deal with a raid decides when the level ends, and a lost objective cuts the build window short. Your best time for the day is saved. `R` after a daily op flies it again.
+**Daily op:** the same seed for everyone on the same (UTC) day, so the whole enemy schedule is identical: which enemies, packages, bearings, raids and strike packages. Your commands, radar mode and detection luck never touch that schedule. Normal waves, raids and strike packages each draw from their own seeded stream, and the waves' stream starts over at every level, so each level sends everyone the same things in the same order, however long earlier levels took. What play can change is pacing: how quickly you deal with a raid decides when the level ends, and a lost objective cuts the build window short. Your best time for the day is saved. `R` after a daily op flies it again.
 
 **Daily board and seed sharing.** Every run has a **seed code**: `X5-<seed>-<doctrine>` for a normal run (same map, same raids, same loadout), `X5-D<date>` for a daily op. The start screen and the game-over card show it, and the result line (`C`) carries it. **PLAY A SEED** (`S` on the start screen) takes a code, or a friend's whole result line, and loads that run; press DEPLOY to fly it. A daily op's result line also puts your friend's time on that day's **daily board** as RIVAL. The board keeps the best 5 runs per day (yours and rivals') for the last 14 days, in `localStorage`; the start screen shows today's (or the loaded op's), the daily debrief shows where your run placed.
 
@@ -473,7 +483,7 @@ An enemy that reaches the base damages it and dies. When base HP hits 0, the gam
 This section replaces the old `plan-mvp.md`, `plan.md` and `plan-frontline.md`; they are still in git history.
 
 ### Shipped
-- **MVP:** the core loop (detect → lock → shoot → credits → upgrade → base level → perks → game over), the upgrade shop, juice and sound, 2,000 pooled enemy instances.
+- **MVP:** the core loop (detect → lock → shoot → credits → upgrade → base level → perks (now the command tree) → game over), the upgrade shop, juice and sound, 2,000 pooled enemy instances.
 - **Green radar look:** wireframe models over a polar grid with a CRT pass. Replaced by the terrain view (below); it's in git history.
 - **Terrain and free building:** a fixed map (`terrain.ts`: river, woods, ponds, rock outcrops, roads, fields, hills) drawn as a lit 3D scene with shadows, trees and a day / night grade; solid vehicle and aircraft models flying at their own heights; an RTS camera (pan, rotate, zoom, minimap to jump); units built anywhere on open ground in a build zone that grows with the base, with a ghost that previews coverage.
 - **Onboarding and balance pass:** start screen matches the one-gun start; shop puts PERIMETER first before the radar, folds away what needs the radar or Patriot, and suggests a gun while unit slots are free; the balance bot builds and places units like a player; the first Su-34 strike carries one bomb; a late-game surge so every run ends; the debrief shows what hurt the battery.
@@ -491,7 +501,7 @@ This section replaces the old `plan-mvp.md`, `plan.md` and `plan-frontline.md`; 
 - [x] **Build window as its own state:** 60% speed, shop open, the build zone highlighted, `N` to skip it. Missile launches flash at their bearing on the minimap.
 - [ ] **Map polish:** draw the belts as dim dashed arcs and shade enemy territory beyond the front.
 - [x] **Rebalance:** levels follow the threat sequence (FPVs, helicopters, flanks, cruise and EW, then SEAD; the Su-34 at level 4 was a wall about 60 s after the Patriot came online).
-- [ ] **Rebalance perks** with `npm run balance`: with the late-game surge the bots' runs end between about 30 and 50 minutes, so perks can be compared again.
+- [x] **Perks → command tree:** a radial skill tree (OFFENSE / DEFENSE / SYSTEMS) with the old perks as keystones. `npm run balance` with the bots aiming at each keystone in turn: all within about ±15% of a travel-nodes-only run.
 
 ### Placement extras
 - [ ] **Tier-3 branch** for guns: at the ZU-23 (the MG's top tier; MANTIS is its own unit), pick *AP rounds* against Mi-28s or *high rate* against swarms.
@@ -518,7 +528,7 @@ Effects and music run on separate buses with their own volumes (pause menu, reme
 ## Project layout
 
 ```
-src/config.ts     every tunable number: enemies, weapons, upgrades, perks, difficulty
+src/config.ts     every tunable number: enemies, weapons, upgrades, the command tree, difficulty
 src/sim.ts        pure game state + update(dt), no Three.js (testable in Node)
 src/terrain.ts    the map, generated from the run's seed: ground types, heights, trees (pure, the sim uses it for building)
 src/terrainPaint.ts paints the map for the 3D ground and the minimap

@@ -1,6 +1,6 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, LEVEL_LEN, BUILD_TIME, BUILD_LOST, ELITE_FROM, PK_GROW, PK_MAX, EW_GROW, EW_MAX,
-  TERRAIN, ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, PERKS, PERIM_KINDS, PERIM, GUNS, FANS, beltAt, buildR, BUILD_MIN, PAD_GAP, START_PADS, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, VETERANCY, vetRank, deriveStats, difficulty, BACKUP_RADAR,
+  TERRAIN, ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, SKILLS, skill, skillLinks, skillPoints, PERIM_KINDS, PERIM, GUNS, FANS, beltAt, buildR, BUILD_MIN, PAD_GAP, START_PADS, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, MOMENTUM_CAP, INTEREST_CAP, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, VETERANCY, vetRank, deriveStats, difficulty, BACKUP_RADAR,
   BIG_KILLS, BIG_KILL_SHAKE, DROPS, DROP_KINDS, DROP_GRAB, DROP_MAX, DROP_HEAVY, CACHE, REPAIR_DROP, OVERDRIVE, MILESTONE, rank,
   type Stats, RADAR_MODES, resupply, UPKEEP, HPM_CONE, POINT_DEFENCE, SPOT_RINGS, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   GROUND, GROUND_LEVELS, GROUND_MODS, GROUND_RAIDS, GROUND_FIRE, AIR_ONLY, GROUND_ONLY, AIR_GUNS, GROUND_GUNS, ANTI_ARMOUR, PIERCE, FRONT_LINE, groundZone, tideFor, HORDE_TEST,
@@ -60,9 +60,11 @@ export type Ev =
   | { k: 'padHit' | 'padDown' | 'padUp' | 'padSold' | 'padMoved' | 'padRank'; x: number; z: number; n: number; kind: PerimKind }
   | { k: 'padMod'; x: number; z: number; n: number; kind: PerimKind; id: string }
   | { k: 'robotLob'; x: number; z: number; x2: number; z2: number; n: number } // a mortar walker's round landing on (x2, z2), splash n
+  | { k: 'skill'; id: string }
+  | { k: 'interest'; n: number }
   | { k: 'level' | 'warning' | 'buy' | 'placing' | 'lock' | 'over' | 'trained' | 'emcon' | 'radarDown' | 'aesa' | 'radarOnline' | 'pac3' | 'discipline' | 'radarMode' | 'killChain' | 'counterSead' | 'lastStand' };
 
-export type Phase = 'start' | 'play' | 'pause' | 'perk' | 'over';
+export type Phase = 'start' | 'play' | 'pause' | 'tree' | 'over';
 export interface Drop { id: number; k: DropKind; x: number; z: number; v: number } // v: the kill's reward (a cache scales with it); on the ground until clicked
 // mods: what it's fitted with, one per slot (GROUND ASSAULT, UNIT_MODS).
 export interface Pad { k: PerimKind; x: number; z: number; a: number; slot: number; cd: number; belt: number; hp: number; tier: number; paid: number; down: boolean; site: Site; kills: number; mods?: Partial<Record<ModSlot, string>> }
@@ -96,7 +98,7 @@ export function parseResult(text: string) {
   return code && m ? { code, time: +m[1] * 60 + +m[2], kills: +m[3].replaceAll(',', '') } : null;
 }
 
-// The seed drives two separate streams: the spawn schedule and the perk drafts. Everything that depends on
+// The seed drives the spawn schedule (normal waves, raids and strikes, each on a stream of its own). Everything that depends on
 // how you play (detection rolls, launches) uses Math.random, so it can't shift the schedule.
 // Training (see config TRAINING) always flies STANDARD over its own map. A ground assault (config GROUND) is a
 // normal run of its own mode, STANDARD too.
@@ -116,7 +118,6 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     doctrine: doc.id,
     seed,
     world: { seed }, // normal waves; reseeded per level (see nextStage)
-    perkRng: { seed: seed ^ 0x9E3779B9 },
     // Scheduled events get streams of their own, so how many normal spawns came before (which raid pacing
     // and recovery lulls change) can't change which raid or strike comes next.
     raidRng: { seed: seed ^ 0x2545F491 },
@@ -130,8 +131,9 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
     lv: { mg: START_PADS.length, ...doc.lv } as Record<string, number>, // the starting MGs count toward the price of the next
     bought: 0,
     level: 1,
-    perks: [] as string[],
-    perkChoices: [] as string[],
+    skills: ['core'], // command tree nodes held (SKILLS), in the order taken
+    points: 0, // command tree points not spent yet
+    fresh: [] as string[], // nodes taken since the tree was opened: UNDO gives them back
     st: deriveStats(doc.lv, [], 1, doc.id),
     hp: 0,
     power: 0,
@@ -194,7 +196,7 @@ export function newGame(seed = Math.random() * 2 ** 32 | 0, daily = '', doctrine
   if (horde) {
     // Base level and credits to build a line with, a build window, then THE TIDE's level (nextStage).
     const L = HORDE_TEST.level;
-    s.bought = 1.5 * (L - 1) * L; s.level = L; s.credits = HORDE_TEST.credits;
+    s.bought = 1.5 * (L - 1) * L; s.level = L; s.credits = HORDE_TEST.credits; s.points = skillPoints(L);
     s.st = deriveStats(s.lv, [], L, doc.id);
     s.stage = GROUND_LEVELS.findIndex(l => l.name === 'THE TIDE') - 1; s.buildUntil = HORDE_TEST.build;
   }
@@ -235,8 +237,10 @@ export const emitting = (s: State) => s.st.radar && !s.emcon && s.t >= s.radarDo
 export const radarMode = (s: State) => RADAR_MODES[s.radarMode];
 // Lock slots right now: KILL CHAIN adds one for a while after a run of kills.
 export const slots = (s: State) => s.st.slots + (s.t < s.chainUntil ? 1 : 0);
+// MOMENTUM (notable): fire rate x while a combo runs.
+export const momentum = (s: State) => s.st.momentum && s.t - s.lastKill < COMBO_WINDOW ? 1 + s.st.momentum * Math.min(s.combo, MOMENTUM_CAP) : 1;
 export const lastStand = (s: State) => s.st.lastStand && s.hp < s.st.maxHp * LAST_STAND.hp;
-// Effective detection range and arc for the current mode. LPI WAVEFORM (perk) takes the LPI penalty away.
+// Effective detection range and arc for the current mode. LPI WAVEFORM (keystone) takes the LPI penalty away.
 export const radarRange = (s: State) => s.st.radarRange * (radarMode(s).lpi && s.st.lpi ? 1 : radarMode(s).range);
 export const radarSector = (s: State) => radarMode(s).sector * (s.st.aesa ? 1.5 : 1); // 0 = all round
 export function focusBearing(s: State) {
@@ -333,23 +337,84 @@ export const toRank = (s: State, id: string) => {
 // Every purchase counts toward the base level (upgrades in place too).
 function purchased(s: State) {
   const lvl = baseLevel(s.bought), up = lvl > s.level;
-  if (up) s.level = lvl;
+  if (up) { s.points += skillPoints(lvl) - skillPoints(s.level); s.level = lvl; }
   refreshStats(s); // after the level: base levels carry stats of their own
   if (up) {
-    s.perkChoices = draft(s);
-    s.phase = 'perk';
+    openTree(s);
     s.events.push({ k: 'level' });
   }
 }
 
-// 3 distinct perks the battery qualifies for; once rule perks are in reach, one of them changes the rules (while any are left).
-export function draft(s: State) {
-  const pool = PERKS.filter(p => (p.min ?? 0) <= s.level && (!p.need || s.lv[p.need]) && !(p.rule && s.perks.includes(p.id)));
-  const rules = pool.filter(p => p.rule).map(p => p.id);
-  const out = rules.length ? [pick(s.perkRng, rules)] : [];
-  const rest = pool.filter(p => !p.rule).map(p => p.id);
-  while (out.length < 3) { const p = pick(s.perkRng, rest); if (!out.includes(p)) out.push(p); }
-  return out;
+// ---------- command tree ----------
+// Why a node can't be taken right now ('' = it can). Keystones are leaves: a path never runs through one.
+export function skillBlock(s: State, id: string) {
+  const n = skill(id);
+  if (!n) return 'UNKNOWN';
+  if (s.skills.includes(id)) return 'TAKEN';
+  if (!skillLinks(id).some(l => s.skills.includes(l) && !skill(l)!.key)) return 'NOT CONNECTED';
+  if (n.need && !s.lv[n.need]) return `NEEDS ${UPGRADES.find(u => u.id === n.need)!.name.toUpperCase()}`;
+  if (s.points < 1) return 'NO POINTS';
+  return '';
+}
+export function takeSkill(s: State, id: string) {
+  if (s.phase !== 'tree' || skillBlock(s, id)) return false;
+  s.points--;
+  s.skills.push(id);
+  s.fresh.push(id);
+  refreshStats(s);
+  s.events.push({ k: 'skill', id });
+  return true;
+}
+// Gives back everything taken since the tree was opened (what's left is what was there, so it still connects).
+export function undoSkills(s: State) {
+  if (s.phase !== 'tree' || !s.fresh.length) return;
+  s.skills = s.skills.filter(id => !s.fresh.includes(id));
+  s.points += s.fresh.length;
+  s.fresh = [];
+  refreshStats(s);
+}
+// The tree pauses the fight, like the old perk card did. Points not spent stay banked.
+export function openTree(s: State) {
+  if (s.phase !== 'play') return;
+  s.phase = 'tree'; s.fresh = [];
+}
+export function closeTree(s: State) {
+  if (s.phase !== 'tree') return;
+  s.phase = 'play'; s.fresh = [];
+}
+// The shortest run of nodes still to take to reach `id` (ending with it), through travel nodes only; [] if there's none.
+export function skillPath(s: State, id: string) {
+  if (s.skills.includes(id) || !skill(id)) return [];
+  const prev = new Map<string, string>(), queue = s.skills.filter(h => !skill(h)!.key);
+  for (const h of queue) prev.set(h, '');
+  for (let i = 0; i < queue.length; i++) {
+    const at = queue[i];
+    for (const l of skillLinks(at)) {
+      if (prev.has(l)) continue;
+      prev.set(l, at);
+      if (l === id) {
+        const path = [];
+        for (let n = l; n && !s.skills.includes(n); n = prev.get(n)!) path.unshift(n);
+        return path;
+      }
+      if (!skill(l)!.key) queue.push(l);
+    }
+  }
+  return [];
+}
+// Spends every point it can: along the path to `goal` while that's open, then on whatever's next in `order`
+// (the first node in it that can be taken), then the open travel node nearest the centre, all three branches
+// in turn, keystones last. For the bots and the tests.
+const BY_RING = [...SKILLS].sort((a, b) => +!!a.key - +!!b.key || a.r - b.r).map(n => n.id);
+export function autoSpend(s: State, goal = '', order: string[] = []) {
+  const back = s.phase;
+  s.phase = 'tree';
+  while (s.points > 0) {
+    const g = skill(goal), path = g && (!g.need || s.lv[g.need]) ? skillPath(s, goal) : [];
+    const next = path[0] ?? [...order, ...BY_RING].find(id => !skillBlock(s, id));
+    if (!next || !takeSkill(s, next)) break;
+  }
+  s.phase = back; s.fresh = [];
 }
 
 // ---------- emplacements ----------
@@ -434,13 +499,13 @@ const siteRange = (t: Site) => t === 'high' ? TERRAIN.high.range : t === 'treeli
 export const covers = (p: { x: number; z: number; a: number; k: PerimKind; mods?: Pad['mods'] }, x: number, z: number, range: number, fan = fanOf(p)) =>
   (x - p.x) ** 2 + (z - p.z) ** 2 <= range * range && (fan >= Math.PI || Math.abs(angDiff(Math.atan2(z - p.z, x - p.x), p.a)) <= fan);
 const nearAmmo = (s: State, p: Pad) => s.perim.some(q => q.k === 'ammo' && up(q) && (q.x - p.x) ** 2 + (q.z - p.z) ** 2 <= AMMO_R ** 2);
-// What a unit fires with right now: its tier, the battery's weapon upgrades and perks, an ammo point in reach.
+// What a unit fires with right now: its tier, the battery's weapon upgrades and command tree, an ammo point in reach.
 // In a ground assault, its tier (UNIT_TIERS, MK II / III) and fittings (UNIT_MODS) too.
 export function padStats(s: State, p: Pad) {
   const w = p.k === 'mg' ? MG_TIERS[p.tier] : PERIM[p.k], v = VETERANCY[vetRank(p.kills)];
   const T = p.k === 'mg' ? UNIT_TIERS[0] : UNIT_TIERS[p.tier] ?? UNIT_TIERS[0], f = modFx(p);
   return { ...w, range: w.range * siteRange(p.site) * v.range * T.range * (f.range ?? 1), dmg: w.dmg * s.st.padDmg * v.dmg * T.dmg * (f.dmg ?? 1),
-    rate: w.rate * s.st.padRate * v.rate * (nearAmmo(s, p) ? AMMO_RATE : 1) * (overdrive(s) ? OVERDRIVE.rate : 1) * (f.rate ?? 1),
+    rate: w.rate * s.st.padRate * v.rate * (nearAmmo(s, p) ? AMMO_RATE : 1) * (overdrive(s) ? OVERDRIVE.rate : 1) * momentum(s) * (f.rate ?? 1),
     power: w.power * (f.power ?? 1), splash: f.splash ?? 0, burn: f.burn ?? 0, guided: !!f.guided, split: f.split ?? 0 };
 }
 // A gun that's up but can't fire: the interceptor pool is short of a round for it (MGs feed from their belts).
@@ -458,6 +523,7 @@ export function cruiseTarget(s: State, e: { x: number; z: number }) {
 }
 function hitPad(s: State, p: Pad, dmg: number) {
   if (p.down) return;
+  dmg *= s.st.padTaken; // DUG IN
   p.hp -= dmg;
   s.events.push({ k: 'padHit', x: p.x, z: p.z, n: dmg, kind: p.k });
   if (p.hp <= 0) { p.hp = 0; p.down = true; s.events.push({ k: 'padDown', x: p.x, z: p.z, n: 0, kind: p.k }); }
@@ -619,17 +685,9 @@ export function collectDrop(s: State, x: number, z: number) {
 }
 export const overdrive = (s: State) => s.t < s.overdriveUntil;
 
-export function pickPerk(s: State, i: number) {
-  if (s.phase !== 'perk' || !s.perkChoices[i]) return;
-  s.perks.push(s.perkChoices[i]);
-  s.perkChoices = [];
-  refreshStats(s);
-  s.phase = 'play';
-}
-
 function refreshStats(s: State) {
   const oldMax = s.st.maxHp;
-  s.st = deriveStats(s.lv, s.perks, s.level, s.doctrine);
+  s.st = deriveStats(s.lv, s.skills, s.level, s.doctrine);
   // Keep HP ratio when max changes, but hull upgrades also heal the added amount.
   s.hp = Math.min(s.st.maxHp, s.hp + Math.max(0, s.st.maxHp - oldMax));
   s.power = Math.min(s.power, s.st.powerCap);
@@ -818,6 +876,10 @@ function endStage(s: State, held: boolean, n = held ? BUILD_TIME : BUILD_LOST) {
   s.buildUntil = s.t + n;
   for (const p of s.perim) { p.hp = padHp(p); p.down = false; if (p.k === 'mines') p.belt = fullBelt(p); } // the build window puts every unit back up, mines re-laid
   s.events.push({ k: 'build', n });
+  if (s.st.interest) { // WAR CHEST
+    const i = Math.min(INTEREST_CAP, Math.round(s.credits * s.st.interest));
+    if (i > 0) { s.credits += i; s.earned += i; s.events.push({ k: 'interest', n: i }); }
+  }
 }
 function nextStage(s: State) {
   s.stage++; s.buildUntil = 0;
@@ -1403,7 +1465,7 @@ function perimeter(s: State, dt: number) {
   if (s.jamming) s.power -= need;
   for (const p of s.perim) {
     const max = padHp(p);
-    p.hp = Math.min(max, p.hp + PAD_REPAIR * dt);
+    p.hp = Math.min(max, p.hp + PAD_REPAIR * s.st.padRepair * dt);
     if (p.down && p.hp >= max / 2) { p.down = false; s.events.push({ k: 'padUp', x: p.x, z: p.z, n: 0, kind: p.k }); }
     if (p.k === 'mines') claymore(s, p, dt);
   }
@@ -1688,7 +1750,7 @@ function track(s: State, dt: number) {
     if (e.locked && (e.x * e.x + e.z * e.z > tr2 || e.ided && e.id !== s.marked)) drop(e);
     if (e.locked) { locks++; e.seenUntil = Math.max(e.seenUntil, s.t + 0.5); }
   }
-  // Too many locks (slots lowered by a perk) → drop extras
+  // Too many locks (slots lowered by a keystone) → drop extras
   const n = slots(s);
   if (locks > n) for (const e of s.enemies) if (e.locked && locks > n && e.id !== s.marked) { drop(e); locks--; }
   // Manual mark always gets a slot.
@@ -1733,7 +1795,7 @@ function fire(s: State, dt: number) {
   const open = (e: Enemy) => e === ic || e.incoming < e.hp * D.commit;
   const targets = ic ? [ic] : s.enemies.filter(e => e.locked && open(e));
   targets.sort((a, b) => (b.id === s.marked ? 1e12 : score(s, b)) - (a.id === s.marked ? 1e12 : score(s, a)));
-  const rate = D.rate * (ic ? INTERCEPT.rate : 1) * (lastStand(s) ? LAST_STAND.rate : 1) * (overdrive(s) ? OVERDRIVE.rate : 1);
+  const rate = D.rate * (ic ? INTERCEPT.rate : 1) * (lastStand(s) ? LAST_STAND.rate : 1) * (overdrive(s) ? OVERDRIVE.rate : 1) * momentum(s);
   let wi = 0;
   for (const k of ['cannon', 'pulse', 'missile', 'rail'] as WeaponKind[]) {
     const w = s.st.weapons[k];
@@ -1867,7 +1929,7 @@ function explode(s: State, x: number, z: number, r: number, dmg: number, src: st
 }
 
 // pad: the slot of the perimeter pad that dealt the blow, credited with the kill.
-function damage(s: State, e: Enemy, dmg: number, src: string, pad?: number) {
+export function damage(s: State, e: Enemy, dmg: number, src: string, pad?: number) {
   if (e.hp <= 0) return; // already dead this frame
   const T = ENEMIES[e.kind];
   if (T.pacOnly && src !== 'PAC-3') return;
@@ -1878,6 +1940,7 @@ function damage(s: State, e: Enemy, dmg: number, src: string, pad?: number) {
   if (T.armour) { const pr = !by ? 0 : ANTI_ARMOUR.includes(by.k) ? 1 : Math.max(PIERCE[by.k] ?? 0, modFx(by).pierce ?? 0); dmg *= T.armour + (1 - T.armour) * pr; }
   if (by && src !== 'INCENDIARY') { const b = modFx(by).burn; if (b) { e.burn = Math.max(e.burn, dmg * b); e.burnT = BURN; e.burnPad = by.slot; } }
   if (e.id === s.marked) dmg *= PRIORITY_DMG * s.st.markDmg;
+  if (s.st.heavy && (BIG_KILLS[e.kind] || bossOf(e.kind))) dmg *= 1 + s.st.heavy; // HUNTER-KILLER
   if (bossOf(e.kind)) {
     const c = DMG_CAT[src];
     dmg *= (c && c === e.adapt ? BOSS.adapt : 1) * (c && c === e.weak ? BOSS.weak : 1) * (e.kind === 'okhotnik' && e.pop > 0 ? BOSS.exposed : 1);

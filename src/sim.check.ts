@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, stageInfo, spawnGroupAt, seedCode, parseCode, parseResult, buy, skipBuild, cruiseTarget, cost, lockReason, pickPerk, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, draft, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive, noAmmo, spotted, irHit, shownKind, horizonMask, boss, bossHp, bossReach, bossStandoff, upkeep } from './sim.ts';
-import { baseLevel, difficulty, UPGRADES, PERKS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, START_PADS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, TERRAIN, AMMO_RELOAD, GUNS, HELO, LANCET, MILESTONE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE, VETERANCY, TRAINING, TRAINING_BUILD, DOCTRINES, RAIDS, EW_MAX, RECON, KA52, SU25, SEAD as SEAD_FTR, ARM2, ARM_STUN, ARM_LIFE, MASK, horizon, flightAlt, KINDS, ARENA_R, BOSS, bossLevel, bossFor, resupply, RESUPPLY, UPKEEP, type DmgCat } from './config.ts';
+import { newGame, update, stageInfo, spawnGroupAt, seedCode, parseCode, parseResult, buy, skipBuild, cruiseTarget, cost, lockReason, damage, takeSkill, undoSkills, openTree, closeTree, skillPath, skillBlock, autoSpend, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive, noAmmo, spotted, irHit, shownKind, horizonMask, boss, bossHp, bossReach, bossStandoff, upkeep } from './sim.ts';
+import { baseLevel, difficulty, UPGRADES, SKILLS, KEYSTONES, NOTABLES, INTEREST_CAP, skill, skillLinks, skillPoints, SKILL_POINTS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, START_PADS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, TERRAIN, AMMO_RELOAD, GUNS, HELO, LANCET, MILESTONE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE, VETERANCY, TRAINING, TRAINING_BUILD, DOCTRINES, RAIDS, EW_MAX, RECON, KA52, SU25, SEAD as SEAD_FTR, ARM2, ARM_STUN, ARM_LIFE, MASK, horizon, flightAlt, KINDS, ARENA_R, BOSS, bossLevel, bossFor, resupply, RESUPPLY, UPKEEP, type DmgCat } from './config.ts';
 import { buyMod, padHp, fanOf, padEyes, modCost, padUpgradeCost, inZone, spawnAt, unitCap, GROUND_EXTRA } from './sim.ts';
 import { GROUND_FIRE, UNIT_TIERS, tideFor, HORDE_TEST, groundZone, FRONT_LINE, GROUND } from './config.ts';
 import { site, PONDS, ROCKS, FARMS, mapSeed, openShare, OPEN_MIN, ground, riverZ, RIVER_W } from './terrain.ts';
@@ -33,7 +33,7 @@ const run = (s: State, secs: number, each?: () => void) => {
 };
 
 // A battery that has bought its radar and Patriot, for the checks on what those do.
-const armed = (g: State) => { g.lv.radar = g.lv.pac3 = 1; g.st = deriveStats(g.lv, g.perks, g.level); return g; };
+const armed = (g: State) => { g.lv.radar = g.lv.pac3 = 1; g.st = deriveStats(g.lv, g.skills, g.level); return g; };
 // One thing at a time: no random spawns, strike packages or raids. Armed, and without the starting MG. On a fixed
 // map where every reference spot (SPOT, below) is open ground, so a change to how many randoms earlier checks draw
 // can't land a check's unit on water or rock.
@@ -106,11 +106,11 @@ run(s, 20);
 // Eyes: the battery's own, and every emplacement's (the starting MG sees PAD_EYES round itself).
 ok(s.enemies.every(e => !e.locked || Math.hypot(e.x, e.z) < VISUAL_R + 1 || s.perim.some(p => Math.hypot(p.x - e.x, p.z - e.z) < PAD_EYES + 1)), 'radar sees nothing: locks only on what the eyes see');
 
-// Upgrading bot survives longer than idle, triggers perk drafts, grows base
+// Upgrading bot survives longer than idle, earns command tree points, grows base
 const bot = () => {
   const g = newGame(); g.phase = 'play';
   run(g, 1200, () => {
-    if (g.phase === 'perk') pickPerk(g, 0);
+    if (g.phase === 'tree') { autoSpend(g); closeTree(g); }
     // The milestones first: once one opens up, save for it. Then fill any room for another unit with a gun.
     const goal = ['radar', 'pac3'].find(id => cost(g, id) < Infinity);
     const gun = !g.placing && g.perim.length < perimSlots(g.level) ? GUNS.filter(k => cost(g, k) < Infinity).sort((a, b) => cost(g, a) - cost(g, b))[0] : undefined;
@@ -122,7 +122,7 @@ const bot = () => {
 const idle = newGame(); idle.phase = 'play'; run(idle, 1200);
 const b = bot();
 ok(b.t > idle.t, `upgrades help (${b.t.toFixed(0)}s vs ${idle.t.toFixed(0)}s)`);
-ok(b.level >= 3 && b.perks.length === b.level - 1, `base grows + perks (lv ${b.level}, perks ${b.perks.length})`);
+ok(b.level >= 3 && b.skills.length - 1 === skillPoints(b.level) && !b.points, `base grows + command tree (lv ${b.level}, nodes ${b.skills.length - 1})`);
 
 // Base levels add capability, not just numbers.
 {
@@ -772,26 +772,83 @@ ok(phase(s).name === MODS[0].name, 'first condition');
 s.stage += MODS.length;
 ok(phase(s).name === MODS[0].name, 'conditions loop');
 
-// Drafts: no rule perks before lv5; after, exactly one, never a repeat, never one needing gear you lack.
-const rule = (id: string) => PERKS.find(p => p.id === id)!.rule;
-s = newGame();
-for (let i = 0; i < 50; i++) ok(draft(s).every(id => !rule(id)), 'no rule perks early');
-s.level = 5; s.perks = ['fusion'];
-for (let i = 0; i < 50; i++) {
-  const d = draft(s);
-  ok(new Set(d).size === 3 && d.filter(rule).length === 1 && !d.includes('fusion') && !d.includes('arc'), `draft ${d}`);
+// Command tree: one connected tree, keystones are leaves, points per level, take / undo / needs.
+{
+  const ids = new Set(SKILLS.map(n => n.id));
+  ok(ids.size === SKILLS.length && SKILLS.every(n => n.from.every(f => ids.has(f) && !skill(f)!.key)), 'tree: unique ids, every link real, nothing hangs off a keystone');
+  ok(KEYSTONES.length === 23 && KEYSTONES.every(n => n.from.length === 1), 'tree: the 23 old perks are keystones');
+  const reach = new Set(['core']);
+  for (let grew = true; grew;) { grew = false; for (const n of SKILLS) if (!reach.has(n.id) && n.from.some(f => reach.has(f))) { reach.add(n.id); grew = true; } }
+  ok(reach.size === SKILLS.length, 'tree: every node reachable from COMMAND');
+  ok(skillPoints(1) === 0 && skillPoints(2) === SKILL_POINTS && skillPoints(5) === 4 * SKILL_POINTS + 1 && skillPoints(13) === 26, 'points: 2 a level, +1 every 5th');
+  ok(skillPoints(13) < (SKILLS.length - 1) / 2, 'a good run fills less than half the tree');
+  ok(SKILLS.every(n => n.key || n.notable || Object.keys(n.fx).length <= 1), 'travel nodes are one small step each');
+  ok(NOTABLES.length === 6 && NOTABLES.every(n => n.from.length === 2 && n.branch) && ['OFFENSE', 'DEFENSE', 'SYSTEMS'].every(b => NOTABLES.filter(n => n.branch === b).length === 2),
+    'notables: two per branch, each where two lanes meet');
 }
+{
+  const g = quiet(); g.phase = 'play'; g.credits = 1e6;
+  for (let i = 0; i < 3 && g.phase === 'play'; i++) buy(g, 'hp');
+  ok(g.level === 2 && (g.phase as string) === 'tree' && g.points === SKILL_POINTS, `level-up opens the tree with ${SKILL_POINTS} points`);
+  ok(skillBlock(g, 'o2a') === 'NOT CONNECTED' && skillBlock(g, 'o1') === '' && skillBlock(g, 'core') === 'TAKEN', 'only nodes next to one you hold');
+  const dmg = g.st.padDmg;
+  ok(takeSkill(g, 'o1') && g.st.padDmg > dmg && g.points === SKILL_POINTS - 1, 'a travel node: one point, a small step');
+  ok(takeSkill(g, 'o2b') && !takeSkill(g, 'o3b') && skillBlock(g, 'o3b') === 'NO POINTS', 'out of points');
+  undoSkills(g);
+  ok(g.points === SKILL_POINTS && g.skills.join() === 'core' && g.st.padDmg === dmg, 'undo gives back what this visit took');
+  ok(skillPath(g, 'overcharge').join() === 'o1,o2b,overcharge' && skillPath(g, 'chain').length === 7, 'paths run the shortest way');
+  closeTree(g); ok((g.phase as string) === 'play' && g.points === SKILL_POINTS, 'closing banks the points');
+  openTree(g); takeSkill(g, 'o1'); closeTree(g); openTree(g); undoSkills(g);
+  ok(g.skills.includes('o1'), 'undo only reaches back to when the tree was opened');
+  // Keystones: leaves, and the ones on the radar or the Patriot wait for them.
+  g.points = 2; autoSpend(g, 'overcharge'); openTree(g);
+  ok(g.skills.includes('overcharge') && skillLinks('overcharge').length === 1, 'a keystone at the end of its spur');
+  g.points = 50; g.lv.radar = 0; for (const id of skillPath(g, 'killchain').slice(0, -1)) takeSkill(g, id);
+  ok(skillBlock(g, 'killchain').startsWith('NEEDS'), `KILL CHAIN needs the radar (${skillBlock(g, 'killchain')})`);
+  g.lv.radar = 1; ok(takeSkill(g, 'killchain') && g.st.killChain, 'with the radar it can be taken');
+  // A path never runs through a keystone: everything from here on is reached through travel nodes.
+  const h = quiet(); h.phase = 'tree'; h.skills = ['core', 'd1', 'd2b', 'fortress']; h.points = 9;
+  ok(!skillPath(h, 'd3b').includes('fortress') && skillPath(h, 'd3b').join() === 'd3b', 'no path through a keystone');
+  ok(KEYSTONES.every(k => SKILLS.every(n => !n.from.includes(k.id))), 'keystones are leaves');
+}
+// Notables.
+const withPerk = (id: string) => { const g = quiet(); g.skills = [id]; g.st = deriveStats(g.lv, g.skills); return g; };
+{ // MOMENTUM: guns fire faster while a combo runs
+  const g = withPerk('o4b'), p = addPad(g, 'mg', 0), r0 = padStats(g, p).rate;
+  g.combo = 5; g.lastKill = g.t; ok(Math.abs(padStats(g, p).rate / r0 - 1.1) < 1e-9, 'MOMENTUM: +2% fire rate per combo step');
+  g.lastKill = g.t - 99; ok(padStats(g, p).rate === r0, 'MOMENTUM: gone with the combo');
+}
+{ // HUNTER-KILLER: heavy targets take more
+  const hit = (id: string, kind: 'elite' | 'drone') => { const g = id ? withPerk(id) : quiet(); g.st.slots = 0; const e = spawnEnemy(g, kind, 0, 30); e.hp = e.maxHp = 1e6; damage(g, e, 10, 'PAC-3'); return 1e6 - e.hp; };
+  ok(Math.abs(hit('o6c', 'elite') / hit('', 'elite') - 1.3) < 1e-6 && hit('o6c', 'drone') === hit('', 'drone'), 'HUNTER-KILLER: +30% on heavy targets only');
+}
+{ // FIELD DEPOT and DUG IN: units mend faster and take less
+  const mend = (id: string) => { const g = id ? withPerk(id) : quiet(); const p = addPad(g, 'mg', 0); p.hp = 5; run(g, 2); return p.hp - 5; };
+  ok(Math.abs(mend('d4b') / mend('') - 3) < 0.05, 'FIELD DEPOT: units repair 3x as fast');
+  ok(withPerk('d6c').st.padTaken === 0.7 && withPerk('d6c').st.armor > quiet().st.armor, 'DUG IN: units take less, the battery armours up');
+}
+{ // WAR CHEST: interest on banked credits when the build window opens, capped
+  const pay = (credits: number) => {
+    const g = withPerk('s4b'); g.nextRaid = RAID_WARN; g.st.slots = 0; g.st.maxHp = g.hp = 1e9; g.credits = credits; let n = 0;
+    run(g, RAID_WARN + 40, () => { for (const e of g.events) if (e.k === 'interest') n = e.n; });
+    return n;
+  };
+  ok(pay(1000) === 40 && pay(1e6) === INTEREST_CAP, `WAR CHEST: 4% interest, up to ${INTEREST_CAP}`);
+}
+ok(withPerk('s6c').st.raidWarn === quiet().st.raidWarn + 5, 'EARLY WARNING: raids announced 5s earlier');
+
+// The horde test starts with the points for its level, banked.
+ok(newGame(3, '', 'standard', false, true, true).points === skillPoints(newGame(3, '', 'standard', false, true, true).level), 'horde test: points for its level');
 
 // TRACK FUSION: locks survive EMCON.
 s = quiet(); spawnEnemy(s, 'tank', 0, 30); s.enemies[0].hp = 1e9;
-s.perks = ['fusion']; s.st = deriveStats(s.lv, s.perks); s.st.slots = 1;
+s.skills = ['fusion']; s.st = deriveStats(s.lv, s.skills); s.st.slots = 1;
 run(s, 4);
 ok(s.enemies[0].locked, 'locked before EMCON');
 toggleEmcon(s); run(s, 2);
 ok(s.enemies[0].locked, 'fusion keeps the lock through EMCON');
 
 // New rule perks.
-const withPerk = (id: string) => { const g = quiet(); g.perks = [id]; g.st = deriveStats(g.lv, g.perks); return g; };
 { // BLACKOUT PROTOCOL: going dark doubles what's left of every track on the scope
   const g = withPerk('blackout'); g.st.slots = 0; const e = spawnEnemy(g, 'tank', 0, 30); e.hp = 1e9; e.speed = 0;
   run(g, 5); const left = e.seenUntil - g.t;
@@ -883,9 +940,9 @@ ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies stan
   const g = newGame(); g.phase = 'play'; g.credits = 1e9;
   ok(toRank(g, 'hp') === MILESTONE && toRank(g, 'mg') === 0, 'pads have no ranks');
   const stars: boolean[] = [];
-  for (let i = 0; i < MILESTONE; i++) { buy(g, 'hp'); for (const e of g.events) if (e.k === 'upgrade') stars.push(e.star); g.events.length = 0; if ((g.phase as string) === 'perk') pickPerk(g, 0); }
+  for (let i = 0; i < MILESTONE; i++) { buy(g, 'hp'); for (const e of g.events) if (e.k === 'upgrade') stars.push(e.star); g.events.length = 0; if ((g.phase as string) === 'tree') closeTree(g); }
   ok(stars.length === MILESTONE && stars.lastIndexOf(true) === MILESTONE - 1 && stars.indexOf(true) === MILESTONE - 1, 'the rank-up buy is flagged');
-  ok(g.st.maxHp >= (100 + 40 * (MILESTONE + 1)) * Math.min(...PERKS.map(p => p.fx.hp ?? 1)) && toRank(g, 'hp') === MILESTONE, 'rank counts in the stats, next rank 5 buys away');
+  ok(g.st.maxHp >= (100 + 40 * (MILESTONE + 1)) * Math.min(...SKILLS.map(n => n.fx.hp ?? 1)) && toRank(g, 'hp') === MILESTONE, 'rank counts in the stats, next rank 5 buys away');
 }
 
 // Salvage: rare drops on kills, on the ground until clicked.
@@ -944,8 +1001,8 @@ ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies stan
 {
   const std = newGame(9), str = newGame(9, '', 'strike'), log = newGame(9, '', 'logistics'), sen = newGame(9, '', 'sensor');
   ok(Math.abs(str.st.maxHp - std.st.maxHp * 0.75) < 1e-9, 'FORWARD STRIKE: less HP from the start');
-  str.phase = 'play'; str.credits = 1e6; for (let i = 0; i < 4; i++) buy(str, 'hp'); pickPerk(str, 0);
-  const plain = deriveStats(str.lv, str.perks, str.level);
+  str.phase = 'play'; str.credits = 1e6; for (let i = 0; i < 4; i++) buy(str, 'hp'); autoSpend(str); closeTree(str);
+  const plain = deriveStats(str.lv, str.skills, str.level);
   ok(str.level >= 2 && Math.abs(str.st.maxHp - plain.maxHp * 0.75) < 1e-9 && str.st.padDmg > plain.padDmg * 1.14, 'FORWARD STRIKE: its trade holds after level-ups');
   ok(cost(log, 'hp') === Math.round(60 * DOCTRINES.find(d => d.id === 'logistics')!.price!) && cost(std, 'hp') === 60, 'LOGISTICS: upgrades cost less');
   ok(sen.st.radarRange > deriveStats(sen.lv, []).radarRange * 1.14 && sen.st.padDmg < std.st.padDmg, 'SENSOR NET: sees further, hits softer');
@@ -1070,7 +1127,7 @@ ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies stan
   run(g, RAID_WARN + 1);
   const b = boss(g)!;
   ok(b && g.enemies.filter(e => e.kind === 'halo').length === 1 && b.adapt === 'GUNS' && b.weak === 'PAC' && g.raidObj === 'boss', 'one boss arrives, traits as briefed');
-  const hp0 = bossHp(g, 'halo', FRONT); g.lv.dmg = 10; g.st = deriveStats(g.lv, g.perks, g.level);
+  const hp0 = bossHp(g, 'halo', FRONT); g.lv.dmg = 10; g.st = deriveStats(g.lv, g.skills, g.level);
   ok(bossHp(g, 'halo', FRONT) > 2 * hp0, 'a stronger battery meets a tougher boss');
   ok(bossHp(newGame(4), 'halo', FRONT) >= ENEMIES.halo.hp, 'never below its type\'s HP');
 }
@@ -1200,7 +1257,7 @@ ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies stan
   {
     const g = newGame(2, '', 'standard', false, true); g.phase = 'play';
     run(g, 900, () => {
-      if (g.phase === 'perk') pickPerk(g, 0);
+      if (g.phase === 'tree') { autoSpend(g); closeTree(g); }
       const gun = !g.placing && g.perim.length < perimSlots(g.level) ? GUNS.filter(k => cost(g, k) < Infinity).sort((a, b) => cost(g, a) - cost(g, b))[0] : undefined;
       buy(g, gun ?? UPGRADES.map(u => u.id).sort((a, b) => cost(g, a) - cost(g, b))[0]);
     });
@@ -1326,4 +1383,4 @@ ok(newGame(1, '2026-09-28', 'sensor').doctrine === 'standard', 'daily flies stan
   }
 }
 
-console.log(`ok · idle ${idle.t.toFixed(0)}s/${idle.kills} kills · bot ${b.t.toFixed(0)}s/${b.kills} kills lv${b.level} [${b.perks.join(',')}]`);
+console.log(`ok · idle ${idle.t.toFixed(0)}s/${idle.kills} kills · bot ${b.t.toFixed(0)}s/${b.kills} kills lv${b.level} [${b.skills.join(',')}]`);
