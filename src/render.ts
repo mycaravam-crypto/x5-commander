@@ -19,6 +19,7 @@ const L = PERF.lite;
 const MAX_ENEMIES = 2000, MAX_LOCKS = 64, MAX_SHOTS = 600, MAX_WAVES = 64, MAX_FRONTS = 48;
 const MAX_WRECKS = LITE ? L.wrecks : 48, MAX_FIRES = LITE ? L.fires : 24, MAX_SHARDS = LITE ? L.shards : 2500, MAX_BEAMS = LITE ? L.beams : 3000;
 const MAX_BLIPS = LITE ? L.blips : 1024, MAX_PUFFS = LITE ? L.puffs : 600, MAX_BOLTS = LITE ? 300 : 1200;
+const MAX_DOWNED = LITE ? 12 : 40; // knocked-down walkers lying where they fell
 const VIS = 1.6; // enemies drawn bigger than their hitbox so they read at a glance
 const PAD_VIS = 1.35; // emplacements too
 const TAU = Math.PI * 2;
@@ -60,7 +61,14 @@ const fadeAttr = (m: THREE.InstancedMesh) => m.geometry.getAttribute('fade') as 
 // Walk cycle for the robots on foot, in the vertex shader (models.ts rigs their limbs): per instance, `gait` is
 // (where it is in its stride, radians; hip swing, radians; knee fold x swing). Each leg swings at the hip, folds its
 // knee through the forward swing (foot up) and keeps its foot level; arms swing against their own side's leg.
-// Applied to the shadow pass too, so the shadows walk with them.
+// Applied to the shadow pass too, so the shadows walk with them. The normals turn with the limbs, so a leg swinging
+// forward catches the sun. `gait.z` is 0 for a walker that's down: its sensor eyes go dark.
+const GAIT_N_GLSL = `
+  if (legA.y > 0.5) {
+    float ph = gait.x + legA.x, sw = gait.y * sin(ph), up = max(0.0, cos(ph));
+    float a = legA.y > 3.5 ? -0.8 * sw : legA.y > 2.5 ? 0.0 : legA.y > 1.5 ? sw - gait.y * gait.z * up * up : sw;
+    objectNormal.xy = rot2(a) * objectNormal.xy;
+  }`;
 const GAIT_GLSL = `
   if (legA.y > 0.5) {
     float ph = gait.x + legA.x, sw = gait.y * sin(ph);
@@ -72,12 +80,21 @@ const GAIT_GLSL = `
       transformed.xy = legP.xy + rot2(sw) * (transformed.xy - legP.xy);
     }
   }`;
-function walking<M extends THREE.Material>(m: M) {
+// Their paint (models.ts `skin`): armour plain, limbs and joints darker, sensor eyes glowing a pulsing red.
+const walkTime = { value: 0 };
+function walking<M extends THREE.Material>(m: M, lit = false) {
   m.onBeforeCompile = sh => {
-    sh.vertexShader = 'attribute vec4 legA;\nattribute vec4 legP;\nattribute vec3 gait;\nmat2 rot2(float a) { float c = cos(a), s = sin(a); return mat2(c, s, -s, c); }\n'
-      + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>' + GAIT_GLSL);
+    sh.vertexShader = 'attribute vec4 legA;\nattribute vec4 legP;\nattribute vec3 gait;\nattribute vec2 skin;\nvarying vec3 vSkin;\nmat2 rot2(float a) { float c = cos(a), s = sin(a); return mat2(c, s, -s, c); }\n'
+      + sh.vertexShader
+        .replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>' + GAIT_N_GLSL)
+        .replace('#include <begin_vertex>', '#include <begin_vertex>' + GAIT_GLSL + '\n  vSkin = vec3(skin.x, skin.y * step(0.01, gait.z), 0.0);\n#ifdef USE_INSTANCING\n  vSkin.z = instanceMatrix[3].x * 0.7 + instanceMatrix[3].z * 1.3; // each pulses in its own time\n#endif');
+    if (!lit) return;
+    sh.uniforms.walkTime = walkTime;
+    sh.fragmentShader = 'uniform float walkTime;\nvarying vec3 vSkin;\n' + sh.fragmentShader
+      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb *= vSkin.x;')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vSkin.y * vec3(3.0, 0.45, 0.25) * (0.75 + 0.25 * sin(walkTime * 4.0 + vSkin.z));');
   };
-  m.customProgramCacheKey = () => 'walking';
+  m.customProgramCacheKey = () => lit ? 'walking-lit' : 'walking';
   return m;
 }
 // Drawn with `wireframe: true`, this geometry shows exactly the given segments (xyz pairs): each segment
@@ -779,7 +796,7 @@ export function createRenderer() {
   // Enemies: lit models, tinted per type; a faint stalk and ring drop to the ground under each so you can read where it is.
   const enemyMat = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide });
   const enemyMeshes = {} as Record<EnemyKind, THREE.InstancedMesh>;
-  const walkMat = walking(new THREE.MeshLambertMaterial({ side: THREE.DoubleSide })), walkDepth = walking(new THREE.MeshDepthMaterial());
+  const walkMat = walking(new THREE.MeshLambertMaterial({ side: THREE.DoubleSide }), true), walkDepth = walking(new THREE.MeshDepthMaterial());
   const gaits = {} as Partial<Record<EnemyKind, THREE.InstancedBufferAttribute>>;
   for (const k of KINDS) {
     const walks = !!GAIT[k] && !!GEOS[k].attributes.legA;
@@ -791,6 +808,44 @@ export function createRenderer() {
   const stalks = faded(new THREE.BoxGeometry(0.05, 1, 0.05).translate(0, 0.5, 0), MAX_ENEMIES, 0.35);
   const pips = faded(new THREE.RingGeometry(0.7, 1, 20).rotateX(-Math.PI / 2), MAX_ENEMIES, 0.7);
   scene.add(rotors, stalks, pips);
+  // Contact shadows under the robots on foot: a soft dark blob on the ground, the walker's footprint seen from above,
+  // stretched with its stride, laid on the slope it stands on and thrown a little away from the sun. Phones draw no
+  // shadow maps, so there it's the shadow they get; elsewhere it grounds them where the shadow map is coarse or
+  // doesn't reach (out past the rim, where they come in).
+  const blobs = faded(new THREE.PlaneGeometry(2, 2).rotateX(-Math.PI / 2), MAX_ENEMIES + MAX_DOWNED);
+  {
+    // Soft edged: dark in the middle, fading out to the rim of the (2 x 2) plane.
+    const bm = blobs.material as THREE.MeshBasicMaterial, fadeIn = bm.onBeforeCompile;
+    bm.onBeforeCompile = (sh, r) => {
+      fadeIn(sh, r);
+      sh.vertexShader = 'varying vec2 vB;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvB = position.xz;');
+      sh.fragmentShader = 'varying vec2 vB;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\nfloat bf = clamp(1.0 - length(vB), 0.0, 1.0);\ndiffuseColor.a *= bf * bf * (3.0 - 2.0 * bf);');
+    };
+    bm.customProgramCacheKey = () => 'blob';
+    Object.assign(bm, { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4, toneMapped: false });
+    blobs.renderOrder = 1; scene.add(blobs);
+  }
+  // Each walker's footprint from its model: centre along its length, and half its length and width.
+  const PRINT = {} as Partial<Record<EnemyKind, { cx: number; hx: number; hz: number }>>;
+  for (const k of KINDS) if (GAIT[k]) {
+    const b = (GEOS[k].computeBoundingBox(), GEOS[k].boundingBox!);
+    PRINT[k] = { cx: (b.max.x + b.min.x) / 2, hx: (b.max.x - b.min.x) / 2, hz: (b.max.z - b.min.z) / 2 };
+  }
+  const SUN_OFF = { x: 55 / 90, z: 40 / 90 }; // ground shift of a shadow per metre of height, away from the sun
+  const up = new THREE.Vector3(0, 1, 0), nrm = new THREE.Vector3(), qYaw = new THREE.Quaternion();
+  const bfa = fadeAttr(blobs);
+  function blob(k: EnemyKind, x: number, z: number, h: number, sz: number, amp: number, a: number) {
+    const P = PRINT[k], G = GAIT[k];
+    if (!P || !G || blobs.count >= blobs.instanceMatrix.count) return;
+    const c = Math.cos(h), sn = Math.sin(h), lift = 0.35 * sz; // the body's shadow, cast from about a third of its height
+    const bx = x + P.cx * sz * c + SUN_OFF.x * lift, bz = z + P.cx * sz * sn + SUN_OFF.z * lift, d = 0.6;
+    nrm.set(groundY(bx - d, bz) - groundY(bx + d, bz), 2 * d, groundY(bx, bz - d) - groundY(bx, bz + d)).normalize();
+    dummy.quaternion.setFromUnitVectors(up, nrm).multiply(qYaw.setFromAxisAngle(up, -h));
+    dummy.position.set(bx, groundY(bx, bz) + 0.05, bz);
+    dummy.scale.set((P.hx + 0.6 * G.leg * Math.sin(amp)) * sz * 1.25, 1, (P.hz + 0.08) * sz * 1.3); // feet out front and behind
+    dummy.updateMatrix();
+    blobs.setMatrixAt(blobs.count, dummy.matrix); blobs.setColorAt(blobs.count, tmpC.setRGB(0, 0, 0)); bfa.setX(blobs.count++, a);
+  }
 
   // Corner-bracket reticle ⌐ ¬, billboarded to the camera.
   const bracketPts: number[] = [];
@@ -893,7 +948,7 @@ export function createRenderer() {
   const fi = { x: new Float32Array(MAX_FIRES), z: new Float32Array(MAX_FIRES), r: new Float32Array(MAX_FIRES), life: new Float32Array(MAX_FIRES), emit: new Float32Array(MAX_FIRES), next: 0 };
   // Per-contact flight state for drawing: the sim turns on the spot between ticks; this eases the airframe round
   // (heading), banks it into turns, pitches it along its climb or dive, and remembers where its trail last left off.
-  interface Flight { kind: EnemyKind; x: number; y: number; z: number; vx: number; vz: number; h: number; bank: number; pitch: number; hs: number; acc: number; tx: number; ty: number; tz: number; emit: number; frame: number; gait: number; amp: number; aim: number; aimT: number }
+  interface Flight { kind: EnemyKind; x: number; y: number; z: number; vx: number; vz: number; h: number; bank: number; pitch: number; hs: number; acc: number; tx: number; ty: number; tz: number; emit: number; frame: number; gait: number; amp: number; aim: number; aimT: number; kick: number }
   const flights = new Map<number, Flight>();
   let frameNo = 0;
   const fr = { x: new Float32Array(MAX_FRONTS), y: new Float32Array(MAX_FRONTS), z: new Float32Array(MAX_FRONTS), a: new Float32Array(MAX_FRONTS), t: new Float32Array(MAX_FRONTS), max: new Float32Array(MAX_FRONTS), next: 0 };
@@ -901,7 +956,7 @@ export function createRenderer() {
   // round is drawn from its launcher and eases onto the sim path), its age, how far it had to go, and where it was last drawn.
   const shotFx = new WeakMap<Shot, { ox: number; oy: number; oz: number; age: number; d0: number; px: number; py: number; pz: number }>();
   const bl = { x: new Float32Array(MAX_BLIPS), z: new Float32Array(MAX_BLIPS), r: new Float32Array(MAX_BLIPS), life: new Float32Array(MAX_BLIPS), max: new Float32Array(MAX_BLIPS), next: 0 };
-  const tmpC = new THREE.Color();
+  const tmpC = new THREE.Color(), tmpC2 = new THREE.Color();
   const byId = new Map<number, { x: number; z: number; y: number }>(); // this frame's contacts, for shot and effect heights
   const ePos: { x: number; z: number; y: number }[] = Array.from({ length: MAX_ENEMIES }, () => ({ x: 0, z: 0, y: 0 }));
   // Drawn height of a contact near (x, z) (an event only says where), or low over the ground if there's none.
@@ -995,7 +1050,7 @@ export function createRenderer() {
     let src: Enemy | undefined, bd = 4;
     for (const o of s.enemies) { const d = (o.x - x) ** 2 + (o.z - z) ** 2; if (d < bd) { bd = d; src = o; } }
     const aim = Math.atan2(z2 - z, x2 - x), f = src && flights.get(src.id), kind = src?.kind ?? 'gunbot';
-    if (f) { f.aim = aim; f.aimT = clock; f.h += angDiff(aim, f.h) * 0.6; } // snaps most of the way round to fire
+    if (f) { f.aim = aim; f.aimT = clock; f.h += angDiff(aim, f.h) * 0.6; f.kick = Math.min(1.2, f.kick + (kind === 'arty' ? 0.7 : kind === 'titan' ? 0.3 : 0.5)); } // snaps most of the way round to fire, and takes the recoil
     const h = f ? f.h : aim, c = Math.cos(h), sn = Math.sin(h), sz = (src?.size ?? 1) * VIS;
     const bx = f ? f.x : x, bz = f ? f.z : z, gy = groundY(bx, bz);
     return { kind, pts: (MUZZLES[kind] ?? [[0.5, 1, 0]]).map(([mx, my, mz]) => [bx + (mx * c - mz * sn) * sz, gy + my * sz, bz + (mx * sn + mz * c) * sz]) };
@@ -1151,11 +1206,19 @@ export function createRenderer() {
           }
           // Aircraft come down in one piece-ish; missiles and FPVs just go up in the blast.
           if (f && WRECKS.includes(e.kind!)) { f.x = e.x; f.z = e.z; wreck(f, T.size * VIS); }
-          else if (T.ground) impact(e.x, e.z, T.size * 2, T.size * 0.8, T.size * 1.2); // a walker blows up where it stands
+          else if (T.ground) { // a walker blows up where it stands, and topples (a mini-walker goes up with its charge)
+            impact(e.x, e.z, T.size * 2, T.size * 0.8, T.size * 1.2);
+            if (f && GAIT[e.kind!] && e.kind !== 'crawler') down(f, T.size * VIS);
+          }
           else if (T.size > 1.5) { gwave(e.x, e.z, T.size * 3, C.fire, 0.5, 0.6); impact(e.x, e.z, T.size * 1.5, 0, T.size * 0.6); } // debris lands
           break;
         }
         case 'hit': {
+          if (!e.n) { // a walker taking a hit flinches
+            let f: Flight | undefined, bd = 2.25;
+            for (const g of flights.values()) { const d = (g.x - e.x) ** 2 + (g.z - e.z) ** 2; if (GAIT[g.kind] && d < bd) { bd = d; f = g; } }
+            if (f) f.kick = Math.min(1.5, f.kick + 0.8);
+          }
           const y = airY(s, e.x, e.z);
           e.n ? (wave(e.x, y, e.z, e.n, C.fire, 0.35, 1.2), shards(e.x, e.z, 6, C.fire, 10, 0.8, y, 1.5), puffs(e.x, y, e.z, 2, e.n * 0.5, 1)) : shards(e.x, e.z, 2, C.flash, 6, 0.4, y, 1.5);
           break;
@@ -1255,7 +1318,7 @@ export function createRenderer() {
     }
   }
 
-  const pools = [...Object.values(enemyMeshes), rotors, stalks, pips, brackets, hpBars, shells, tracers, missiles, boltMesh, dropMesh, dropRing, dropBeam, shardMesh, waveMesh, beamMesh, smokeMesh, puffMesh, frontMesh, blipMesh, jamMesh, dwellMesh];
+  const pools = [...Object.values(enemyMeshes), rotors, stalks, pips, blobs, brackets, hpBars, shells, tracers, missiles, boltMesh, dropMesh, dropRing, dropBeam, shardMesh, waveMesh, beamMesh, smokeMesh, puffMesh, frontMesh, blipMesh, jamMesh, dwellMesh];
   const sent = new Map<THREE.InstancedMesh, number>();
   const dummy = new THREE.Object3D();
   const camRight = new THREE.Vector3();
@@ -1267,7 +1330,7 @@ export function createRenderer() {
   // lead: s of game time since the last sim tick (main.ts ticks at a fixed step). Contacts and shots are drawn that
   // far along their velocity, so they glide at any refresh rate instead of stepping at the tick rate.
   function render(s: State, dt: number, lead = 0) {
-    clock += dt;
+    clock += dt; walkTime.value = clock;
     if (mapSeed !== terrainKey) buildTerrain(); // a new run, a new map
     if (s !== scarRun) { scarRun = s; healGround(); }
     consume(s);
@@ -1429,7 +1492,7 @@ export function createRenderer() {
 
     // enemies, locks, hp bars
     for (const k of KINDS) enemyMeshes[k].count = 0;
-    rotors.count = stalks.count = pips.count = 0;
+    rotors.count = stalks.count = pips.count = blobs.count = 0;
     const rf = fadeAttr(rotors), sf = fadeAttr(stalks), pfa = fadeAttr(pips);
     let nl = 0, nb = 0, marked = false, ne = 0;
     byId.clear();
@@ -1449,11 +1512,12 @@ export function createRenderer() {
       // FPVs rock as they jink, on top of the banking.
       const bank = f.bank + (k === 'swarm' ? 0.25 * Math.sin(clock * 9 + e.id) : 0);
       dummy.position.set(ex, y, ez);
-      dummy.rotation.set(bank, -f.h, f.pitch, 'YXZ');
+      dummy.rotation.set(bank, -f.h, f.pitch + 0.14 * f.kick, 'YXZ'); // a walker rocks back as it fires or is hit
       dummy.scale.setScalar(sz);
       dummy.updateMatrix();
       m.setMatrixAt(m.count, dummy.matrix);
       if (G) gaits[k]?.setXYZ(m.count, f.gait, f.amp, G.knee);
+      if (G) blob(k, ex, ez, f.h, sz, f.amp, (LITE ? 0.6 : 0.45) * fade);
       m.setColorAt(m.count++, tmpC.setHex(ENEMIES[k].mimic ? 0x9a9a9a : KIND_COL[k]).multiplyScalar(0.6 + 0.4 * fade));
       if (play) exhaust(e, f, sz, dt);
       const rotor = ROTORS[k];
@@ -1494,6 +1558,7 @@ export function createRenderer() {
     frameNo++;
     if (play) fires(dt);
     wrecks(dt, play, rf);
+    downed(dt, play);
     bolts(dt, play);
 
     // Your damaged units get an HP bar too.
@@ -1693,7 +1758,7 @@ export function createRenderer() {
     let course = heli && (e.act === 'hover' || e.orbit) ? Math.atan2(-z, -x) : hs > 0.05 ? Math.atan2(e.vz, e.vx) : undefined;
     let f = flights.get(e.id);
     if (!f) {
-      f = { kind: e.kind, x, y: want, z, vx: e.vx, vz: e.vz, h: course ?? Math.atan2(-z, -x), bank: 0, pitch: 0, hs, acc: 0, tx: x, ty: want, tz: z, emit: 0, frame: frameNo, gait: Math.random() * TAU, amp: 0, aim: 0, aimT: -1 };
+      f = { kind: e.kind, x, y: want, z, vx: e.vx, vz: e.vz, h: course ?? Math.atan2(-z, -x), bank: 0, pitch: 0, hs, acc: 0, tx: x, ty: want, tz: z, emit: 0, frame: frameNo, gait: Math.random() * TAU, amp: 0, aim: 0, aimT: -1, kick: 0 };
       flights.set(e.id, f);
     }
     f.frame = frameNo;
@@ -1711,8 +1776,14 @@ export function createRenderer() {
         // plant instead of skating, whether it's striding out or wading through wire. It eases into and out of
         // its stride, stands still when it stops, and sways over the leg it's standing on.
         f.amp += ((hs > 0.15 ? G.amp * Math.min(1, hs / 0.8) : 0) - f.amp) * ease(5);
+        const g0 = f.gait;
         if (f.amp > 0.005) f.gait = (f.gait + TAU * hs * dt / (4 * G.leg * Math.max(0.15, Math.sin(f.amp)) * e.size * VIS)) % TAU;
-        bank = 0.06 * (f.amp / G.amp) * Math.cos(f.gait); pitch = -0.05 * f.amp / G.amp; // leans into the walk
+        footfalls(e, f, g0, G);
+        // Leans into the walk; standing, it shifts its weight and scans about a little, never quite still.
+        const still = 1 - f.amp / G.amp;
+        bank = 0.06 * (f.amp / G.amp) * Math.cos(f.gait) + still * 0.02 * Math.sin(clock * 1.6 + e.id);
+        pitch = -0.05 * f.amp / G.amp + still * 0.015 * Math.sin(clock * 1.1 + e.id * 1.7);
+        f.kick *= Math.exp(-7 * dt);
       } else if (ENEMIES[e.kind].ground) {
         bank = 0; pitch = 0;
       } else if (heli) {
@@ -1729,6 +1800,60 @@ export function createRenderer() {
     }
     f.x = x; f.z = z; f.vx = e.vx; f.vz = e.vz;
     return f;
+  }
+  // A foot comes down where its stride peaks forward (the swing ends at sin = 1): the heavier walkers kick up a
+  // little dust there, and a heavy or siege walker's tread sends a ring out over the ground.
+  const DUSTY: Partial<Record<EnemyKind, number>> = LITE ? { mech: 1, titan: 2 } : { gunbot: 1, sapper: 1, arty: 1, mech: 2, titan: 3 };
+  function footfalls(e: Enemy, f: Flight, g0: number, G: { leg: number; spread: number }) {
+    const n = DUSTY[e.kind], step = ((f.gait - g0) % TAU + TAU) % TAU;
+    if (!n || step <= 0) return;
+    const sz = e.size * VIS, c = Math.cos(f.h), sn = Math.sin(f.h);
+    for (const off of [0, Math.PI]) {
+      if (((Math.PI / 2 - off - g0) % TAU + TAU) % TAU >= step) continue;
+      const fwd = G.leg * Math.sin(f.amp) * sz, lat = (off ? 1 : -1) * G.spread * sz;
+      const x = f.x + fwd * c - lat * sn, z = f.z + fwd * sn + lat * c, gy = groundY(x, z);
+      puffs(x, gy + 0.1 * sz, z, n, 0.22 * sz, 0.8, 0.55);
+      if (n > 1) gwave(x, z, 0.5 * sz, C.sand, 0.45, 0.25 * n);
+    }
+  }
+  // Knocked down: a walker that's killed topples over its feet (forward or back, a little to one side), lands in
+  // a burst of dust, lies dark for a few seconds and sinks into the ground.
+  const dn = { kind: [] as EnemyKind[], x: new Float32Array(MAX_DOWNED), z: new Float32Array(MAX_DOWNED), h: new Float32Array(MAX_DOWNED), fall: new Float32Array(MAX_DOWNED), roll: new Float32Array(MAX_DOWNED), size: new Float32Array(MAX_DOWNED), gait: new Float32Array(MAX_DOWNED), amp: new Float32Array(MAX_DOWNED), t: new Float32Array(MAX_DOWNED).fill(-1), next: 0 };
+  const DOWN_LIE = 4, DOWN_SINK = 1.5;
+  const fallTime = (sz: number) => 0.45 + 0.1 * sz;
+  function down(f: Flight, size: number) {
+    const i = dn.next = (dn.next + 1) % MAX_DOWNED;
+    dn.kind[i] = f.kind; dn.x[i] = f.x; dn.z[i] = f.z; dn.h[i] = f.h; dn.size[i] = size; dn.gait[i] = f.gait; dn.amp[i] = Math.max(0.15, f.amp);
+    dn.fall[i] = (Math.random() < 0.6 ? -1 : 1) * (1.35 + Math.random() * 0.15); // mostly on its face
+    dn.roll[i] = (Math.random() - 0.5) * 0.7; dn.t[i] = 0;
+  }
+  function downed(dt: number, play: boolean) {
+    for (let i = 0; i < MAX_DOWNED; i++) {
+      if (dn.t[i] < 0) continue;
+      const k = dn.kind[i], m = enemyMeshes[k], sz = dn.size[i], T = fallTime(sz), t0 = dn.t[i];
+      if (play) dn.t[i] += dt;
+      const t = dn.t[i];
+      if (t > T + DOWN_LIE + DOWN_SINK) { dn.t[i] = -1; continue; }
+      const x = dn.x[i], z = dn.z[i], gy = groundY(x, z);
+      if (play && t0 < T && t >= T) { // hits the ground
+        const c = Math.cos(dn.h[i]), sn = Math.sin(dn.h[i]), r = -Math.sign(dn.fall[i]) * 0.6 * sz; // where its body lands
+        puffs(x + c * r, gy + 0.2 * sz, z + sn * r, LITE ? 2 : 4, 0.5 * sz, 1.4, 0.55);
+        gwave(x + c * r, z + sn * r, 1.2 * sz, C.sand, 0.5, 0.5);
+        if (sz > 2.5) shards(x + c * r, z + sn * r, 6, C.fire, 4, 0.5, gy + 0.3, 1.2);
+      }
+      if (m.count >= MAX_ENEMIES) continue;
+      const p = Math.min(1, t / T), k2 = p * p; // falls faster and faster
+      const bounce = p >= 1 ? Math.max(0, 0.05 * Math.sin((t - T) * 14) * Math.exp(-(t - T) * 6)) : 0;
+      const sink = t > T + DOWN_LIE ? (t - T - DOWN_LIE) / DOWN_SINK * 0.5 * sz : 0;
+      dummy.position.set(x, gy - sink, z);
+      dummy.rotation.set(dn.roll[i] * k2, -dn.h[i], dn.fall[i] * k2 - Math.sign(dn.fall[i]) * bounce, 'YXZ');
+      dummy.scale.setScalar(sz);
+      dummy.updateMatrix(); m.setMatrixAt(m.count, dummy.matrix);
+      gaits[k]?.setXYZ(m.count, dn.gait[i], dn.amp[i] * (1 - 0.5 * p), 0); // limbs go slack; eyes dark
+      m.setColorAt(m.count++, tmpC.setHex(KIND_COL[k]).lerp(tmpC2.setHex(C.wreck), 0.4 + 0.4 * p).multiplyScalar(0.8));
+      // Its shadow shrinks into it as it falls flat.
+      blob(k, x, z, dn.h[i], sz, 0, (LITE ? 0.6 : 0.45) * (1 - 0.5 * p) * (1 - sink / (0.5 * sz)));
+    }
   }
   const TRAIL: Partial<Record<EnemyKind, { w: number; life: number; shade: number; flame: number; twin?: boolean }>> = {
     elite: { w: 0.1, life: 1.6, shade: 1, flame: 0.7, twin: true }, // contrails off the engines, afterburner glow

@@ -9,21 +9,29 @@ import type { EnemyKind } from './config.ts';
 
 const TAU = Math.PI * 2;
 // Position-only and non-indexed, so parts built from any primitive merge into one geometry.
-// A leg's rig (see `rig`) survives too; parts without one get a zero rig, which holds still.
+// A leg's rig (see `rig`) and a part's paint (see `paint`) survive too; parts without a rig get a zero one, which
+// holds still, and parts without paint get plain paint.
+const KEEP: Record<string, number[]> = { legA: [0, 0, 0, 0], legP: [0, 0, 0, 0], skin: [1, 0] };
 const bare = (g: THREE.BufferGeometry) => {
   const n = g.index ? g.toNonIndexed() : g;
-  for (const a of Object.keys(n.attributes)) if (a !== 'position' && a !== 'legA' && a !== 'legP') n.deleteAttribute(a);
+  for (const a of Object.keys(n.attributes)) if (a !== 'position' && !KEEP[a]) n.deleteAttribute(a);
   return n;
 };
 const merge = (...gs: THREE.BufferGeometry[]) => {
   const b = gs.map(bare);
-  if (b.some(g => g.attributes.legA)) for (const g of b) if (!g.attributes.legA) {
-    const n = g.attributes.position.count;
-    g.setAttribute('legA', new THREE.Float32BufferAttribute(new Float32Array(n * 4), 4));
-    g.setAttribute('legP', new THREE.Float32BufferAttribute(new Float32Array(n * 4), 4));
-  }
+  for (const [a, def] of Object.entries(KEEP)) if (b.some(g => g.attributes[a])) for (const g of b) if (!g.attributes[a]) fill(g, a, def);
   return mergeGeometries(b)!;
 };
+const fill = (g: THREE.BufferGeometry, name: string, v: number[]) => {
+  const n = g.attributes.position.count, a = new Float32Array(n * v.length);
+  for (let i = 0; i < n; i++) a.set(v, i * v.length);
+  return g.setAttribute(name, new THREE.Float32BufferAttribute(a, v.length));
+};
+// Paint for the walkers' parts (render.ts): `tone` darkens the base colour (actuators and joints read darker than
+// the armour), `glow` lights it up (sensor eyes and visors, a hostile red that blooms and pulses; they go dark
+// when it's knocked down).
+const paint = (g: THREE.BufferGeometry, tone: number, glow = 0) => fill(bare(g), 'skin', [tone, glow]);
+const eye = (lx: number, ly: number, lz: number, x: number, y: number, z = 0) => paint(box(lx, ly, lz, x, y, z), 1, 1);
 
 // Round section along x: radius r1 at the +x end, r2 at the -x end, centred on x.
 const tube = (r1: number, r2: number, len: number, x: number, y = 0, z = 0, seg = 6) =>
@@ -60,9 +68,11 @@ const ends = (len: number, rz: number, x: number, y: number) =>
 const limb = (z: number, off: number, th: number[], sh: number[], foot?: THREE.BufferGeometry) => {
   const [hip, knee] = ends(th[1], th[2], th[3], th[4]), [, ankle] = ends(sh[1], sh[2], sh[3], sh[4]);
   return [
-    rig(lean(box(th[0], th[1], th[0]), th[2], th[3], th[4], z), off, 1, hip, knee, ankle),
-    rig(lean(box(sh[0], sh[1], sh[0]), sh[2], sh[3], sh[4], z), off, 2, hip, knee, ankle),
-    ...(foot ? [rig(foot.translate(0, 0, z), off, 3, hip, knee, ankle)] : []),
+    rig(paint(lean(box(th[0], th[1], th[0]), th[2], th[3], th[4], z), 0.72), off, 1, hip, knee, ankle),
+    rig(paint(lean(box(sh[0], sh[1], sh[0]), sh[2], sh[3], sh[4], z), 0.85), off, 2, hip, knee, ankle),
+    // A knee joint, a dark ball where thigh meets shin: it turns with the shin.
+    rig(paint(new THREE.OctahedronGeometry(th[0] * 0.75).translate(knee[0], knee[1], z), 0.5), off, 2, hip, knee, ankle),
+    ...(foot ? [rig(paint(foot.translate(0, 0, z), 0.55), off, 3, hip, knee, ankle)] : []),
   ];
 };
 // Left leg leads (stride offset 0), the right one half a stride behind.
@@ -80,15 +90,16 @@ const humanLegs = (w: number, hip: number, spread: number) => side(spread).flatM
 // on their own side.
 const arms = (w: number, y: number, spread: number, len: number, rz = 0.15, x = 0.03, cy = y - len / 2) => side(spread).map(([z, off]) => {
   const [sh] = ends(len, rz, x, cy);
-  return rig(lean(box(0.07 * w, len, 0.07 * w), rz, x, cy, z), off, 4, sh, sh, sh);
+  return rig(paint(lean(box(0.07 * w, len, 0.07 * w), rz, x, cy, z), 0.8), off, 4, sh, sh, sh);
 });
 
 // Walk cycle per walker (render.ts): `leg`, hip height in model units (the stance leg's length: the body dips as it
-// swings out); `amp`, hip swing either way, radians; `knee`, how far the knee folds through the swing, x amp.
-export const GAIT: Partial<Record<EnemyKind, { leg: number; amp: number; knee: number }>> = {
-  walker: { leg: 0.78, amp: 0.42, knee: 2.2 }, gunbot: { leg: 0.8, amp: 0.36, knee: 2 }, mech: { leg: 0.7, amp: 0.3, knee: 1.8 },
-  crawler: { leg: 0.43, amp: 0.5, knee: 1.6 }, dog: { leg: 0.55, amp: 0.45, knee: 1.4 }, sapper: { leg: 0.83, amp: 0.38, knee: 2.1 },
-  arty: { leg: 0.83, amp: 0.36, knee: 1.6 }, titan: { leg: 0.73, amp: 0.26, knee: 1.6 },
+// swings out); `amp`, hip swing either way, radians; `knee`, how far the knee folds through the swing, x amp;
+// `spread`, feet either side of the centre line (where its footfalls kick up dust).
+export const GAIT: Partial<Record<EnemyKind, { leg: number; amp: number; knee: number; spread: number }>> = {
+  walker: { leg: 0.78, amp: 0.42, knee: 2.2, spread: 0.12 }, gunbot: { leg: 0.8, amp: 0.36, knee: 2, spread: 0.16 }, mech: { leg: 0.7, amp: 0.3, knee: 1.8, spread: 0.26 },
+  crawler: { leg: 0.43, amp: 0.5, knee: 1.6, spread: 0.1 }, dog: { leg: 0.55, amp: 0.45, knee: 1.4, spread: 0.13 }, sapper: { leg: 0.83, amp: 0.38, knee: 2.1, spread: 0.12 },
+  arty: { leg: 0.83, amp: 0.36, knee: 1.6, spread: 0.12 }, titan: { leg: 0.73, amp: 0.26, knee: 1.6, spread: 0.3 },
 };
 // Where each armed walker's gun muzzles are, in model units (+x forward, +z its right side): its rounds leave from these.
 export const MUZZLES: Partial<Record<EnemyKind, number[][]>> = {
@@ -273,7 +284,7 @@ export function enemyGeos(): Record<EnemyKind, THREE.BufferGeometry> {
     walker: merge(
       ...humanLegs(1, 0.8, 0.12),
       box(0.18, 0.1, 0.32, 0, 0.82), box(0.3, 0.3, 0.26, 0.02, 1.0), box(0.16, 0.1, 0.14, 0.13, 1.2),
-      tube(0.035, 0.035, 0.12, 0.25, 1.2), box(0.16, 0.22, 0.2, -0.2, 1.0),
+      tube(0.035, 0.035, 0.12, 0.25, 1.2), box(0.16, 0.22, 0.2, -0.2, 1.0), eye(0.02, 0.035, 0.11, 0.215, 1.215),
       ...arms(0.86, 1.07, 0.19, 0.34, 0.3, 0.07, 0.9),
     ),
     // Armed combat walker: heavier legs, a boxy hull with an armoured head, a rifle-calibre gun on its right arm and
@@ -281,7 +292,7 @@ export function enemyGeos(): Record<EnemyKind, THREE.BufferGeometry> {
     gunbot: merge(
       ...humanLegs(1.4, 0.82, 0.16),
       box(0.22, 0.12, 0.4, 0, 0.86), box(0.38, 0.36, 0.36, 0.02, 1.06), box(0.2, 0.12, 0.2, 0.12, 1.3),
-      box(0.04, 0.05, 0.16, 0.23, 1.3),
+      eye(0.04, 0.05, 0.16, 0.23, 1.3),
       box(0.1, 0.12, 0.12, 0.08, 1.02, 0.26), tube(0.035, 0.035, 0.55, 0.38, 1.02, 0.26), box(0.14, 0.1, 0.06, 0.18, 0.96, 0.26),
       new THREE.CylinderGeometry(0.1, 0.1, 0.1, 8).rotateX(Math.PI / 2).translate(0.05, 1.0, -0.27),
     ),
@@ -290,7 +301,7 @@ export function enemyGeos(): Record<EnemyKind, THREE.BufferGeometry> {
     mech: merge(
       ...humanLegs(2, 0.72, 0.26),
       box(0.3, 0.14, 0.6, 0, 0.76), box(0.62, 0.34, 0.56, 0.02, 0.98), lean(box(0.24, 0.16, 0.5, 0, 0, 0), -0.4, 0.34, 1.02, 0),
-      box(0.2, 0.14, 0.2, 0.2, 1.22),
+      box(0.2, 0.14, 0.2, 0.2, 1.22), eye(0.02, 0.04, 0.14, 0.305, 1.24),
       ...[0.26, 0.36].map(z => tube(0.04, 0.05, 0.7, 0.55, 1.0, z)), box(0.2, 0.18, 0.14, 0.18, 1.0, 0.33),
       box(0.3, 0.24, 0.2, 0.0, 1.12, -0.38),
       new THREE.CylinderGeometry(0.015, 0.02, 0.4, 4).translate(-0.18, 1.38, 0.12),
@@ -298,18 +309,18 @@ export function enemyGeos(): Record<EnemyKind, THREE.BufferGeometry> {
     // Swarm mini-walker: a knee-high biped, a squat body with a charge strapped on and one sensor eye.
     crawler: merge(
       ...legs(1.2, 0.45, 0.1),
-      box(0.26, 0.2, 0.26, 0, 0.55), box(0.1, 0.08, 0.1, 0.12, 0.68), box(0.14, 0.1, 0.18, -0.12, 0.55),
+      box(0.26, 0.2, 0.26, 0, 0.55), box(0.1, 0.08, 0.1, 0.12, 0.68), box(0.14, 0.1, 0.18, -0.12, 0.55), eye(0.02, 0.045, 0.06, 0.175, 0.68),
     ),
     // Armed robot dog (Vision 60-class): a long flat body on four legs, a rifle on a mount on its back.
     dog: merge(
       ...[0.28, -0.28].flatMap(x => [-0.13, 0.13].flatMap(z => limb(z, (x > 0) === (z > 0) ? Math.PI : 0, [0.06, 0.3, 0.3, x + 0.05, 0.42], [0.05, 0.3, -0.3, x + 0.05, 0.15]))), // diagonal pairs step together
-      box(0.8, 0.16, 0.28, 0, 0.6), box(0.14, 0.12, 0.2, 0.42, 0.62),
+      box(0.8, 0.16, 0.28, 0, 0.6), box(0.14, 0.12, 0.2, 0.42, 0.62), ...[-0.06, 0.06].map(z => eye(0.02, 0.03, 0.04, 0.495, 0.63, z)),
       box(0.18, 0.1, 0.08, 0.05, 0.73), tube(0.025, 0.025, 0.6, 0.35, 0.78), box(0.12, 0.08, 0.06, -0.05, 0.8),
     ),
     // Breacher (Atlas-class humanoid): human legs, a broad torso, a disc cutter in one hand and a charge pack on its back.
     sapper: merge(
       ...humanLegs(1.3, 0.85, 0.12),
-      box(0.24, 0.42, 0.42, 0, 1.08), box(0.18, 0.18, 0.18, 0.04, 1.4),
+      box(0.24, 0.42, 0.42, 0, 1.08), box(0.18, 0.18, 0.18, 0.04, 1.4), eye(0.02, 0.04, 0.12, 0.135, 1.42),
       ...arms(1.3, 1.25, 0.26, 0.45),
       new THREE.CylinderGeometry(0.16, 0.16, 0.03, 10).rotateX(Math.PI / 2).translate(0.2, 0.8, 0.3),
       box(0.18, 0.3, 0.3, -0.2, 1.08),
@@ -317,13 +328,14 @@ export function enemyGeos(): Record<EnemyKind, THREE.BufferGeometry> {
     // Fire-support walker (Digit-class): bird legs, a narrow torso with a sensor head, a 60 mm mortar tube on its back.
     arty: merge(
       ...legs(1.2, 0.85, 0.12),
-      box(0.22, 0.4, 0.34, 0, 1.05), box(0.12, 0.08, 0.2, 0.1, 1.3),
+      box(0.22, 0.4, 0.34, 0, 1.05), box(0.12, 0.08, 0.2, 0.1, 1.3), eye(0.02, 0.03, 0.14, 0.165, 1.3),
       lean(tube(0.06, 0.06, 0.8, 0, 0, 0, 8), -1.0, -0.15, 1.3, 0), box(0.2, 0.16, 0.16, -0.18, 0.95, 0.24),
     ),
     // Siege walker (Kuratas-class): a tall armoured cockpit hull on massive legs, a gatling arm, twin rocket boxes.
     titan: merge(
       ...humanLegs(3, 0.75, 0.3),
       box(0.7, 0.5, 0.8, 0, 1.05), lean(box(0.3, 0.3, 0.5, 0, 0, 0), -0.3, 0.38, 1.12, 0), box(0.3, 0.2, 0.3, 0.05, 1.42),
+      eye(0.02, 0.06, 0.24, 0.205, 1.44), eye(0.02, 0.05, 0.05, 0.355, 0.95, 0.12),
       ...[0.5, -0.5].map(z => box(0.18, 0.5, 0.18, 0.1, 0.9, z)),
       ...[0.48, 0.56].map(z => tube(0.04, 0.04, 0.9, 0.6, 0.7, z)),
       box(0.36, 0.24, 0.26, -0.1, 1.3, -0.48), box(0.36, 0.24, 0.26, -0.1, 1.3, 0.2),
