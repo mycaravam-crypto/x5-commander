@@ -1,4 +1,4 @@
-import { KA52, ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, UNIT_TIERS, UNIT_MODS, MOD_SLOTS, HORDE_TEST, groundZone, unitMod, type PerimKind, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, SKILLS, KEYSTONES, BRANCHES, SKILL_POINTS, SKILL_BONUS, skill, skillPoints, type Branch, type SkillNode, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, MILESTONE, ARMS, SU25, OVERDRIVE, rank, TRAINING, BIG_KILLS, WARN, PERF, GROUND_FIRE , BOSS, CAT_NAME, bossOf } from './config.ts';
+import { KA52, ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, UNIT_TIERS, UNIT_MODS, MOD_SLOTS, HORDE_TEST, groundZone, unitMod, type PerimKind, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, SKILLS, KEYSTONES, NOTABLES, BRANCHES, SKILL_POINTS, SKILL_BONUS, skill, skillPoints, type Branch, type SkillNode, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, MILESTONE, ARMS, SU25, OVERDRIVE, rank, TRAINING, BIG_KILLS, WARN, PERF, GROUND_FIRE , BOSS, CAT_NAME, bossOf } from './config.ts';
 import { play as sound } from './sfx.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import { mapSeed } from './terrain.ts';
@@ -130,26 +130,29 @@ function nodeState(s: State, n: SkillNode) {
   const why = skillBlock(s, n.id);
   return !why || why === 'NO POINTS' ? (s.points ? 'open' : 'near') : why.startsWith('NEEDS') ? 'need' : 'far';
 }
-// Keystone names: each goes on the first side of its node (outward, below, above, beside) where it hits no node, link
+// Keystone and notable names: each goes on the first side of its node (outward, below, above, beside) where it hits no node, link
 // or other name. Worked out once: the map never moves.
 const KNAME = { size: 4.2, char: 2.75 }; // font size, advance per character, in map units
 const KEY_LABELS = (() => {
-  const pts: [number, number, number][] = SKILLS.map(n => [...treeXY(n), n.key ? 6.5 : 3.6]);
+  const pts: [number, number, number][] = SKILLS.map(n => [...treeXY(n), n.key ? 6.5 : n.notable ? 5 : 3.6]);
   for (const n of SKILLS) for (const f of n.from) {
     const [x1, y1] = treeXY(skill(f)!), [x2, y2] = treeXY(n);
     for (let i = 1; i < 10; i++) pts.push([x1 + (x2 - x1) * i / 10, y1 + (y2 - y1) * i / 10, 0.6]);
   }
   const boxes: number[][] = [], out = new Map<string, { x: number; y: number; anchor: string }>();
-  const hits = (b: number[]) => pts.some(([x, y, r]) => x + r > b[0] && x - r < b[2] && y + r > b[1] && y - r < b[3])
-    || boxes.some(o => o[0] < b[2] && o[2] > b[0] && o[1] < b[3] && o[3] > b[1]) || b[0] < -118 || b[2] > 118 || b[1] < -98 || b[3] > 98;
-  for (const n of KEYSTONES) {
+  // How badly a name's box collides: names count most, nodes next, link samples least; off the map is out.
+  const hits = (b: number[]) => (b[0] < -118 || b[2] > 118 || b[1] < -98 || b[3] > 98 ? 1e3 : 0)
+    + 10 * boxes.filter(o => o[0] < b[2] && o[2] > b[0] && o[1] < b[3] && o[3] > b[1]).length
+    + pts.filter(([x, y, r]) => x + r > b[0] && x - r < b[2] && y + r > b[1] && y - r < b[3]).reduce((a, p) => a + (p[2] > 1 ? 5 : 1), 0);
+  for (const n of [...KEYSTONES, ...NOTABLES]) {
     const [x, y] = treeXY(n), d = Math.hypot(x, y), w = n.name.length * KNAME.char, h = KNAME.size, ux = x / d, uy = y / d;
     const tries: [number, number, string][] = [
       [x + ux * 10, y + uy * 10, Math.abs(ux) < 0.35 ? 'middle' : ux > 0 ? 'start' : 'end'], [x, y + 11.5, 'middle'], [x, y - 8.5, 'middle'],
       [x + 8.5, y + 1.5, 'start'], [x - 8.5, y + 1.5, 'end'], [x + ux * 16, y + uy * 16, ux > 0 ? 'start' : 'end'],
+      [x + 7, y - 6, 'start'], [x - 7, y - 6, 'end'], [x + 7, y + 9, 'start'], [x - 7, y + 9, 'end'], [x, y + 15, 'middle'], [x, y - 12, 'middle'],
     ];
     const box = ([lx, ly, anchor]: [number, number, string]) => { const x0 = anchor === 'middle' ? lx - w / 2 : anchor === 'start' ? lx : lx - w; return [x0, ly - h * 0.8, x0 + w, ly + h * 0.2]; };
-    const pick = tries.find(t => !hits(box(t))) ?? tries[0];
+    const pick = tries.reduce((best, t) => hits(box(t)) < hits(box(best)) ? t : best);
     boxes.push(box(pick)); out.set(n.id, { x: Math.round(pick[0] * 10) / 10, y: Math.round(pick[1] * 10) / 10, anchor: pick[2] });
   }
   return out;
@@ -163,13 +166,14 @@ function treeSvg(s: State) {
   const nodes = SKILLS.map(n => {
     const [x, y] = treeXY(n), st = nodeState(s, n), tone = n.branch ? BRANCH_TONE[n.branch] : 'hot';
     // A wider invisible disc under each node: an easier target for a finger.
-    const shape = `<circle class="hit" r="${n.key ? 8 : 5.5}"/>` + (n.id === 'core' ? `<circle r="7"/>` : n.key ? `<path d="M0-6.5L5.6-3.25V3.25L0 6.5L-5.6 3.25V-3.25Z"/>${n.rule ? '<text class="star" y="2.2">★</text>' : ''}` : `<circle r="3.2"/>`);
-    const l = KEY_LABELS.get(n.id), label = l ? `<text class="kname ${st}" x="${l.x}" y="${l.y}" text-anchor="${l.anchor}">${n.name}</text>` : '';
+    const shape = `<circle class="hit" r="${n.key ? 8 : 5.5}"/>` + (n.id === 'core' ? `<circle r="7"/>` : n.key ? `<path d="M0-6.5L5.6-3.25V3.25L0 6.5L-5.6 3.25V-3.25Z"/>${n.rule ? '<text class="star" y="2.2">★</text>' : ''}`
+      : n.notable ? `<path d="M0-5L5 0L0 5L-5 0Z"/><circle class="pip" r="1.3"/>` : `<circle r="3.2"/>`);
+    const l = KEY_LABELS.get(n.id), label = l ? `<text class="kname ${st}${n.notable ? ' nb' : ''}" x="${l.x}" y="${l.y}" text-anchor="${l.anchor}">${n.name}</text>` : '';
     return `<g class="sk ${st}${n.key ? ' key' : ''}" style="--t:var(--${tone})" data-a="sk-${n.id}" transform="translate(${x} ${y})">${shape}</g>${label}`;
   }).join('');
   const corner = (b: Branch, x: number, y: number, anchor: string) => `<text class="bname" style="--t:var(--${BRANCH_TONE[b]})" x="${x}" y="${y}" text-anchor="${anchor}">${b} · ${spentIn(s, b)}</text>`;
   return `<svg class="skilltree" viewBox="-118 -112 236 220">${edges}${nodes}${corner('OFFENSE', -116, -104, 'start')}${corner('DEFENSE', 116, -104, 'end')}${corner('SYSTEMS', -116, 104, 'start')}
-    <text class="bname dim" x="116" y="104" text-anchor="end">⬢ KEYSTONE · ★ NEW RULE</text></svg>`;
+    <text class="bname dim" x="116" y="104" text-anchor="end">◆ NOTABLE · ⬢ KEYSTONE · ★ NEW RULE</text></svg>`;
 }
 function skillInfo(s: State, id: string) {
   const n = skill(id);
@@ -177,7 +181,7 @@ function skillInfo(s: State, id: string) {
   const st = nodeState(s, n), path = skillPath(s, id).length, why = skillBlock(s, id);
   const status = st === 'taken' ? '<b class="hot">TAKEN</b>' : st === 'open' ? `<b class="hot">${hoverable ? 'CLICK' : 'TAP AGAIN'} TO TAKE · 1 POINT</b>`
     : why.startsWith('NEEDS') ? `<b class="alert">${why}</b>` : path ? `<span class="dim">${path} POINT${path > 1 ? 'S' : ''} AWAY</span>` : `<span class="dim">${why}</span>`;
-  return `<small>${n.branch || 'ROOT'}${n.key ? ` · KEYSTONE${n.rule ? ' · ★ NEW RULE' : ''}` : ''}</small><b>${n.name}</b><span>${n.desc}</span>${status}`;
+  return `<small>${n.branch || 'ROOT'}${n.key ? ` · KEYSTONE${n.rule ? ' · ★ NEW RULE' : ''}` : n.notable ? ' · NOTABLE' : ''}</small><b>${n.name}</b><span>${n.desc}</span>${status}`;
 }
 const hoverable = typeof matchMedia === 'function' && matchMedia('(hover: hover)').matches; // a mouse: click takes; a finger: tap shows, tap again takes
 function treeHtml(s: State, sel: string) {
@@ -1158,6 +1162,7 @@ export function createHud(actions: { buy(id: string): void; skill(id: string): v
         else if (e.k === 'radarOnline') { say('RADAR ONLINE', 'info'); log('AN/MPQ-65 ONLINE · SEARCH + FIRE CONTROL'); }
         else if (e.k === 'pac3') { say('PATRIOT ONLINE', 'info'); log('PAC-3 MSE ONLINE · ENGAGING LOCKS'); }
         else if (e.k === 'aesa') { say('LTAMDS ONLINE · 360° STARE', 'info'); log('AESA ONLINE · SWEEP RETIRED'); }
+        else if (e.k === 'interest') log(`WAR CHEST · +${fmt(e.n)} CR INTEREST`);
         else if (e.k === 'level') { const b = baseLevelInfo(s.level); say(`LV ${s.level} · ${b.name}`, 'info'); log(`BATTERY LV ${s.level} · ${b.name} · ${b.desc}`); }
         else if (e.k === 'upgrade') {
           acc = 1; upgradePop(project, e.id, e.n, e.star);

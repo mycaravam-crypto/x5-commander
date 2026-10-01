@@ -1,6 +1,6 @@
 import {
   ARENA_R, BASE_R, START_CREDITS, COMBO_WINDOW, COMBO_BONUS, COMBO_CAP, LEVEL_LEN, BUILD_TIME, BUILD_LOST, ELITE_FROM, PK_GROW, PK_MAX, EW_GROW, EW_MAX,
-  TERRAIN, ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, SKILLS, skill, skillLinks, skillPoints, PERIM_KINDS, PERIM, GUNS, FANS, beltAt, buildR, BUILD_MIN, PAD_GAP, START_PADS, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, VETERANCY, vetRank, deriveStats, difficulty, BACKUP_RADAR,
+  TERRAIN, ENEMIES, KINDS, WEAPONS, LEVELS, PACKAGES, DISCIPLINES, PRIORITY_DMG, PRIORITY_POWER, LOCK_POWER, REPAIR_POWER, INTERCEPT, DOCTRINES, MODS, RAIDS, RAID_WARN, RAID_BONUS, RAID_SPAWN, raidScale, MODES, UPGRADES, SKILLS, skill, skillLinks, skillPoints, PERIM_KINDS, PERIM, GUNS, FANS, beltAt, buildR, BUILD_MIN, PAD_GAP, START_PADS, CROSSFIRE, MG_TIERS, OBSERVER_EYES, AMMO_R, AMMO_RATE, AMMO_RELOAD, FWD_RELOAD, PAD_HP, PAD_REPAIR, MOMENTUM_CAP, INTEREST_CAP, DIVE_R, SELL_REFUND, MOVE_TIME, SWEEP_CAP, grow, PLACE_TIME, JAM_SLOW, baseLevel, perimSlots, VETERANCY, vetRank, deriveStats, difficulty, BACKUP_RADAR,
   BIG_KILLS, BIG_KILL_SHAKE, DROPS, DROP_KINDS, DROP_GRAB, DROP_MAX, DROP_HEAVY, CACHE, REPAIR_DROP, OVERDRIVE, MILESTONE, rank,
   type Stats, RADAR_MODES, resupply, UPKEEP, HPM_CONE, POINT_DEFENCE, SPOT_RINGS, FRONT, FRONT_ARC, VISUAL_R, PAD_EYES, VISUAL_DARK, MG_BELT, LPI_R, BLACKOUT, COUNTER_SEAD, KILL_CHAIN, OVERKILL_R, LAST_STAND, ARM_STUN, ARM_VEER, ARM_TURN, ARM_LIFE, ARM_EVERY, ARM_LAUNCH_R, DECOY_ID, EW_ORBIT, EW_ARC, EW_JAM,
   GROUND, GROUND_LEVELS, GROUND_MODS, GROUND_RAIDS, GROUND_FIRE, AIR_ONLY, GROUND_ONLY, AIR_GUNS, GROUND_GUNS, ANTI_ARMOUR, PIERCE, FRONT_LINE, groundZone, tideFor, HORDE_TEST,
@@ -61,6 +61,7 @@ export type Ev =
   | { k: 'padMod'; x: number; z: number; n: number; kind: PerimKind; id: string }
   | { k: 'robotLob'; x: number; z: number; x2: number; z2: number; n: number } // a mortar walker's round landing on (x2, z2), splash n
   | { k: 'skill'; id: string }
+  | { k: 'interest'; n: number }
   | { k: 'level' | 'warning' | 'buy' | 'placing' | 'lock' | 'over' | 'trained' | 'emcon' | 'radarDown' | 'aesa' | 'radarOnline' | 'pac3' | 'discipline' | 'radarMode' | 'killChain' | 'counterSead' | 'lastStand' };
 
 export type Phase = 'start' | 'play' | 'pause' | 'tree' | 'over';
@@ -236,6 +237,8 @@ export const emitting = (s: State) => s.st.radar && !s.emcon && s.t >= s.radarDo
 export const radarMode = (s: State) => RADAR_MODES[s.radarMode];
 // Lock slots right now: KILL CHAIN adds one for a while after a run of kills.
 export const slots = (s: State) => s.st.slots + (s.t < s.chainUntil ? 1 : 0);
+// MOMENTUM (notable): fire rate x while a combo runs.
+export const momentum = (s: State) => s.st.momentum && s.t - s.lastKill < COMBO_WINDOW ? 1 + s.st.momentum * Math.min(s.combo, MOMENTUM_CAP) : 1;
 export const lastStand = (s: State) => s.st.lastStand && s.hp < s.st.maxHp * LAST_STAND.hp;
 // Effective detection range and arc for the current mode. LPI WAVEFORM (keystone) takes the LPI penalty away.
 export const radarRange = (s: State) => s.st.radarRange * (radarMode(s).lpi && s.st.lpi ? 1 : radarMode(s).range);
@@ -502,7 +505,7 @@ export function padStats(s: State, p: Pad) {
   const w = p.k === 'mg' ? MG_TIERS[p.tier] : PERIM[p.k], v = VETERANCY[vetRank(p.kills)];
   const T = p.k === 'mg' ? UNIT_TIERS[0] : UNIT_TIERS[p.tier] ?? UNIT_TIERS[0], f = modFx(p);
   return { ...w, range: w.range * siteRange(p.site) * v.range * T.range * (f.range ?? 1), dmg: w.dmg * s.st.padDmg * v.dmg * T.dmg * (f.dmg ?? 1),
-    rate: w.rate * s.st.padRate * v.rate * (nearAmmo(s, p) ? AMMO_RATE : 1) * (overdrive(s) ? OVERDRIVE.rate : 1) * (f.rate ?? 1),
+    rate: w.rate * s.st.padRate * v.rate * (nearAmmo(s, p) ? AMMO_RATE : 1) * (overdrive(s) ? OVERDRIVE.rate : 1) * momentum(s) * (f.rate ?? 1),
     power: w.power * (f.power ?? 1), splash: f.splash ?? 0, burn: f.burn ?? 0, guided: !!f.guided, split: f.split ?? 0 };
 }
 // A gun that's up but can't fire: the interceptor pool is short of a round for it (MGs feed from their belts).
@@ -520,6 +523,7 @@ export function cruiseTarget(s: State, e: { x: number; z: number }) {
 }
 function hitPad(s: State, p: Pad, dmg: number) {
   if (p.down) return;
+  dmg *= s.st.padTaken; // DUG IN
   p.hp -= dmg;
   s.events.push({ k: 'padHit', x: p.x, z: p.z, n: dmg, kind: p.k });
   if (p.hp <= 0) { p.hp = 0; p.down = true; s.events.push({ k: 'padDown', x: p.x, z: p.z, n: 0, kind: p.k }); }
@@ -872,6 +876,10 @@ function endStage(s: State, held: boolean, n = held ? BUILD_TIME : BUILD_LOST) {
   s.buildUntil = s.t + n;
   for (const p of s.perim) { p.hp = padHp(p); p.down = false; if (p.k === 'mines') p.belt = fullBelt(p); } // the build window puts every unit back up, mines re-laid
   s.events.push({ k: 'build', n });
+  if (s.st.interest) { // WAR CHEST
+    const i = Math.min(INTEREST_CAP, Math.round(s.credits * s.st.interest));
+    if (i > 0) { s.credits += i; s.earned += i; s.events.push({ k: 'interest', n: i }); }
+  }
 }
 function nextStage(s: State) {
   s.stage++; s.buildUntil = 0;
@@ -1457,7 +1465,7 @@ function perimeter(s: State, dt: number) {
   if (s.jamming) s.power -= need;
   for (const p of s.perim) {
     const max = padHp(p);
-    p.hp = Math.min(max, p.hp + PAD_REPAIR * dt);
+    p.hp = Math.min(max, p.hp + PAD_REPAIR * s.st.padRepair * dt);
     if (p.down && p.hp >= max / 2) { p.down = false; s.events.push({ k: 'padUp', x: p.x, z: p.z, n: 0, kind: p.k }); }
     if (p.k === 'mines') claymore(s, p, dt);
   }
@@ -1787,7 +1795,7 @@ function fire(s: State, dt: number) {
   const open = (e: Enemy) => e === ic || e.incoming < e.hp * D.commit;
   const targets = ic ? [ic] : s.enemies.filter(e => e.locked && open(e));
   targets.sort((a, b) => (b.id === s.marked ? 1e12 : score(s, b)) - (a.id === s.marked ? 1e12 : score(s, a)));
-  const rate = D.rate * (ic ? INTERCEPT.rate : 1) * (lastStand(s) ? LAST_STAND.rate : 1) * (overdrive(s) ? OVERDRIVE.rate : 1);
+  const rate = D.rate * (ic ? INTERCEPT.rate : 1) * (lastStand(s) ? LAST_STAND.rate : 1) * (overdrive(s) ? OVERDRIVE.rate : 1) * momentum(s);
   let wi = 0;
   for (const k of ['cannon', 'pulse', 'missile', 'rail'] as WeaponKind[]) {
     const w = s.st.weapons[k];
@@ -1921,7 +1929,7 @@ function explode(s: State, x: number, z: number, r: number, dmg: number, src: st
 }
 
 // pad: the slot of the perimeter pad that dealt the blow, credited with the kill.
-function damage(s: State, e: Enemy, dmg: number, src: string, pad?: number) {
+export function damage(s: State, e: Enemy, dmg: number, src: string, pad?: number) {
   if (e.hp <= 0) return; // already dead this frame
   const T = ENEMIES[e.kind];
   if (T.pacOnly && src !== 'PAC-3') return;
@@ -1932,6 +1940,7 @@ function damage(s: State, e: Enemy, dmg: number, src: string, pad?: number) {
   if (T.armour) { const pr = !by ? 0 : ANTI_ARMOUR.includes(by.k) ? 1 : Math.max(PIERCE[by.k] ?? 0, modFx(by).pierce ?? 0); dmg *= T.armour + (1 - T.armour) * pr; }
   if (by && src !== 'INCENDIARY') { const b = modFx(by).burn; if (b) { e.burn = Math.max(e.burn, dmg * b); e.burnT = BURN; e.burnPad = by.slot; } }
   if (e.id === s.marked) dmg *= PRIORITY_DMG * s.st.markDmg;
+  if (s.st.heavy && (BIG_KILLS[e.kind] || bossOf(e.kind))) dmg *= 1 + s.st.heavy; // HUNTER-KILLER
   if (bossOf(e.kind)) {
     const c = DMG_CAT[src];
     dmg *= (c && c === e.adapt ? BOSS.adapt : 1) * (c && c === e.weak ? BOSS.weak : 1) * (e.kind === 'okhotnik' && e.pop > 0 ? BOSS.exposed : 1);

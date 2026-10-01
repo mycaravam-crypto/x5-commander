@@ -774,6 +774,8 @@ export interface PerkFx {
   dmg?: number; rate?: number; gen?: number; range?: number; sweep?: number; aprod?: number;
   credits?: number; hp?: number; persist?: number; drain?: number; trange?: number; pcap?: number; acap?: number;
   addSlots?: number; addArmor?: number; addChain?: number; addRepair?: number;
+  // notables
+  addMomentum?: number; addHeavy?: number; padRepair?: number; padTaken?: number; addInterest?: number; addWarn?: number;
   // rule changers
   addFusion?: number; addLpi?: number; addArc?: number; addScav?: number; addFrag?: number; markDmg?: number;
   addBlackout?: number; addCounterSead?: number; addKillChain?: number; addOverkill?: number; addLastStand?: number;
@@ -784,12 +786,15 @@ export const COUNTER_SEAD = 0.2; // share of power storage restored per ARM shot
 export const KILL_CHAIN = { every: 5, time: 8 }; // kills per extra lock slot, s it lasts
 export const OVERKILL_R = 8; // m an overkill's excess damage can jump
 export const LAST_STAND = { hp: 0.25, rate: 1.5, gen: 0.6 };
+// Notable numbers.
+export const MOMENTUM_CAP = 10; // combo steps MOMENTUM counts
+export const INTEREST_CAP = 150; // most credits WAR CHEST pays a build window
 
 // ---------- command tree ----------
 // Every base level-up pays SKILL_POINTS points, and every SKILL_BONUS-th level one more. A point buys one node next
 // to one you hold, starting from COMMAND at the centre. The bots reach base level ~13 in a ~30-minute run: 26 points,
-// enough to fill one branch (≈20 nodes) and dip into another, or to reach about 8 of the 23 keystones across two:
-// the tree is ~43% full at the end of a good run, so every point is a choice.
+// enough to fill one branch (≈22 nodes) and dip into another, or to reach about 8 of the 23 keystones across two:
+// the tree is ~42% full at the end of a good run, so every point is a choice.
 export const SKILL_POINTS = 2, SKILL_BONUS = 5;
 export const skillPoints = (level: number) => (level - 1) * SKILL_POINTS + Math.floor(level / SKILL_BONUS);
 export type Branch = 'OFFENSE' | 'DEFENSE' | 'SYSTEMS';
@@ -816,43 +821,54 @@ const TRAVEL: Record<string, { name: string; desc: string; fx: PerkFx }> = {
   aprod: { name: 'RELOAD CREWS', desc: '+8% interceptor production', fx: { aprod: 1.08 } },
   acap: { name: 'MAGAZINE', desc: '+10% interceptor storage', fx: { acap: 1.1 } },
 };
+// Notables sit where two lanes of a branch meet: worth more than a travel node, no trade, and each does something
+// a plain stat can't.
+const NOTABLE: Record<string, { name: string; desc: string; fx: PerkFx }> = {
+  momentum: { name: 'MOMENTUM', desc: `+2% fire rate per combo step, up to +${MOMENTUM_CAP * 2}%`, fx: { addMomentum: 0.02 } },
+  hunter: { name: 'HUNTER-KILLER', desc: '+30% damage to heavy targets: Su-34s, Su-25s, Ka-52s, ballistic missiles, heavy walkers and raid leaders', fx: { addHeavy: 0.3 } },
+  depot: { name: 'FIELD DEPOT', desc: 'units repair 3x as fast · +0.5 HP/s battery repair', fx: { padRepair: 3, addRepair: 0.5 } },
+  dugin: { name: 'DUG IN', desc: 'units take 30% less damage · +4% armour', fx: { padTaken: 0.7, addArmor: 0.04 } },
+  chest: { name: 'WAR CHEST', desc: `every build window, banked credits earn 4% interest (up to ${INTEREST_CAP})`, fx: { addInterest: 0.04 } },
+  warning: { name: 'EARLY WARNING', desc: 'raids announced 5s earlier · +15% contact memory', fx: { addWarn: 5, persist: 1.15 } },
+};
 // A node: r (ring, 0 = COMMAND) and a (degrees off its branch's heading) place it on the map; `from`: the nodes it
-// hangs off. Keystones (`key`) are the old perks: big, with a trade, and always leaves (you can't path through one).
+// hangs off. Notables (`notable`) are the junctions. Keystones (`key`) are the old perks: big, with a trade, and always leaves (you can't path through one).
 // `rule`: changes how the battery plays. `need`: an upgrade that must be owned before it can be taken.
-export interface SkillNode { id: string; branch: Branch | ''; r: number; a: number; from: string[]; name: string; desc: string; fx: PerkFx; key?: boolean; rule?: boolean; need?: string }
+export interface SkillNode { id: string; branch: Branch | ''; r: number; a: number; from: string[]; name: string; desc: string; fx: PerkFx; key?: boolean; notable?: boolean; rule?: boolean; need?: string }
 const T = (id: string, branch: Branch, r: number, a: number, from: string[], k: keyof typeof TRAVEL): SkillNode => ({ id, branch, r, a, from, ...TRAVEL[k] });
+const N = (id: string, branch: Branch, r: number, a: number, from: string[], k: keyof typeof NOTABLE): SkillNode => ({ id, branch, r, a, from, ...NOTABLE[k], notable: true });
 const K = (id: string, branch: Branch, r: number, a: number, from: string, name: string, desc: string, fx: PerkFx, o: { rule?: boolean; need?: string } = {}): SkillNode =>
   ({ id, branch, r, a, from: [from], name, desc, fx, key: true, ...o });
 export const SKILLS: SkillNode[] = [
   { id: 'core', branch: '', r: 0, a: 0, from: [], name: 'COMMAND', desc: 'the battery commander: every path starts here', fx: {} },
-  // OFFENSE: two lanes, damage (right) and fire rate (left), that meet in the middle; fire control at the far end.
+  // OFFENSE: two lanes, damage (right) and fire rate (left), that meet twice; fire control at the far end.
   T('o1', 'OFFENSE', 1, 0, ['core'], 'dmg'),
   T('o2a', 'OFFENSE', 2, -20, ['o1'], 'rate'), T('o2b', 'OFFENSE', 2, 20, ['o1'], 'dmg'),
   K('trigger', 'OFFENSE', 3, -40, 'o2a', 'HAIR TRIGGER', '+35% fire rate · -20% interceptor production', { rate: 1.35, aprod: 0.8 }),
   T('o3a', 'OFFENSE', 3, -13, ['o2a'], 'rate'), T('o3b', 'OFFENSE', 3, 13, ['o2b'], 'dmg'),
   K('overcharge', 'OFFENSE', 3, 40, 'o2b', 'OVERCHARGE', '+50% damage · -30% power gen', { dmg: 1.5, gen: 0.7 }),
-  T('o4a', 'OFFENSE', 4, -24, ['o3a'], 'rate'), T('o4b', 'OFFENSE', 4, 0, ['o3a', 'o3b'], 'dmg'), T('o4c', 'OFFENSE', 4, 24, ['o3b'], 'dmg'),
+  T('o4a', 'OFFENSE', 4, -24, ['o3a'], 'rate'), N('o4b', 'OFFENSE', 4, 0, ['o3a', 'o3b'], 'momentum'), T('o4c', 'OFFENSE', 4, 24, ['o3b'], 'dmg'),
   K('overkill', 'OFFENSE', 5, -42, 'o4a', 'OVERKILL', 'damage past a kill jumps to the nearest contact within 8m · -10% fire rate', { addOverkill: 1, rate: 0.9 }, { rule: true }),
   T('o5a', 'OFFENSE', 5, -16, ['o4a'], 'rate'),
-  K('chain', 'OFFENSE', 5, 0, 'o4b', 'CHAIN REACTION', 'kills explode for 6 dmg · -10% credits', { addChain: 6, credits: 0.9 }),
   T('o5b', 'OFFENSE', 5, 16, ['o4c'], 'dmg'),
   K('glass', 'OFFENSE', 5, 42, 'o4c', 'GLASS CANNON', '+60% damage · -45% max HP', { dmg: 1.6, hp: 0.55 }),
-  T('o6a', 'OFFENSE', 6, -24, ['o5a'], 'rate'), T('o6b', 'OFFENSE', 6, 24, ['o5b'], 'dmg'),
-  K('killchain', 'OFFENSE', 7, -42, 'o6a', 'KILL CHAIN', 'every 5 kills: +1 lock slot for 8s · -10% damage', { addKillChain: 1, dmg: 0.9 }, { rule: true, need: 'radar' }),
-  K('arc', 'OFFENSE', 7, -13, 'o6a', 'ARC LASER', 'laser jumps to 2 more targets at 60% · -10% damage', { addArc: 2, dmg: 0.9 }, { rule: true, need: 'pulse' }),
-  K('frag', 'OFFENSE', 7, 13, 'o6b', 'FRAG WARHEADS', 'PAC-3 hits splash for 50% · -15% fire rate', { addFrag: 0.5, rate: 0.85 }, { rule: true, need: 'pac3' }),
-  K('overwatch', 'OFFENSE', 7, 42, 'o6b', 'OVERWATCH', 'your marked target takes x2 damage · -1 lock slot', { markDmg: 2, addSlots: -1 }, { rule: true, need: 'radar' }),
+  T('o6a', 'OFFENSE', 6, -24, ['o5a'], 'rate'), N('o6c', 'OFFENSE', 6, 0, ['o5a', 'o5b'], 'hunter'), T('o6b', 'OFFENSE', 6, 24, ['o5b'], 'dmg'),
+  K('killchain', 'OFFENSE', 7, -46, 'o6a', 'KILL CHAIN', 'every 5 kills: +1 lock slot for 8s · -10% damage', { addKillChain: 1, dmg: 0.9 }, { rule: true, need: 'radar' }),
+  K('arc', 'OFFENSE', 7, -22, 'o6a', 'ARC LASER', 'laser jumps to 2 more targets at 60% · -10% damage', { addArc: 2, dmg: 0.9 }, { rule: true, need: 'pulse' }),
+  K('chain', 'OFFENSE', 7, 0, 'o6c', 'CHAIN REACTION', 'kills explode for 6 dmg · -10% credits', { addChain: 6, credits: 0.9 }),
+  K('frag', 'OFFENSE', 7, 22, 'o6b', 'FRAG WARHEADS', 'PAC-3 hits splash for 50% · -15% fire rate', { addFrag: 0.5, rate: 0.85 }, { rule: true, need: 'pac3' }),
+  K('overwatch', 'OFFENSE', 7, 46, 'o6b', 'OVERWATCH', 'your marked target takes x2 damage · -1 lock slot', { markDmg: 2, addSlots: -1 }, { rule: true, need: 'radar' }),
   // DEFENSE: armour and repairs (left), hull (right); going dark against ARMs at the far end.
   T('d1', 'DEFENSE', 1, 0, ['core'], 'hp'),
   T('d2a', 'DEFENSE', 2, -20, ['d1'], 'armor'), T('d2b', 'DEFENSE', 2, 20, ['d1'], 'hp'),
   K('laststand', 'DEFENSE', 3, -40, 'd2a', 'LAST STAND', 'below 25% HP: +50% fire rate, -40% power gen', { addLastStand: 1 }, { rule: true }),
   T('d3a', 'DEFENSE', 3, -13, ['d2a'], 'repair'), T('d3b', 'DEFENSE', 3, 13, ['d2b'], 'hp'),
   K('fortress', 'DEFENSE', 3, 40, 'd2b', 'FORTRESS', '+50% max HP · +10% armour · -15% fire rate', { hp: 1.5, addArmor: 0.1, rate: 0.85 }),
-  T('d4a', 'DEFENSE', 4, -24, ['d3a'], 'armor'), T('d4b', 'DEFENSE', 4, 0, ['d3a', 'd3b'], 'repair'), T('d4c', 'DEFENSE', 4, 24, ['d3b'], 'hp'),
+  T('d4a', 'DEFENSE', 4, -24, ['d3a'], 'armor'), N('d4b', 'DEFENSE', 4, 0, ['d3a', 'd3b'], 'depot'), T('d4c', 'DEFENSE', 4, 24, ['d3b'], 'hp'),
   K('csead', 'DEFENSE', 5, -42, 'd4a', 'COUNTER-SEAD', 'every ARM shot down restores 20% power · -10% credits', { addCounterSead: 1, credits: 0.9 }, { rule: true, need: 'radar' }),
   T('d5a', 'DEFENSE', 5, -16, ['d4a'], 'persist'), T('d5b', 'DEFENSE', 5, 16, ['d4c'], 'armor'),
   K('blackout', 'DEFENSE', 5, 42, 'd4c', 'BLACKOUT PROTOCOL', 'contacts coast x2 as long while the radar is dark · -30% contact memory while radiating', { addBlackout: 1 }, { rule: true, need: 'radar' }),
-  T('d6a', 'DEFENSE', 6, -24, ['d5a'], 'persist'), T('d6b', 'DEFENSE', 6, 24, ['d5b'], 'hp'),
+  T('d6a', 'DEFENSE', 6, -24, ['d5a'], 'persist'), N('d6c', 'DEFENSE', 6, 0, ['d5a', 'd5b'], 'dugin'), T('d6b', 'DEFENSE', 6, 24, ['d5b'], 'hp'),
   K('lpi', 'DEFENSE', 7, -30, 'd6a', 'LPI WAVEFORM', 'LPI mode keeps full detection chance and range · -15% radar range', { addLpi: 1, range: 0.85 }, { rule: true, need: 'radar' }),
   K('fusion', 'DEFENSE', 7, 30, 'd6b', 'TRACK FUSION', 'locks hold while the radar is dark · -1 lock slot', { addFusion: 1, addSlots: -1 }, { rule: true, need: 'radar' }),
   // SYSTEMS: the magazine and the money (left), power and sensors (right).
@@ -861,18 +877,18 @@ export const SKILLS: SkillNode[] = [
   K('salvage', 'SYSTEMS', 3, -40, 's2a', 'SALVAGE', '+25% credits · -15% damage', { credits: 1.25, dmg: 0.85 }),
   T('s3a', 'SYSTEMS', 3, -13, ['s2a'], 'aprod'), T('s3b', 'SYSTEMS', 3, 13, ['s2b'], 'range'),
   K('reactor', 'SYSTEMS', 3, 40, 's2b', 'REACTOR', '+60% power gen · -15% max HP', { gen: 1.6, hp: 0.85 }),
-  T('s4a', 'SYSTEMS', 4, -24, ['s3a'], 'acap'), T('s4b', 'SYSTEMS', 4, 0, ['s3a', 's3b'], 'gen'), T('s4c', 'SYSTEMS', 4, 24, ['s3b'], 'sweep'),
+  T('s4a', 'SYSTEMS', 4, -24, ['s3a'], 'acap'), N('s4b', 'SYSTEMS', 4, 0, ['s3a', 's3b'], 'chest'), T('s4c', 'SYSTEMS', 4, 24, ['s3b'], 'sweep'),
   K('logistics', 'SYSTEMS', 5, -42, 's4a', 'AUTOMATED LOGISTICS', '+100% interceptor production · -15% credits', { aprod: 2, credits: 0.85 }, { need: 'pac3' }),
   T('s5a', 'SYSTEMS', 5, -16, ['s4a'], 'aprod'), T('s5b', 'SYSTEMS', 5, 16, ['s4c'], 'trange'),
   K('highfreq', 'SYSTEMS', 5, 42, 's4c', 'HIGH FREQUENCY', '+40% sweep speed · -15% radar range', { sweep: 1.4, range: 0.85 }, { need: 'radar' }),
-  T('s6a', 'SYSTEMS', 6, -24, ['s5a'], 'credits'), T('s6b', 'SYSTEMS', 6, 24, ['s5b'], 'persist'),
-  K('scav', 'SYSTEMS', 7, -42, 's6a', 'SCAVENGER', 'every kill refunds 2 interceptors · -10% max HP', { addScav: 2, hp: 0.9 }, { rule: true, need: 'pac3' }),
-  K('multilock', 'SYSTEMS', 7, -13, 's6a', 'MULTI-LOCK', '+2 lock slots · -15% track range', { addSlots: 2, trange: 0.85 }, { need: 'radar' }),
-  K('deepscan', 'SYSTEMS', 7, 13, 's6b', 'DEEP SCAN', '+30% radar range · -20% sweep speed', { range: 1.3, sweep: 0.8 }, { need: 'radar' }),
-  K('signal', 'SYSTEMS', 7, 42, 's6b', 'SIGNAL BOOST', 'x2 contact memory · +50% radar power drain', { persist: 2, drain: 1.5 }, { need: 'radar' }),
+  T('s6a', 'SYSTEMS', 6, -24, ['s5a'], 'credits'), N('s6c', 'SYSTEMS', 6, 0, ['s5a', 's5b'], 'warning'), T('s6b', 'SYSTEMS', 6, 24, ['s5b'], 'persist'),
+  K('scav', 'SYSTEMS', 7, -46, 's6a', 'SCAVENGER', 'every kill refunds 2 interceptors · -10% max HP', { addScav: 2, hp: 0.9 }, { rule: true, need: 'pac3' }),
+  K('multilock', 'SYSTEMS', 7, -20, 's6a', 'MULTI-LOCK', '+2 lock slots · -15% track range', { addSlots: 2, trange: 0.85 }, { need: 'radar' }),
+  K('deepscan', 'SYSTEMS', 7, 20, 's6b', 'DEEP SCAN', '+30% radar range · -20% sweep speed', { range: 1.3, sweep: 0.8 }, { need: 'radar' }),
+  K('signal', 'SYSTEMS', 7, 46, 's6b', 'SIGNAL BOOST', 'x2 contact memory · +50% radar power drain', { persist: 2, drain: 1.5 }, { need: 'radar' }),
 ];
 export const skill = (id: string) => SKILLS.find(n => n.id === id);
-export const KEYSTONES = SKILLS.filter(n => n.key);
+export const KEYSTONES = SKILLS.filter(n => n.key), NOTABLES = SKILLS.filter(n => n.notable);
 // Both ways round: a node's neighbours are what it hangs off and what hangs off it.
 export const skillLinks = (id: string) => SKILLS.filter(n => n.from.includes(id)).map(n => n.id).concat(skill(id)?.from ?? []);
 
@@ -920,6 +936,7 @@ const ranked = (id: string, n: number) => n + (UPGRADES.find(u => u.id === id)?.
 export function deriveStats(lv: Record<string, number>, skills: string[], level = 1, doctrine = 'standard') {
   const L = (id: string) => ranked(id, lv[id] ?? 0);
   const p = { dmg: 1, rate: 1, gen: 1, range: 1, sweep: 1, aprod: 1, credits: 1, hp: 1, persist: 1, drain: 1, trange: 1, pcap: 1, acap: 1, addSlots: 0, addArmor: 0, addChain: 0, addRepair: 0,
+    addMomentum: 0, addHeavy: 0, padRepair: 1, padTaken: 1, addInterest: 0, addWarn: 0,
     addFusion: 0, addLpi: 0, addArc: 0, addScav: 0, addFrag: 0, markDmg: 1,
     addBlackout: 0, addCounterSead: 0, addKillChain: 0, addOverkill: 0, addLastStand: 0 };
   // The command tree, then the doctrine's run-long trade, folded the same way.
@@ -940,7 +957,7 @@ export function deriveStats(lv: Record<string, number>, skills: string[], level 
     armor: Math.min(0.85, 0.85 * (1 - 0.88 ** L('armor')) + p.addArmor + (level >= 5 ? 0.1 : 0)),
     repair: 0.6 * L('repair') + p.addRepair,
     gen: (6 + 3 * L('gen') + (level >= 2 ? 2 : 0)) * p.gen,
-    raidWarn: level >= 3 ? 5 : 0, // s of extra raid warning
+    raidWarn: (level >= 3 ? 5 : 0) + p.addWarn, // s of extra raid warning
     backupRadar: level >= 4,
     armStun: level >= 7 ? 0.5 : 1,
     powerCap: (60 + 40 * L('cap')) * p.pcap,
@@ -959,6 +976,7 @@ export function deriveStats(lv: Record<string, number>, skills: string[], level 
     upkeep: (['pac3', 'pulse', 'missile', 'rail'] as const).reduce((a, k) => a + (UPKEEP[k] ?? 0) * (lv[k] ?? 0), 0), // standby power/s of the weapons (units: sim.upkeep)
     credits: p.credits,
     chain: p.addChain,
+    momentum: p.addMomentum, heavy: p.addHeavy, padRepair: p.padRepair, padTaken: p.padTaken, interest: p.addInterest,
     fusion: p.addFusion > 0, lpi: p.addLpi > 0, arc: p.addArc, scav: p.addScav, frag: p.addFrag, markDmg: p.markDmg,
     blackout: p.addBlackout > 0, counterSead: p.addCounterSead > 0, killChain: p.addKillChain > 0, overkill: p.addOverkill > 0, lastStand: p.addLastStand > 0,
     padDmg: (1 + 0.25 * L('dmg')) * p.dmg, // x on every pad gun (per-unit stats in sim.padStats)

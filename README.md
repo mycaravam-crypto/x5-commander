@@ -286,9 +286,10 @@ Every base level-up pays **2 points**, and every 5th base level one more (base l
 
 The tree is a radial map with **COMMAND** in the middle and three branches: **OFFENSE** (damage, fire rate, fire control), **DEFENSE** (hull, armour, repairs, going dark) and **SYSTEMS** (power, sensors, the magazine, credits). A point buys one node next to one you hold:
 - **Travel nodes** (small circles) are one small, pure step: +4% damage, +4% fire rate, +6% max HP, +2% armour, +0.3 HP/s repair, +6% power gen, +4% radar range and so on.
+- **Notables** (diamonds) sit where two lanes of a branch meet, two per branch: bigger than a travel node, no trade, and each does something a plain stat can't. OFFENSE: *MOMENTUM* (+2% fire rate per combo step, up to +20%) and *HUNTER-KILLER* (+30% damage to heavy targets and raid leaders). DEFENSE: *FIELD DEPOT* (units repair 3× as fast, +0.5 HP/s battery repair) and *DUG IN* (units take 30% less damage, +4% armour). SYSTEMS: *WAR CHEST* (4% interest on banked credits every build window, up to 150) and *EARLY WARNING* (raids announced 5 s earlier, +15% contact memory).
 - **Keystones** (hexagons) are the old perks, with their trades: *GLASS CANNON*, *OVERCHARGE*, *FORTRESS*, *REACTOR*... ★ marks the ones that change the rules (*OVERKILL*, *LAST STAND*, *TRACK FUSION*, *KILL CHAIN*...). Keystones are leaves: you can't path through one. The radar and Patriot keystones need those upgrades first (dashed amber outline).
 
-The rule keystones sit deeper (ring 5 to 7), so they take a few levels to reach. The full tree is 59 nodes; a good run fills under half of it: one branch end to end and a dip into another, or the near keystones of two.
+The rule keystones sit deeper (ring 5 to 7), so they take a few levels to reach. The full tree is 62 nodes; a good run fills under half of it: one branch end to end and a dip into another, or the near keystones of two.
 
 ### Salvage
 Kills sometimes drop **salvage**: a spinning crate with a light over it. **Click it** to recover it: it stays on the ground until you do (up to 12 at once; while 12 are waiting, kills drop nothing more). Heavier kills drop more often (FPV under 1%, Shahed 3%, Mi-28 12%, Mi-8 30%, Su-34 40%; decoys never drop) and are more likely to drop tech:

@@ -286,6 +286,9 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 .sk.need circle, .sk.need path { stroke: var(--alert); stroke-dasharray: 1.5 1.2; }
 .sk.taken circle, .sk.taken path { fill: var(--t); stroke: var(--hot); filter: drop-shadow(0 0 2.5px var(--t)); }
 .sk:hover circle, .sk:hover path { stroke: var(--hot); stroke-width: 1.8; }
+.sk .pip { fill: var(--t); stroke: none; }
+.sk.taken .pip { fill: #000; }
+.skilltree .kname.nb { font-style: italic; }
 .sk .star { font-size: 6px; fill: var(--alert); text-anchor: middle; pointer-events: none; }
 .sk.taken .star { fill: #000; }
 @keyframes skopen { 50% { filter: drop-shadow(0 0 3px var(--t)); } }

@@ -1,6 +1,6 @@
 // `npm test` — headless run of the sim. Throws on the first broken rule.
-import { newGame, update, stageInfo, spawnGroupAt, seedCode, parseCode, parseResult, buy, skipBuild, cruiseTarget, cost, lockReason, takeSkill, undoSkills, openTree, closeTree, skillPath, skillBlock, autoSpend, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive, noAmmo, spotted, irHit, shownKind, horizonMask, boss, bossHp, bossReach, bossStandoff, upkeep } from './sim.ts';
-import { baseLevel, difficulty, UPGRADES, SKILLS, KEYSTONES, skill, skillLinks, skillPoints, SKILL_POINTS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, START_PADS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, TERRAIN, AMMO_RELOAD, GUNS, HELO, LANCET, MILESTONE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE, VETERANCY, TRAINING, TRAINING_BUILD, DOCTRINES, RAIDS, EW_MAX, RECON, KA52, SU25, SEAD as SEAD_FTR, ARM2, ARM_STUN, ARM_LIFE, MASK, horizon, flightAlt, KINDS, ARENA_R, BOSS, bossLevel, bossFor, resupply, RESUPPLY, UPKEEP, type DmgCat } from './config.ts';
+import { newGame, update, stageInfo, spawnGroupAt, seedCode, parseCode, parseResult, buy, skipBuild, cruiseTarget, cost, lockReason, damage, takeSkill, undoSkills, openTree, closeTree, skillPath, skillBlock, autoSpend, markAt, visible, spawnEnemy, toggleEmcon, cycleRadarMode, aimFocus, radarRange, slots, cycleDiscipline, emergencyIntercept, interceptBlock, emitting, jamFactor, phase, flankArc, building, interceptBlock as iBlock, bestSpot, buildBlock, freeSpots, beltOf, toggleRelocate, coverage, padStats, selectPad, upgradePad, sellPad, movePad, placePad, rand, dailySeed, type State, rollDrop, spawnDrop, collectDrop, toRank, techPool, overdrive, noAmmo, spotted, irHit, shownKind, horizonMask, boss, bossHp, bossReach, bossStandoff, upkeep } from './sim.ts';
+import { baseLevel, difficulty, UPGRADES, SKILLS, KEYSTONES, NOTABLES, INTEREST_CAP, skill, skillLinks, skillPoints, SKILL_POINTS, PACKAGES, EW_ARC, deriveStats, EW_ORBIT, MODS, LEVELS, LEVEL_LEN, BUILD_MIN, PAD_GAP, buildR, perimSlots, MG_TIERS, START_PADS, CROSSFIRE, OBSERVER_EYES, AMMO_RATE, PAD_HP, MOVE_TIME, VISUAL_R, PAD_EYES, MG_BELT, RADAR_REQ, BUILD_TIME, BUILD_LOST, RAID_WARN, ENEMIES, FRONT, FRONT_ARC, TERRAIN, AMMO_RELOAD, GUNS, HELO, LANCET, MILESTONE, DROP_MAX, CACHE, OVERDRIVE, REPAIR_DROP, KAB_FIRST, KAB_PAIR, SURGE, VETERANCY, TRAINING, TRAINING_BUILD, DOCTRINES, RAIDS, EW_MAX, RECON, KA52, SU25, SEAD as SEAD_FTR, ARM2, ARM_STUN, ARM_LIFE, MASK, horizon, flightAlt, KINDS, ARENA_R, BOSS, bossLevel, bossFor, resupply, RESUPPLY, UPKEEP, type DmgCat } from './config.ts';
 import { buyMod, padHp, fanOf, padEyes, modCost, padUpgradeCost, inZone, spawnAt, unitCap, GROUND_EXTRA } from './sim.ts';
 import { GROUND_FIRE, UNIT_TIERS, tideFor, HORDE_TEST, groundZone, FRONT_LINE, GROUND } from './config.ts';
 import { site, PONDS, ROCKS, FARMS, mapSeed, openShare, OPEN_MIN, ground, riverZ, RIVER_W } from './terrain.ts';
@@ -782,7 +782,9 @@ ok(phase(s).name === MODS[0].name, 'conditions loop');
   ok(reach.size === SKILLS.length, 'tree: every node reachable from COMMAND');
   ok(skillPoints(1) === 0 && skillPoints(2) === SKILL_POINTS && skillPoints(5) === 4 * SKILL_POINTS + 1 && skillPoints(13) === 26, 'points: 2 a level, +1 every 5th');
   ok(skillPoints(13) < (SKILLS.length - 1) / 2, 'a good run fills less than half the tree');
-  ok(SKILLS.every(n => n.key || Object.keys(n.fx).length <= 1), 'travel nodes are one small step each');
+  ok(SKILLS.every(n => n.key || n.notable || Object.keys(n.fx).length <= 1), 'travel nodes are one small step each');
+  ok(NOTABLES.length === 6 && NOTABLES.every(n => n.from.length === 2 && n.branch) && ['OFFENSE', 'DEFENSE', 'SYSTEMS'].every(b => NOTABLES.filter(n => n.branch === b).length === 2),
+    'notables: two per branch, each where two lanes meet');
 }
 {
   const g = quiet(); g.phase = 'play'; g.credits = 1e6;
@@ -794,7 +796,7 @@ ok(phase(s).name === MODS[0].name, 'conditions loop');
   ok(takeSkill(g, 'o2b') && !takeSkill(g, 'o3b') && skillBlock(g, 'o3b') === 'NO POINTS', 'out of points');
   undoSkills(g);
   ok(g.points === SKILL_POINTS && g.skills.join() === 'core' && g.st.padDmg === dmg, 'undo gives back what this visit took');
-  ok(skillPath(g, 'overcharge').join() === 'o1,o2b,overcharge' && skillPath(g, 'chain').length === 5, 'paths run the shortest way');
+  ok(skillPath(g, 'overcharge').join() === 'o1,o2b,overcharge' && skillPath(g, 'chain').length === 7, 'paths run the shortest way');
   closeTree(g); ok((g.phase as string) === 'play' && g.points === SKILL_POINTS, 'closing banks the points');
   openTree(g); takeSkill(g, 'o1'); closeTree(g); openTree(g); undoSkills(g);
   ok(g.skills.includes('o1'), 'undo only reaches back to when the tree was opened');
@@ -809,6 +811,32 @@ ok(phase(s).name === MODS[0].name, 'conditions loop');
   ok(!skillPath(h, 'd3b').includes('fortress') && skillPath(h, 'd3b').join() === 'd3b', 'no path through a keystone');
   ok(KEYSTONES.every(k => SKILLS.every(n => !n.from.includes(k.id))), 'keystones are leaves');
 }
+// Notables.
+const withPerk = (id: string) => { const g = quiet(); g.skills = [id]; g.st = deriveStats(g.lv, g.skills); return g; };
+{ // MOMENTUM: guns fire faster while a combo runs
+  const g = withPerk('o4b'), p = addPad(g, 'mg', 0), r0 = padStats(g, p).rate;
+  g.combo = 5; g.lastKill = g.t; ok(Math.abs(padStats(g, p).rate / r0 - 1.1) < 1e-9, 'MOMENTUM: +2% fire rate per combo step');
+  g.lastKill = g.t - 99; ok(padStats(g, p).rate === r0, 'MOMENTUM: gone with the combo');
+}
+{ // HUNTER-KILLER: heavy targets take more
+  const hit = (id: string, kind: 'elite' | 'drone') => { const g = id ? withPerk(id) : quiet(); g.st.slots = 0; const e = spawnEnemy(g, kind, 0, 30); e.hp = e.maxHp = 1e6; damage(g, e, 10, 'PAC-3'); return 1e6 - e.hp; };
+  ok(Math.abs(hit('o6c', 'elite') / hit('', 'elite') - 1.3) < 1e-6 && hit('o6c', 'drone') === hit('', 'drone'), 'HUNTER-KILLER: +30% on heavy targets only');
+}
+{ // FIELD DEPOT and DUG IN: units mend faster and take less
+  const mend = (id: string) => { const g = id ? withPerk(id) : quiet(); const p = addPad(g, 'mg', 0); p.hp = 5; run(g, 2); return p.hp - 5; };
+  ok(Math.abs(mend('d4b') / mend('') - 3) < 0.05, 'FIELD DEPOT: units repair 3x as fast');
+  ok(withPerk('d6c').st.padTaken === 0.7 && withPerk('d6c').st.armor > quiet().st.armor, 'DUG IN: units take less, the battery armours up');
+}
+{ // WAR CHEST: interest on banked credits when the build window opens, capped
+  const pay = (credits: number) => {
+    const g = withPerk('s4b'); g.nextRaid = RAID_WARN; g.st.slots = 0; g.st.maxHp = g.hp = 1e9; g.credits = credits; let n = 0;
+    run(g, RAID_WARN + 40, () => { for (const e of g.events) if (e.k === 'interest') n = e.n; });
+    return n;
+  };
+  ok(pay(1000) === 40 && pay(1e6) === INTEREST_CAP, `WAR CHEST: 4% interest, up to ${INTEREST_CAP}`);
+}
+ok(withPerk('s6c').st.raidWarn === quiet().st.raidWarn + 5, 'EARLY WARNING: raids announced 5s earlier');
+
 // The horde test starts with the points for its level, banked.
 ok(newGame(3, '', 'standard', false, true, true).points === skillPoints(newGame(3, '', 'standard', false, true, true).level), 'horde test: points for its level');
 
@@ -821,7 +849,6 @@ toggleEmcon(s); run(s, 2);
 ok(s.enemies[0].locked, 'fusion keeps the lock through EMCON');
 
 // New rule perks.
-const withPerk = (id: string) => { const g = quiet(); g.skills = [id]; g.st = deriveStats(g.lv, g.skills); return g; };
 { // BLACKOUT PROTOCOL: going dark doubles what's left of every track on the scope
   const g = withPerk('blackout'); g.st.slots = 0; const e = spawnEnemy(g, 'tank', 0, 30); e.hp = 1e9; e.speed = 0;
   run(g, 5); const left = e.seenUntil - g.t;
