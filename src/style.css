@@ -269,6 +269,44 @@ body.blind #left, body.blind #top { --c: var(--crit); border-color: color-mix(in
 .perk i { display: block; font-style: normal; font-size: 10px; letter-spacing: 0.2em; color: var(--alert); margin-bottom: 6px; }
 .perk kbd { display: block; margin-top: 10px; color: var(--mid); }
 .perk em { display: block; margin-top: 6px; font-style: normal; font-size: 10px; color: var(--alert); opacity: 0.85; }
+/* Command tree: a radial SVG map (hud.treeSvg). Each node carries its branch's colour in --t. */
+.card.tree { width: min(760px, 100%); padding: 14px 16px; }
+.card.tree h2 { margin-bottom: 6px; }
+.tree .pts { font-size: 14px; letter-spacing: 0.15em; }
+.tree .pts b { font-size: 20px; }
+.skilltree { display: block; width: 100%; height: auto; aspect-ratio: 236 / 220; max-height: min(64vh, 600px); stroke-linecap: butt; stroke: none; filter: none; margin: 6px auto 0; overflow: visible; text-shadow: none; }
+.skilltree line { stroke: var(--dim); stroke-width: 1.1; }
+.skilltree line.next { stroke: var(--mid); stroke-dasharray: 2 1.5; }
+.skilltree line.on { stroke: var(--hot); stroke-width: 1.6; filter: drop-shadow(0 0 1.5px var(--bright)); }
+.sk { cursor: pointer; }
+.sk .hit { fill: transparent !important; stroke: none !important; animation: none !important; filter: none !important; }
+.sk circle, .sk path { fill: #020a05; stroke: color-mix(in srgb, var(--t) 35%, transparent); stroke-width: 1; transition: fill 0.15s; }
+.sk.near circle, .sk.near path { stroke: color-mix(in srgb, var(--t) 70%, transparent); }
+.sk.open circle, .sk.open path { stroke: var(--t); stroke-width: 1.4; animation: skopen 1.4s ease-in-out infinite; }
+.sk.need circle, .sk.need path { stroke: var(--alert); stroke-dasharray: 1.5 1.2; }
+.sk.taken circle, .sk.taken path { fill: var(--t); stroke: var(--hot); filter: drop-shadow(0 0 2.5px var(--t)); }
+.sk:hover circle, .sk:hover path { stroke: var(--hot); stroke-width: 1.8; }
+.sk .star { font-size: 6px; fill: var(--alert); text-anchor: middle; pointer-events: none; }
+.sk.taken .star { fill: #000; }
+@keyframes skopen { 50% { filter: drop-shadow(0 0 3px var(--t)); } }
+.skilltree .kname { font-size: 4.2px; fill: var(--mid); pointer-events: none; }
+.skilltree .kname.taken { fill: var(--hot); }
+.skilltree .kname.open { fill: var(--bright); }
+.skilltree .kname.need { fill: color-mix(in srgb, var(--alert) 70%, transparent); }
+@media (max-width: 560px) { .skilltree .kname { display: none; } .card.tree { padding: 12px 8px; } } /* too small to read: tap a node for its name */
+.skilltree .bname { font-size: 6px; letter-spacing: 0.2em; font-weight: 700; fill: var(--t); }
+.skilltree .bname.dim { font-size: 4.4px; font-weight: 400; fill: var(--mid); }
+.skinfo { display: flex; flex-direction: column; gap: 3px; align-items: center; min-height: 72px; justify-content: center; max-width: 520px; margin: 8px auto 0; padding: 8px 12px; }
+.skinfo b { color: var(--hot); letter-spacing: 0.15em; }
+.skinfo span { font-size: 12px; }
+.tree .btn { margin-top: 12px; }
+.btn[disabled] { opacity: 0.35; pointer-events: none; }
+/* Unspent command tree points ride on BATTERY LV, which opens the tree. */
+.stat.lvp { pointer-events: auto; cursor: pointer; }
+#points { position: absolute; top: -6px; right: -16px; font-style: normal; font-size: 11px; font-weight: 700; color: var(--bg); background: var(--hot);
+  padding: 0 4px; text-shadow: none; box-shadow: 0 0 8px var(--hot); animation: skopen 1.4s ease-in-out infinite; }
+#points:empty { display: none; }
+@media (prefers-reduced-motion: reduce) { .sk.open circle, .sk.open path, #points { animation: none; } }
 .score { display: grid; grid-template-columns: auto auto auto; gap: 4px 24px; justify-content: center; margin: 14px 0; }
 .score .new { color: var(--hot); }
 

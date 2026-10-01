@@ -1,7 +1,7 @@
-// `npm run balance` — headless bots over many seeds. Median survival (and level reached) per doctrine, and per perk when the bot
-// always takes that perk if offered. A perk far above the rest is a balance problem.
-import { newGame, update, buy, collectDrop, cost, pickPerk, toggleEmcon, emitting, rand, padUpgradeCost, upgradePad, bestSpot, placePad, boss, markAt, visible, type State, type Pad } from './sim.ts';
-import { DOCTRINES, PERKS, UPGRADES, PERIM_KINDS, perimSlots, ENEMIES, ARMS, type PerimKind, type EnemyKind } from './config.ts';
+// `npm run balance` — headless bots over many seeds. Median survival (and level reached) per doctrine, and per keystone when
+// the bot heads straight for that keystone on the command tree. A keystone far above the rest is a balance problem.
+import { newGame, update, buy, collectDrop, cost, autoSpend, closeTree, toggleEmcon, emitting, rand, padUpgradeCost, upgradePad, bestSpot, placePad, boss, markAt, visible, type State, type Pad } from './sim.ts';
+import { DOCTRINES, KEYSTONES, UPGRADES, PERIM_KINDS, perimSlots, ENEMIES, ARMS, type PerimKind, type EnemyKind } from './config.ts';
 
 declare const process: { argv: string[] }; // node, without pulling in @types/node
 const SEEDS = +(process.argv[2] ?? 12), LIMIT = +(process.argv[3] ?? 3600); // runs per row, s cap per run
@@ -11,7 +11,8 @@ Math.random = () => rand(rng);
 // Plays like an attentive beginner: buys a milestone (radar, then Patriot) the moment it can afford it, fills
 // every free unit slot (cheapest gun, plus one observer post and one ammo point once there are guns to serve) and
 // builds at once on bestSpot, saves for an open milestone, and otherwise buys the cheapest of a sensible core.
-// Uses EMCON against ARMs, marks a boss as the priority target once it's on the scope, prefers `perk` in drafts.
+// Uses EMCON against ARMs, marks a boss as the priority target once it's on the scope, spends tree points on the way to `key`,
+// then on the first open node (fire rate and damage first).
 const CORE = UPGRADES.map(u => u.id).filter(id => !['cap', 'modes', 'trange', 'jammer'].includes(id) && !PERIM_KINDS.includes(id as PerimKind));
 const GUNS = ['mg', 'mantis', 'stinger', 'iris'];
 const cheapest = (s: State, ids: string[]) => ids.reduce((a, b) => cost(s, b) < cost(s, a) ? b : a);
@@ -32,12 +33,12 @@ function shop(s: State) {
   const pad = s.perim.reduce<Pad | undefined>((a, p) => padUpgradeCost(p) < (a ? padUpgradeCost(a) : Infinity) ? p : a, undefined);
   if (pad && padUpgradeCost(pad) < cost(s, pick)) { s.selected = pad.slot; upgradePad(s); } else buy(s, pick);
 }
-function play(seed: number, doctrine: string, perk = '') {
+function play(seed: number, doctrine: string, key = '') {
   rng.seed = seed;
   const s: State = newGame(seed, '', doctrine);
   s.phase = 'play' as State['phase']; // cast: keep TS from narrowing it to 'play' for the loop below
   for (let i = 0; i < LIMIT * 20 && s.phase !== 'over'; i++) {
-    if (s.phase === 'perk') pickPerk(s, Math.max(0, s.perkChoices.indexOf(perk)));
+    if (s.phase === 'tree') { autoSpend(s, key); closeTree(s); }
     shop(s);
     for (const d of [...s.drops]) collectDrop(s, d.x, d.z); // an attentive player recovers every drop
     const b = boss(s);
@@ -66,8 +67,8 @@ function row(label: string, runs: State[]) {
 const seeds = Array.from({ length: SEEDS }, (_, i) => 1000 + i * 7919);
 console.log(`${SEEDS} seeds, cap ${mmss(LIMIT)}`);
 for (const d of DOCTRINES) row(`doctrine ${d.name}`, seeds.map(x => play(x, d.id)));
-const base = row('perk (none preferred)', seeds.map(x => play(x, 'standard')));
-for (const p of PERKS) {
+const base = row('tree (no keystone aimed)', seeds.map(x => play(x, 'standard')));
+for (const p of KEYSTONES) {
   const m = median(seeds.map(x => play(x, 'standard', p.id).t));
   console.log(`  ${p.name.padEnd(20)} ${mmss(m).padStart(6)}  ${m > base * 1.25 ? '▲ strong' : m < base * 0.8 ? '▼ weak' : ''}`);
 }

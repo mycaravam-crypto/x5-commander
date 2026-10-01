@@ -1,11 +1,11 @@
-import { KA52, ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, UNIT_TIERS, UNIT_MODS, MOD_SLOTS, HORDE_TEST, groundZone, unitMod, type PerimKind, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, PERKS, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, MILESTONE, ARMS, SU25, OVERDRIVE, rank, TRAINING, BIG_KILLS, WARN, PERF, GROUND_FIRE , BOSS, CAT_NAME, bossOf } from './config.ts';
+import { KA52, ARENA_R, BASE_R, FRONT, FRONT_ARC, VISUAL_R, RADAR_REQ, PLACE_TIME, GUNS, FANS, MG_TIERS, PAD_HP, MOVE_TIME, VETERANCY, vetRank, OBSERVER_EYES, AMMO_R, PERIM, UNIT_TIERS, UNIT_MODS, MOD_SLOTS, HORDE_TEST, groundZone, unitMod, type PerimKind, baseLevelInfo, DOCTRINES, PACKAGES, OBJECTIVES, BUILD_LOST, DISCIPLINES, INTERCEPT, COMBO_BONUS, COMBO_CAP, COMBO_WINDOW, ENEMIES, MUNITIONS, MODES, PAL, SKILLS, KEYSTONES, BRANCHES, SKILL_POINTS, SKILL_BONUS, skill, skillPoints, type Branch, type SkillNode, UPGRADES, bearing, perimSlots, flightAlt, buildR, DROPS, MILESTONE, ARMS, SU25, OVERDRIVE, rank, TRAINING, BIG_KILLS, WARN, PERF, GROUND_FIRE , BOSS, CAT_NAME, bossOf } from './config.ts';
 import { play as sound } from './sfx.ts';
 import { paintTerrain } from './terrainPaint.ts';
 import { mapSeed } from './terrain.ts';
 import type { Records } from './config.ts';
 import { fetchBoard, fetchMe, fetchProfile, saveProfile, postRun, signup, login, logout, boardHtml as scoreboardHtml, placedHtml, accountHtml, profileHtml, saveCallsign, type Me, type Profile } from './scores.ts';
 import { avatarFor, avatarCode, SHAPES, EMBLEMS, COLORS, type Avatar } from '../server/career.ts';
-import { boss, seedCode, beltOf, stageInfo, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, nextTierName, modCost, padHp, padEyes, fanOf, unitCap, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, OTHER_MODE, noAmmo, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
+import { boss, seedCode, beltOf, stageInfo, cost, toRank, overdrive, emitting, flankArc, building, selectedPad, padStats, padName, padUpgradeCost, nextTierName, modCost, padHp, padEyes, fanOf, unitCap, sellValue, covers, slots, backupSearching, focusBearing, radarMode, radarRange, radarSector, interceptActive, interceptBlock, lockReason, skillBlock, skillPath, OTHER_MODE, noAmmo, phase, phaseName, shownKind, visible, type Enemy, type State } from './sim.ts';
 
 const byId = new Map<string, HTMLElement>(); // the HUD's elements are fixed: look each up once
 const $ = (id: string) => { let el = byId.get(id); if (!el?.isConnected) byId.set(id, el = document.getElementById(id)!); return el; };
@@ -85,12 +85,12 @@ const TIPS: Record<string, string> = {
   placing: 'Click open ground inside the dashed build zone to build it (not on water, rock or woods): the green ghost shows its field of fire, the pulsing ring covers the most open sky. Guns shoot inside their field of fire (drawn on the ground), and a target inside two of them takes +20% crossfire damage. Ground matters: high ground by a rock outcrop reaches 20% further but draws drones and cruise missiles, the treeline hides a unit from both (-15% range), and MGs on a road reload fast. Click your units to upgrade, sell or move them [B]. O maps what your guns cover. WASD / arrows or middle-drag pan the camera.',
   padDown: 'Lancets dive on units they fly close to; FPVs go for isolated ones, so keep guns covering each other. Ka-52s and cruise missiles hunt units too. A unit that is down repairs to half before it fights again; the build window repairs everything.',
   drop: `Salvage: a kill left something behind. Click it to recover it (it stays until you do): credits, a refill, a repair, overdrive, or a free upgrade from the heavy kills.`,
-  level: 'Base level up: every level builds something that changes what the battery can do, plus a launcher and 2 perimeter pads. Pads fire on their own, without lock slots.',
+  level: 'Base level up: every level builds something that changes what the battery can do, plus a launcher and 2 perimeter pads. Pads fire on their own, without lock slots. Points not spent now stay banked: [K] or BATTERY LV opens the command tree.',
   // GROUND ASSAULT: in that mode, a `g:` tip stands in for the air one of the same name.
   'g:startMg': 'GROUND ASSAULT: hold the line. Robots on foot march down from the north (the red arc), and only your line can fight them: no radar, no Patriot. Build in the dashed band in front of the base: wire to slow them in front of your guns, Claymores and the Mk 19 for packs, later Javelins, mortars, the 30mm, rockets, a laser and a microwave array. Click a unit to upgrade it in its pit (MK II, MK III) and fit it out: ammunition, sensors, kit.',
   'g:robotFire': 'Combat walkers stop and shoot up the unit in front of them; heavy walkers shoot on the move. Keep guns covering each other, and kill the gunners first. The build window repairs every unit.',
   'g:padDown': 'Light walkers charge the nearest unit they see and blow their charge on it. Wire in front of your guns slows them in the kill zone; Claymores face out from the base and take out a whole pack.',
-  'g:level': 'Base level up: a bigger build zone, more pads and a perk. Heavy walkers are armoured: small arms and grenades do half, the Javelin, the mortar and mines go through.',
+  'g:level': 'Base level up: a bigger build zone, more pads and command tree points [K]. Heavy walkers are armoured: small arms and grenades do half, the Javelin, the mortar and mines go through.',
 };
 const seenTips = (() => { try { return new Set<string>(JSON.parse(localStorage.getItem('x5-tips') ?? '[]')); } catch { return new Set<string>(); } })();
 const store = (k: string, v: string | null) => { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* storage blocked: skip */ } };
@@ -111,10 +111,84 @@ const HELP_SYSTEMS: [string, string][] = [
 const HELP_KEYS: [string, string][] = [
   ['TAB', 'shop'], ['CLICK', 'build · pick unit · mark target'], ['U / DEL / B', 'upgrade / sell / move unit'], ['SPACE', 'emergency intercept'],
   ['G', 'fire discipline'], ['T', 'target mode'], ['V', 'radar mode'], ['F', 'EMCON'], ['N', 'next level now'], ['O', 'coverage map'],
-  ['X', '2× speed'], ['WASD / Q E', 'pan / rotate'], ['P / ESC', 'pause'], ['M', 'mute'],
+  ['X', '2× speed'], ['WASD / Q E', 'pan / rotate'], ['K', 'command tree'], ['P / ESC', 'pause'], ['M', 'mute'],
 ];
 const helpHtml = () => `<div class="help"><div><small>SYSTEMS</small><dl>${HELP_SYSTEMS.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl></div>
   <div><small>KEYS</small><dl>${HELP_KEYS.map(([k, v]) => `<dt><kbd>${k}</kbd></dt><dd>${v}</dd>`).join('')}</dl></div></div>`;
+
+// ---- command tree ----
+// A radial map: COMMAND in the middle, OFFENSE / DEFENSE / SYSTEMS fanning out (config BRANCHES), ring by ring.
+const TREE_RING = 13; // map units per ring
+const BRANCH_TONE: Record<Branch, string> = { OFFENSE: 'crit', DEFENSE: 'bright', SYSTEMS: 'alert' };
+const treeXY = (n: SkillNode) => {
+  const a = ((n.branch ? BRANCHES[n.branch].a : 0) + n.a) * Math.PI / 180, r = n.r * TREE_RING;
+  return [r * Math.sin(a), -r * Math.cos(a)].map(v => Math.round(v * 10) / 10) as [number, number];
+};
+// taken · open (can be taken now) · need (next to you, waits on an upgrade) · far
+function nodeState(s: State, n: SkillNode) {
+  if (s.skills.includes(n.id)) return 'taken';
+  const why = skillBlock(s, n.id);
+  return !why || why === 'NO POINTS' ? (s.points ? 'open' : 'near') : why.startsWith('NEEDS') ? 'need' : 'far';
+}
+// Keystone names: each goes on the first side of its node (outward, below, above, beside) where it hits no node, link
+// or other name. Worked out once: the map never moves.
+const KNAME = { size: 4.2, char: 2.75 }; // font size, advance per character, in map units
+const KEY_LABELS = (() => {
+  const pts: [number, number, number][] = SKILLS.map(n => [...treeXY(n), n.key ? 6.5 : 3.6]);
+  for (const n of SKILLS) for (const f of n.from) {
+    const [x1, y1] = treeXY(skill(f)!), [x2, y2] = treeXY(n);
+    for (let i = 1; i < 10; i++) pts.push([x1 + (x2 - x1) * i / 10, y1 + (y2 - y1) * i / 10, 0.6]);
+  }
+  const boxes: number[][] = [], out = new Map<string, { x: number; y: number; anchor: string }>();
+  const hits = (b: number[]) => pts.some(([x, y, r]) => x + r > b[0] && x - r < b[2] && y + r > b[1] && y - r < b[3])
+    || boxes.some(o => o[0] < b[2] && o[2] > b[0] && o[1] < b[3] && o[3] > b[1]) || b[0] < -118 || b[2] > 118 || b[1] < -98 || b[3] > 98;
+  for (const n of KEYSTONES) {
+    const [x, y] = treeXY(n), d = Math.hypot(x, y), w = n.name.length * KNAME.char, h = KNAME.size, ux = x / d, uy = y / d;
+    const tries: [number, number, string][] = [
+      [x + ux * 10, y + uy * 10, Math.abs(ux) < 0.35 ? 'middle' : ux > 0 ? 'start' : 'end'], [x, y + 11.5, 'middle'], [x, y - 8.5, 'middle'],
+      [x + 8.5, y + 1.5, 'start'], [x - 8.5, y + 1.5, 'end'], [x + ux * 16, y + uy * 16, ux > 0 ? 'start' : 'end'],
+    ];
+    const box = ([lx, ly, anchor]: [number, number, string]) => { const x0 = anchor === 'middle' ? lx - w / 2 : anchor === 'start' ? lx : lx - w; return [x0, ly - h * 0.8, x0 + w, ly + h * 0.2]; };
+    const pick = tries.find(t => !hits(box(t))) ?? tries[0];
+    boxes.push(box(pick)); out.set(n.id, { x: Math.round(pick[0] * 10) / 10, y: Math.round(pick[1] * 10) / 10, anchor: pick[2] });
+  }
+  return out;
+})();
+const spentIn = (s: State, b: Branch) => s.skills.filter(id => skill(id)!.branch === b).length;
+function treeSvg(s: State) {
+  const edges = SKILLS.flatMap(n => n.from.map(f => {
+    const [x1, y1] = treeXY(skill(f)!), [x2, y2] = treeXY(n), on = s.skills.includes(n.id) && s.skills.includes(f);
+    return `<line class="${on ? 'on' : s.skills.includes(f) ? 'next' : ''}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
+  })).join('');
+  const nodes = SKILLS.map(n => {
+    const [x, y] = treeXY(n), st = nodeState(s, n), tone = n.branch ? BRANCH_TONE[n.branch] : 'hot';
+    // A wider invisible disc under each node: an easier target for a finger.
+    const shape = `<circle class="hit" r="${n.key ? 8 : 5.5}"/>` + (n.id === 'core' ? `<circle r="7"/>` : n.key ? `<path d="M0-6.5L5.6-3.25V3.25L0 6.5L-5.6 3.25V-3.25Z"/>${n.rule ? '<text class="star" y="2.2">★</text>' : ''}` : `<circle r="3.2"/>`);
+    const l = KEY_LABELS.get(n.id), label = l ? `<text class="kname ${st}" x="${l.x}" y="${l.y}" text-anchor="${l.anchor}">${n.name}</text>` : '';
+    return `<g class="sk ${st}${n.key ? ' key' : ''}" style="--t:var(--${tone})" data-a="sk-${n.id}" transform="translate(${x} ${y})">${shape}</g>${label}`;
+  }).join('');
+  const corner = (b: Branch, x: number, y: number, anchor: string) => `<text class="bname" style="--t:var(--${BRANCH_TONE[b]})" x="${x}" y="${y}" text-anchor="${anchor}">${b} · ${spentIn(s, b)}</text>`;
+  return `<svg class="skilltree" viewBox="-118 -112 236 220">${edges}${nodes}${corner('OFFENSE', -116, -104, 'start')}${corner('DEFENSE', 116, -104, 'end')}${corner('SYSTEMS', -116, 104, 'start')}
+    <text class="bname dim" x="116" y="104" text-anchor="end">⬢ KEYSTONE · ★ NEW RULE</text></svg>`;
+}
+function skillInfo(s: State, id: string) {
+  const n = skill(id);
+  if (!n) return `<small>${s.points ? 'PICK A NODE NEXT TO ONE YOU HOLD' : 'NO POINTS TO SPEND'} · ⬢ KEYSTONES ARE THE BIG TRADES</small>`;
+  const st = nodeState(s, n), path = skillPath(s, id).length, why = skillBlock(s, id);
+  const status = st === 'taken' ? '<b class="hot">TAKEN</b>' : st === 'open' ? `<b class="hot">${hoverable ? 'CLICK' : 'TAP AGAIN'} TO TAKE · 1 POINT</b>`
+    : why.startsWith('NEEDS') ? `<b class="alert">${why}</b>` : path ? `<span class="dim">${path} POINT${path > 1 ? 'S' : ''} AWAY</span>` : `<span class="dim">${why}</span>`;
+  return `<small>${n.branch || 'ROOT'}${n.key ? ` · KEYSTONE${n.rule ? ' · ★ NEW RULE' : ''}` : ''}</small><b>${n.name}</b><span>${n.desc}</span>${status}`;
+}
+const hoverable = typeof matchMedia === 'function' && matchMedia('(hover: hover)').matches; // a mouse: click takes; a finger: tap shows, tap again takes
+function treeHtml(s: State, sel: string) {
+  const L = baseLevelInfo(s.level), next = s.level + 1, gain = skillPoints(next) - skillPoints(s.level);
+  return `<div class="card tree frame"><h2>COMMAND TREE</h2>
+    <p class="dim">BATTERY LV ${s.level} · ${L.name}${s.level > 1 ? ` · ${s.st.weapons.cannon ? '+1 M903 LAUNCHER · ' : ''}${unitCap(s)} PERIMETER PADS` : ''}</p>
+    <p class="pts">${s.points ? `<b class="hot">${s.points}</b> POINT${s.points > 1 ? 'S' : ''} TO SPEND` : '<span class="dim">ALL POINTS SPENT</span>'} <span class="dim">· +${gain} AT BATTERY LV ${next}</span></p>
+    ${treeSvg(s)}
+    <div class="skinfo frame">${skillInfo(s, sel)}</div>
+    <button class="btn" data-a="tree-undo"${s.fresh.length ? '' : ' disabled'}>UNDO</button> <button class="btn hotbtn" data-a="tree-done">${s.points ? 'BANK POINTS' : 'DONE'} [K]</button></div>`;
+}
 
 // One line to paste in a chat.
 export const resultLine = (s: State) => `X5 COMMANDER · ${s.training ? 'TRAINING' : s.daily ? `DAILY OP ${s.daily}` : s.horde ? 'HORDE TEST' : s.ground ? 'GROUND ASSAULT' : `${DOCTRINES.find(d => d.id === s.doctrine)!.name} RUN`} · ${clock(s.t)} · ${fmt(s.kills)} kills · lv ${s.level} · ${s.stats.clean}/${s.stats.raids} clean raids${s.training ? '' : ` · ${seedCode(s)}`}`;
@@ -186,7 +260,7 @@ function debrief(s: State) {
     ${levels ? `<div class="levels"><small>LEVEL BY LEVEL</small><table><tr><th>LEVEL</th><th>TIME</th><th>KILLS</th><th>HP LOST</th><th></th></tr>${levels}</table></div>` : ''}`;
 }
 
-export function createHud(actions: { buy(id: string): void; perk(i: number): void; pad(act: string): void; start(mode?: 'daily' | 'training' | 'ground' | 'horde'): void; restart(): void; resume(): void; menu(): void; doctrine(i: number): void; look(x: number, z: number): void;
+export function createHud(actions: { buy(id: string): void; skill(id: string): void; undoSkills(): void; closeTree(): void; pad(act: string): void; start(mode?: 'daily' | 'training' | 'ground' | 'horde'): void; restart(): void; resume(): void; menu(): void; doctrine(i: number): void; look(x: number, z: number): void;
   setting(k: string, v: number): void; settings(): { sfx: number; music: number; cov: number }; code(): void }) {
   for (const [k, v] of Object.entries(PAL)) document.documentElement.style.setProperty(`--${k}`, rgba(v));
 
@@ -253,10 +327,22 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     else if (a === 'share') share();
     else if (a === 'signup') auth('signup');
     else if (a === 'logout') signOut();
-    else if (a?.startsWith('perk')) actions.perk(+a.slice(4));
+    else if (a?.startsWith('sk-')) {
+      const id = a.slice(3);
+      // A finger can't hover: the first tap shows the node, the second takes it.
+      if ((hoverable || treeSel === id) && lastState && !skillBlock(lastState, id)) actions.skill(id);
+      treeSel = id; treeInfo();
+    }
+    else if (a === 'tree-undo') actions.undoSkills();
+    else if (a === 'tree-done') actions.closeTree();
     // The pause card covers the on-screen pause button, so a tap off the menu resumes.
     else if (shownPhase.startsWith('pause') && !(e.target as HTMLElement).closest('.card')) actions.resume();
   };
+  // Hovering a node shows what it does; leaving it shows the one picked last.
+  let treeSel = '';
+  const treeInfo = (id = treeSel) => { const el = overlay.querySelector('.skinfo'); if (el && lastState) el.innerHTML = skillInfo(lastState, id); };
+  overlay.onpointerover = e => { const a = (e.target as Element).closest<HTMLElement>('[data-a^=sk-]')?.dataset.a; if (a && e.pointerType === 'mouse') treeInfo(a.slice(3)); };
+  overlay.onpointerout = e => { if ((e.target as Element).closest('[data-a^=sk-]') && e.pointerType === 'mouse') treeInfo(); };
   overlay.onsubmit = e => { e.preventDefault(); auth('login'); }; // the sign-in form: Enter or SIGN IN
   overlay.oninput = e => { const el = e.target as HTMLInputElement; if (el.dataset.set) actions.setting(el.dataset.set, +el.value / 100); };
   // Pause menu settings: volumes and the coverage overlay (all remembered between runs).
@@ -266,7 +352,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   };
   let shownPhase = '', shownDoc = '', shownSeed = '';
   function showOverlay(s: State) {
-    const key = s.phase + s.perkChoices.join();
+    const key = s.phase + (s.phase === 'tree' ? s.skills.join() + s.points + UPGRADES.map(u => s.lv[u.id] ? 1 : 0).join('') : '');
     // Doctrine picks only redraw their row, so the boot text doesn't replay.
     if (key === shownPhase && s.phase === 'start' && s.doctrine !== shownDoc) { shownDoc = s.doctrine; overlay.querySelector('.docs')!.innerHTML = docsHtml(s, loadBest()); }
     if (s.phase === 'start' && seedCode(s) !== shownSeed) {
@@ -277,6 +363,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
     }
     if (key === shownPhase) return;
     shownDoc = s.doctrine;
+    const was = shownPhase;
     shownPhase = key;
     const best = loadBest();
     let html = '';
@@ -286,7 +373,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       <div class="later" style="--d:${BOOT.length * D}s"><p class="dim">SCAN · DETECT · LOCK · ENGAGE · EXPAND</p><br>
       <p>You start with <b>two machine guns</b> and your eyes. Guns fire by themselves at whatever they can see, and hit harder where their fields of fire cross.</p>
       <p><b class="hot">Build more guns</b> from the PERIMETER shop on the right, then <b>click open ground</b> to place them. Cover the <span class="alert">front</span> first.</p>
-      <p>Every few purchases the battery levels up: a bigger build zone, new units and a <b class="hot">perk</b>.</p>
+      <p>Every few purchases the battery levels up: a bigger build zone, new units and <b class="hot">points for the command tree</b> [K]: offense, defense and systems, with big keystones to reach.</p>
       <p>From battery level 3, build the <b>radar</b> to see further and lock targets, then the <b>Patriot</b>. The radar outranges every weapon; the <b>laser</b> and <b>HPM</b> guard the last few metres.</p>
       <p>Anti-radiation missiles <span class="alert">home on your radar</span>. <b>[F] EMCON</b> goes silent so they miss, but you lose every lock. A Su-35S's Kh-58 remembers where it heard you: kill the launcher.</p>
       <p class="dim">LATER · Orlan-10 spotters · Ka-52s in the trees · Su-25 rocket runs · Kh-55 decoys · Kinzhal</p>
@@ -308,9 +395,10 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
       ${helpHtml()}
       <p><button class="link" data-a="resetTips">RESET TIPS</button> <span class="dim">· show every tip again</span></p>
       <p class="dim">[P] or tap outside to resume</p></div>`;
-    else if (s.phase === 'perk') html = `<div class="card"><h2>BATTERY LEVEL ${s.level} · ${baseLevelInfo(s.level).name}</h2><p class="hot">${baseLevelInfo(s.level).desc}</p>${s.level > 1 ? `<p class="dim">${s.st.weapons.cannon ? '+1 M903 LAUNCHER · ' : ''}${unitCap(s)} PERIMETER PADS</p>` : ''}<h2>CHOOSE A PERK</h2><div class="perks">${
-      s.perkChoices.map((id, i) => { const p = PERKS.find(p => p.id === id)!; return `<button class="perk frame${p.rule ? ' rule' : ''}" data-a="perk${i}">${p.rule ? '<i>★ NEW RULE</i>' : ''}<b>${p.name}</b><span>${p.desc}</span><kbd>[${i + 1}]</kbd></button>`; }).join('')
-    }</div></div>`;
+    else if (s.phase === 'tree') {
+      if (!was.startsWith('tree')) treeSel = ''; // freshly opened: nothing picked
+      html = treeHtml(s, treeSel);
+    }
     else if (s.phase === 'over' && s.training) {
       store('x5-trained', '1');
       html = `<div class="card"><h1>TRAINING COMPLETE</h1><p class="hot">EYES · RADAR · ARMS AND EMCON · DECOYS</p>
@@ -337,7 +425,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
         <div class="score">${row('SURVIVED', 'time', clock)}${row('KILLS', 'kills', fmt)}${row('BASE LEVEL', 'level', String)}${row('CREDITS EARNED', 'earned', fmt)}</div>
         <div class="lbslot"></div>
         ${debrief(s)}
-        <p class="dim">perks: ${s.perks.map(id => PERKS.find(p => p.id === id)!.name).join(' · ') || 'none'}</p>
+        <p class="dim">command tree: ${(['OFFENSE', 'DEFENSE', 'SYSTEMS'] as Branch[]).map(b => `${b} ${spentIn(s, b)}`).join(' · ')} · keystones: ${KEYSTONES.filter(n => s.skills.includes(n.id)).map(n => n.name).join(' · ') || 'none'}</p>
         <p class="dim">SEED <span class="hot">${seedCode(s)}</span> · the result line carries it: friends fly the same ${s.daily ? 'op' : 'map and raids'}</p>
         <button class="btn" data-a="restart">REDEPLOY [R]</button> <button class="btn" data-a="share">COPY RESULT [C]</button></div>`;
     }
@@ -776,7 +864,7 @@ export function createHud(actions: { buy(id: string): void; perk(i: number): voi
   function text(s: State) {
     const st = s.st;
     set('credits', fmt(s.credits)); set('phase', phaseName(s)); set('time', clock(s.t));
-    set('kills', fmt(s.kills)); set('level', String(s.level));
+    set('kills', fmt(s.kills)); set('level', String(s.level)); set('points', s.points ? `+${s.points}` : '');
     { // progress to the next base level: 1.5*(L-1)*L purchases reach level L (config.baseLevel)
       const lo = 1.5 * (s.level - 1) * s.level, hi = 1.5 * s.level * (s.level + 1), r = String(Math.round(Math.max(0, s.bought - lo) / (hi - lo) * 20) / 20);
       const el = $('level').parentElement!; if (el.style.getPropertyValue('--r') !== r) el.style.setProperty('--r', r); }

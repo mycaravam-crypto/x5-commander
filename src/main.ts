@@ -1,4 +1,4 @@
-import { newGame, dailySeed, parseCode, parseResult, update, buy, collectDrop, pickPerk, markAt, placePad, movePad, selectPad, upgradePad, buyMod, sellPad, skipBuild, building, toggleRelocate, cycleMode, cycleDiscipline, cycleRadarMode, aimFocus, emergencyIntercept, toggleEmcon, type State } from './sim.ts';
+import { newGame, dailySeed, parseCode, parseResult, update, buy, collectDrop, takeSkill, undoSkills, openTree, closeTree, markAt, placePad, movePad, selectPad, upgradePad, buyMod, sellPad, skipBuild, building, toggleRelocate, cycleMode, cycleDiscipline, cycleRadarMode, aimFocus, emergencyIntercept, toggleEmcon, type State } from './sim.ts';
 import { createRenderer } from './render.ts';
 import { createHud, loadBest, boardAdd } from './hud.ts';
 import { DOCTRINES, BUILD_SLOW, PERF } from './config.ts';
@@ -65,7 +65,9 @@ function playCode() {
 const reroll = () => { if (s.phase === 'start') s = newGame(undefined, '', s.doctrine); };
 const hud = createHud({
   buy: id => { if (buy(s, id)) hud.flash(id); },
-  perk: i => pickPerk(s, i),
+  skill: id => takeSkill(s, id),
+  undoSkills: () => undoSkills(s),
+  closeTree: () => closeTree(s),
   pad: act => { if (act === 'upgrade') upgradePad(s); else if (act === 'move') toggleRelocate(s); else if (act.startsWith('mod:')) buyMod(s, act.slice(4)); else sellPad(s); },
   look: (x, z) => view.lookAt(x, z),
   resume: () => { if (s.phase === 'pause') s.phase = 'play'; },
@@ -159,7 +161,8 @@ let speed = 1; // 2 = fast-forward: two sim steps per frame
 function key(code: string) {
   switch (code) {
     case 'Space': if (s.phase === 'start') start(); else emergencyIntercept(s); break;
-    case 'Enter': if (s.phase === 'over' && s.training) menu(); else start(); break;
+    case 'Enter': if (s.phase === 'over' && s.training) menu(); else if (s.phase === 'tree') closeTree(s); else start(); break;
+    case 'KeyK': if (s.phase === 'tree') closeTree(s); else openTree(s); break;
     case 'KeyG': cycleDiscipline(s); break;
     case 'KeyU': upgradePad(s); break;
     case 'KeyN': if (s.phase === 'start') reroll(); else skipBuild(s); break;
@@ -168,7 +171,7 @@ function key(code: string) {
     case 'KeyD': start('daily'); break;
     case 'KeyA': start('ground'); break; // start screen only (in play, A pans)
     case 'KeyH': start('horde'); break; // start screen only
-    case 'KeyP': case 'Escape': if (s.phase === 'play') s.phase = 'pause'; else if (s.phase === 'pause') s.phase = 'play'; break;
+    case 'KeyP': case 'Escape': if (s.phase === 'play') s.phase = 'pause'; else if (s.phase === 'pause') s.phase = 'play'; else if (s.phase === 'tree') closeTree(s); break;
     case 'KeyT': if (s.phase === 'start') start('training'); else cycleMode(s); break;
     case 'KeyF': toggleEmcon(s); break;
     case 'KeyV': cycleRadarMode(s); break;
@@ -181,11 +184,7 @@ function key(code: string) {
     case 'Tab': hud.toggleShop(); break;
     case 'UiMap': panel('map'); break;
     case 'UiInfo': panel('info'); break;
-    case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4': {
-      const i = +code.slice(5) - 1;
-      if (s.phase === 'start') doctrine(i); else pickPerk(s, i);
-      break;
-    }
+    case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4': if (s.phase === 'start') doctrine(+code.slice(5) - 1); break;
   }
 }
 const held = new Set<string>();
@@ -201,6 +200,7 @@ addEventListener('keydown', e => {
 const press = (e: MouseEvent) => { const k = (e.target as Element).closest<HTMLElement>('[data-k]')?.dataset.k; if (k) key(k); };
 document.getElementById('touch')!.onclick = press;
 document.getElementById('views')!.onclick = press;
+document.getElementById('top')!.onclick = press; // BATTERY LV opens the command tree
 document.getElementById('raidcard')!.onclick = press; // the level card's START NOW
 addEventListener('blur', () => { if (s.phase === 'play') s.phase = 'pause'; });
 
@@ -246,7 +246,7 @@ function frame(now: number) {
   if (s.sweepA < sweep0) sfx.play('ping'); // sweep completed a revolution
   for (const e of s.events) sfx.play(e.k, e as Parameters<typeof sfx.play>[1]);
   // Music: calm in the build window, driving with a raid on.
-  sfx.music(s.phase === 'play' || s.phase === 'pause' || s.phase === 'perk', building(s) ? 0 : s.raidLeft || s.raid ? 1 : 0.45);
+  sfx.music(s.phase === 'play' || s.phase === 'pause' || s.phase === 'tree', building(s) ? 0 : s.raidLeft || s.raid ? 1 : 0.45);
   view.inset(...hud.insets());
   view.render(s, dt, s.phase === 'play' ? simAcc * (building(s) ? BUILD_SLOW : 1) : 0);
   const t2 = clockMs();

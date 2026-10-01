@@ -117,6 +117,7 @@ export function play(k: string, e: { n?: number; star?: boolean; drop?: string; 
     case 'detect': tone(1760, 0.05, 'sine', 0.015); break;
     case 'lock': tone(880, 0.05, 'square', 0.03); tone(1320, 0.07, 'square', 0.03, 1320, 0.06); break;
     case 'buy': tone(660, 0.08, 'square', 0.03, 990); break;
+    case 'skill': tone(784, 0.07, 'triangle', 0.04, 1175); tone(1175, 0.1, 'triangle', 0.035, 1568, 0.06); break; // a node lit up on the command tree
     case 'upgrade': { // climbs a semitone with every level of the upgrade, so a run of buys sounds like progress
       const f = 520 * 2 ** (Math.min(e.n ?? 1, 24) / 12);
       tone(f, 0.07, 'square', 0.03, f * 1.5); tone(f * 1.5, 0.1, 'triangle', 0.025, f * 1.5, 0.05);
