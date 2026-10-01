@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# Build X5 Commander and deploy it as a new atomic release (the same layout as vanspace3d):
+# Build X5 Commander and deploy it as a new atomic release (atomic releases):
 #   $REMOTE_PATH/releases/<timestamp>/   <- this deploy: dist/, server/, package.json
 #   $REMOTE_PATH/current                 <- symlink, flipped at the end
 #   $REMOTE_PATH/shared/scores.db        <- the scoreboard, kept across releases (backups in shared/backups/)
 # The Node server (systemd user service x5-commander, see deploy/x5-commander.service) is restarted on the new
 # release and health-checked; if it doesn't come up, the symlink flips back and the old release is restarted.
-# Caddy proxies x5.vi0lins.de to it (deploy/Caddyfile, which also has the one-time server setup).
+# Caddy proxies your domain to it (deploy/Caddyfile, which also has the one-time server setup).
 #
 # Usage:
-#   X5_DEPLOY_HOST=mycaravam@vi0lins.de ./deploy/deploy.sh
-# Optional: X5_DEPLOY_PATH (/var/www/x5-commander) · X5_PORT (8095) · X5_KEEP_RELEASES (5) · X5_SKIP_TESTS=1
+#   X5_DEPLOY_HOST=user@your-server ./deploy/deploy.sh
+# Optional: X5_DOMAIN (the public domain, for the final message) · X5_DEPLOY_PATH (/var/www/x5-commander) · X5_PORT (8095) · X5_KEEP_RELEASES (5) · X5_SKIP_TESTS=1
 #
 # Requires: SSH key access to the host (no password prompt), rsync, and the one-time setup in deploy/Caddyfile.
 
 set -euo pipefail
 
-HOST="${X5_DEPLOY_HOST:?Set X5_DEPLOY_HOST, e.g. mycaravam@vi0lins.de}"
+HOST="${X5_DEPLOY_HOST:?Set X5_DEPLOY_HOST, e.g. user@your-server}"
 REMOTE_PATH="${X5_DEPLOY_PATH:-/var/www/x5-commander}"
 PORT="${X5_PORT:-8095}"
 KEEP_RELEASES="${X5_KEEP_RELEASES:-5}"
@@ -79,4 +79,4 @@ fi
 echo "Pruning old releases (keeping last $KEEP_RELEASES) ..."
 ssh "$HOST" "cd '$REMOTE_PATH/releases' && ls -1t | tail -n +$((KEEP_RELEASES + 1)) | grep -vx '$TIMESTAMP' | xargs -r rm -rf --"
 
-echo "Done. Live release: $TIMESTAMP · https://x5.vi0lins.de"
+echo "Done. Live release: $TIMESTAMP${X5_DOMAIN:+ · https://$X5_DOMAIN}"
