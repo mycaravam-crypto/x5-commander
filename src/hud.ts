@@ -374,25 +374,16 @@ export function createHud(actions: { buy(id: string): void; skill(id: string): v
     const D = 0.35; // s per boot line
     if (s.phase === 'start') html = `<div class="card"><h1 class="logo"><b>X5</b> COMMANDER</h1><p class="byline">by CDS</p>
       <div class="boot">${BOOT.map((l, i) => `<p style="--n:${l.length + 2};--d:${i * D}s">&gt; ${l}</p>`).join('')}</div>
-      <div class="later" style="--d:${BOOT.length * D}s"><p class="dim">SCAN · DETECT · LOCK · ENGAGE · EXPAND</p><br>
-      <p>You start with <b>two machine guns</b> and your eyes. Guns fire by themselves at whatever they can see, and hit harder where their fields of fire cross.</p>
-      <p><b class="hot">Build more guns</b> from the PERIMETER shop on the right, then <b>click open ground</b> to place them. Cover the <span class="alert">front</span> first.</p>
-      <p>Every few purchases the battery levels up: a bigger build zone, new units and <b class="hot">points for the command tree</b> [K]: offense, defense and systems, with big keystones to reach.</p>
-      <p>From battery level 3, build the <b>radar</b> to see further and lock targets, then the <b>Patriot</b>. The radar outranges every weapon; the <b>laser</b> and <b>HPM</b> guard the last few metres.</p>
-      <p>Anti-radiation missiles <span class="alert">home on your radar</span>. <b>[F] EMCON</b> goes silent so they miss, but you lose every lock. A Su-35S's Kh-58 remembers where it heard you: kill the launcher.</p>
-      <p class="dim">LATER · Orlan-10 spotters · Ka-52s in the trees · Su-25 rocket runs · Kh-55 decoys · Kinzhal</p>
+      <div class="later" style="--d:${BOOT.length * D}s"><p class="dim">SCAN · DETECT · LOCK · ENGAGE · EXPAND</p>
+      <p>Two machine guns and your eyes. <b class="hot">Build more guns</b> from the shop, get the <b>radar</b> at battery level 3, then the <b>Patriot</b>.</p>
       <p class="dim mapline"></p>
-      ${best.time ? `<p class="dim">BEST · ${clock(best.time)} · ${fmt(best.kills)} kills · base lv ${best.level}</p>` : ''}
-      <p class="dim">DOCTRINE · starting loadout, unlocked by your records</p><div class="perks docs">${docsHtml(s, best)}</div>
-      ${trained() ? '' : '<p class="hot">NEW HERE? A 3-MINUTE DRILL: EYES, RADAR, ARMS, DECOYS</p><button class="btn hotbtn" data-a="training">TRAINING [T]</button><br>'}
-      <button class="btn" data-a="start">DEPLOY [SPACE]</button> <button class="btn" data-a="daily">DAILY OP [D]</button> <button class="btn" data-a="ground">GROUND ASSAULT [A]</button> <button class="btn" data-a="horde">HORDE TEST [H]</button>${trained() ? ' <button class="btn" data-a="training">TRAINING [T]</button>' : ''}
-      <p class="dim">Ground assault: hold the line. Robots on foot, modelled on real prototypes, march down from the north; no radar, no Patriot: only your line can stop them. Wire, Claymores, grenade launchers, a 30mm, Javelins, mortars, rockets, a laser and a microwave array, each upgraded in its pit and fitted with ammunition, sensors and kit. Every fifth level a thousand-strong tide. ${(b => b.time ? `Best · ${clock(b.time)} · ${fmt(b.kills)} kills` : 'Not fought yet.')(loadBest(true))}</p>
-      <p class="dim">Horde test: skip ahead to THE TIDE with base level ${HORDE_TEST.level} and ${fmt(HORDE_TEST.credits)} credits to build a line. No records.</p>
-      <p><button class="link" data-a="resetTips">RESET TIPS</button></p>
-      <p class="dim">Daily op: same raid for everyone today. ${(d => d.time ? `Your best today · ${clock(d.time)} · ${fmt(d.kills)} kills` : 'Not flown yet today.')(loadDaily(new Date().toISOString().slice(0, 10)))}</p>
+      ${(g => (r => r ? `<p class="dim">${r}</p>` : '')([best.time && `BEST ${clock(best.time)} · ${fmt(best.kills)} kills · lv ${best.level}`, g.time && `GROUND ${clock(g.time)}`, (d => d.time && `TODAY ${clock(d.time)}`)(loadDaily(new Date().toISOString().slice(0, 10)))].filter(Boolean).join(' · ')))(loadBest(true))}
+      <div class="perks docs">${docsHtml(s, best)}</div>
+      ${trained() ? '' : '<button class="btn hotbtn" data-a="training" title="A 3-minute drill: eyes, radar, ARMs, decoys">NEW HERE? TRAINING [T]</button><br>'}
+      <button class="btn" data-a="start">DEPLOY [SPACE]</button> <button class="btn" data-a="daily" title="Same raid for everyone today">DAILY OP [D]</button> <button class="btn" data-a="ground" title="Hold the line against robots on foot: no radar, no Patriot">GROUND ASSAULT [A]</button> <button class="btn" data-a="horde" title="Skip ahead to THE TIDE with base level ${HORDE_TEST.level} and ${fmt(HORDE_TEST.credits)} credits. No records.">HORDE TEST [H]</button>${trained() ? ' <button class="btn" data-a="training">TRAINING [T]</button>' : ''}
       <div class="boardslot"></div>
       <div class="lbslot"></div>
-      <p><button class="link" data-a="code">PLAY A SEED [S]</button> <span class="dim">· a friend's seed code or result line: same map, same raids</span></p></div></div>`;
+      <p><button class="link" data-a="code" title="A friend's seed code or result line: same map, same raids">PLAY A SEED [S]</button></p></div></div>`;
     else if (s.phase === 'pause') html = `<div class="card menu"><h2>PAUSED</h2>
       <button class="btn" data-a="resume">RESUME [P]</button> <button class="btn" data-a="menu">QUIT TO MENU</button>
       ${settingsHtml()}
